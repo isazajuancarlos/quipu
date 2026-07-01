@@ -134,16 +134,22 @@ X-Wing, y **pre-auditoría** propia (ver `INFORME_PREAUDITORIA.txt` y
 > criptográfica **independiente**: no usar para proteger datos críticos reales
 > hasta ese sello externo.
 
-## Documentación y auditoría
+## Documentación
 
-- [`INFORME_PREAUDITORIA.txt`](INFORME_PREAUDITORIA.txt) — pre-auditoría interna
-  (cargo-audit, Wycheproof, Miri, fuzzing, análisis de composición).
-- [`MODELO_DE_AMENAZA.txt`](MODELO_DE_AMENAZA.txt) — modelo de amenaza (activos,
-  adversarios, supuestos, garantías por modo, riesgos residuales).
+- [`docs/SPEC.md`](docs/SPEC.md) — **especificación técnica** (formato del
+  contenedor, KDF, modo híbrido, VOPRF/DLEQ, separación de dominios).
+- [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — modelo de amenaza (EN)
+  · original [`MODELO_DE_AMENAZA.txt`](MODELO_DE_AMENAZA.txt) (ES).
+- [`docs/PRE_AUDIT.md`](docs/PRE_AUDIT.md) — pre-auditoría interna (EN)
+  · original [`INFORME_PREAUDITORIA.txt`](INFORME_PREAUDITORIA.txt) (ES).
+- [`SECURITY.md`](SECURITY.md) — política de seguridad y reporte de fallos.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — cómo contribuir · [`CHANGELOG.md`](CHANGELOG.md).
 - [`LICENSING.md`](LICENSING.md) — modelo de licenciamiento dual.
+- [`docs/announcement.md`](docs/announcement.md) — artículo de diseño (EN/ES).
 
-> La pre-auditoría interna es preparación, **no** sustituye una auditoría
-> independiente. Ese sello externo es el siguiente paso del proyecto.
+> ⚠️ La pre-auditoría interna es preparación, **no** sustituye una auditoría
+> independiente. Ese sello externo es el siguiente paso del proyecto (solicitud
+> enviada al OTF Security Lab).
 
 ## Licencia
 
