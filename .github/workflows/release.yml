@@ -64,8 +64,9 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Publish
-        uses: PyO3/maturin-action@v1
+      # Acción oficial de PyPA: soporta trusted publishing (OIDC) de forma nativa,
+      # sin necesidad de token. Sube todo lo que haya en dist/ (ruedas + sdist).
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          command: upload
-          args: --non-interactive --skip-existing dist/*
+          skip-existing: true
