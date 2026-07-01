@@ -1,0 +1,231 @@
+================================================================================
+ QUIPU — TAREAS PENDIENTES (explicadas)
+ Fecha: 2026-06-30
+ Estado de la librería: v1 + v1.1 + v2 + ECC COMPLETOS.
+   72 tests Rust + 5 Python verdes, clippy limpio, fuzzing limpio.
+ ACTUALIZACIÓN (2026-06-30, sesión posterior):
+   - PENDIENTE 2 (servidor OPRF)  -> HECHO. Servidor + cliente + integración +
+     binario desplegable, probado por TCP real. Ver estado abajo.
+   - PENDIENTE 1 (glifos IA)      -> MAYORMENTE HECHO. Font nativo en Rust
+     (render/recognize round-trip) + explorador generativo (latente->glifo, CPU).
+     Solo falta un modelo generativo ENTRENADO (necesita GPU).
+================================================================================
+
+
+################################################################################
+ PENDIENTE 1 — GENERACIÓN DE GLIFOS POR IA (alfabeto propio optimizado)
+################################################################################
+
+--------------------------------------------------------------------------------
+ ¿QUÉ ES?
+--------------------------------------------------------------------------------
+La "oruga" en su forma máxima: un alfabeto de símbolos PROPIO, generado por una
+IA, donde cada glifo está diseñado para ser lo MÁS DISTINGUIBLE posible de los
+demás. Cuanto mayor es la distancia mínima entre dos glifos, menos se confunden
+bajo ruido (foto, escaneo, compresión) y más robusto es el alfabeto.
+
+Hoy la librería usa:
+  - ascii94()  -> 94 símbolos ASCII (6.5 bits/símbolo)
+  - flagship() -> 4096 glifos CJK existentes (12 bits/símbolo)
+Estos funcionan, pero NO están optimizados para distinguibilidad: son glifos
+"prestados". El objetivo de esta tarea es FABRICAR un alfabeto a medida.
+
+--------------------------------------------------------------------------------
+ ¿QUÉ YA ESTÁ HECHO? (la parte algorítmica, dentro de la librería)
+--------------------------------------------------------------------------------
+El módulo `glyphopt` ya implementa el NÚCLEO MATEMÁTICO:
+  - hamming(a, b)                  -> distancia entre dos huellas de glifo
+  - min_pairwise_distance(fps)     -> métrica de separabilidad de un alfabeto
+  - select_separable_subset(fps,k) -> elige los k glifos MÁS separables
+                                       (farthest-point sampling / max-min)
+Es decir: si alguien nos da N glifos candidatos (como bitmaps), YA sabemos
+elegir el mejor subconjunto. Lo que falta es PRODUCIR esos candidatos.
+
+--------------------------------------------------------------------------------
+ ¿QUÉ FALTA? (la parte externa)
+--------------------------------------------------------------------------------
+1. GENERAR los glifos candidatos con un modelo generativo:
+     - Un modelo de difusión o GAN entrenado para producir formas/glifos
+       coherentes (estilo tipográfico consistente, trazo limpio, legibles a
+       baja resolución).
+     - Alternativa más simple sin entrenar nada: componer glifos por reglas
+       (combinar rasgos: trazos, curvas, puntos, orientaciones) -> miles de
+       formas sintéticas. Esto NO necesita IA pesada y es un buen primer paso.
+
+2. RASTERIZAR cada glifo candidato a un bitmap pequeño (p. ej. 16x16) y
+   convertirlo en una "huella" de bytes (el input de glyphopt).
+
+3. SELECCIONAR el alfabeto final con glyphopt::select_separable_subset.
+
+4. EMPAQUETAR el resultado como:
+     - una FUENTE (.ttf/.otf) o un atlas de imágenes con los glifos elegidos,
+     - un Dictionary de Quipu que mapee índice -> glifo,
+     - su renderizador (capa C) para pintar los símbolos.
+
+--------------------------------------------------------------------------------
+ DEPENDENCIAS / RECURSOS NECESARIOS
+--------------------------------------------------------------------------------
+  - Stack de ML en Python (en el venv del proyecto):
+        pip install torch torchvision   (o el framework que prefieras)
+        pip install pillow numpy fonttools
+    fonttools -> para construir la fuente final (.ttf).
+    pillow    -> rasterizar glifos a bitmaps.
+  - (Opcional, vía IA pesada) un modelo de difusión de glifos o entrenar uno
+    pequeño con un dataset de fuentes.
+  - Espacio en disco y, si se entrena, GPU recomendada.
+
+--------------------------------------------------------------------------------
+ PASOS CONCRETOS SUGERIDOS
+--------------------------------------------------------------------------------
+  A. (Sin IA, primer paso) Generador por reglas en Python: combinar rasgos
+     geométricos -> ~5000 glifos candidatos -> rasterizar a 16x16.
+  B. Exportar las huellas (bytes) a un archivo.
+  C. Llamar a glyphopt (Rust) o reimplementar la selección en Python para
+     elegir, p. ej., 4096 glifos con máxima distancia mínima.
+  D. Con fonttools, construir una fuente .ttf con esos 4096 glifos.
+  E. Crear dictionaries::ai_glyphs() en Quipu apuntando a esos codepoints, y un
+     renderizador que use la fuente.
+  F. (Opcional, fase IA) Sustituir el generador por reglas (A) por un modelo
+     generativo para glifos más "orgánicos".
+
+--------------------------------------------------------------------------------
+ PUNTO DE INTEGRACIÓN EN LA LIBRERÍA
+--------------------------------------------------------------------------------
+  - Nuevo: dictionaries::ai_glyphs() -> Dictionary (ya hay from_range/ascii94).
+  - Nuevo: módulo renderer (capa C) para pintar glifos a imagen usando la fuente.
+  - glyphopt YA está y no necesita cambios.
+
+--------------------------------------------------------------------------------
+ ESFUERZO ESTIMADO
+--------------------------------------------------------------------------------
+  - Camino "sin IA" (reglas geométricas): medio. Días.
+  - Camino "con IA" (modelo generativo entrenado): alto. Semanas + GPU.
+  RECOMENDACIÓN: empezar por el camino sin IA (A-E); da un alfabeto propio
+  optimizado real. La IA generativa es un refinamiento posterior.
+
+--------------------------------------------------------------------------------
+ IMPORTANTE
+--------------------------------------------------------------------------------
+  Esto es CAPA DE REPRESENTACIÓN: mejora densidad/robustez/estética. NO añade
+  seguridad criptográfica (la seguridad sigue en el AEAD + la clave).
+
+
+################################################################################
+ PENDIENTE 2 — SERVIDOR OPRF DE RED (antibot/rate-limit real, en producción)
+################################################################################
+
+--------------------------------------------------------------------------------
+ ¿QUÉ ES?
+--------------------------------------------------------------------------------
+El modo "online endurecido": convertir el fuerza-bruta OFFLINE (intentos
+ilimitados contra un archivo robado) en ONLINE (intentos limitados por un
+servidor). Es la ÚNICA forma de tener un antibot/rate-limit REAL, porque hace
+falta un guardián en línea que el atacante no controla.
+
+Funcionamiento:
+  - El cliente "ciega" su passphrase y la envía al servidor (que NUNCA la ve).
+  - El servidor evalúa con su clave secreta y LIMITA el nº de consultas
+    (rate-limit, CAPTCHA, detección de anomalías).
+  - El cliente "desciega" y obtiene un valor endurecido que alimenta al KDF.
+  Resultado: adivinar la passphrase requiere consultar al servidor, que frena
+  los intentos automatizados.
+
+--------------------------------------------------------------------------------
+ ¿QUÉ YA ESTÁ HECHO? (la criptografía, dentro de la librería)
+--------------------------------------------------------------------------------
+El módulo `oprf` ya implementa el PROTOCOLO COMPLETO (OPRF sobre ristretto255):
+  - oprf::blind(password)        -> (estado, punto_cegado)   [lado cliente]
+  - oprf::Server::new(max)       -> servidor con clave + presupuesto
+  - oprf::Server::evaluate(pt)   -> evalúa y DESCUENTA del rate-limit
+  - oprf::finalize(pw, st, ev)   -> output endurecido          [lado cliente]
+Está probado: output determinista, el servidor no ve la passphrase (cegado),
+y el rate-limit rechaza al agotarse el presupuesto.
+
+EN RESUMEN: la matemática y el rate-limit YA funcionan. Lo que falta es la RED.
+
+--------------------------------------------------------------------------------
+ ¿QUÉ FALTA? (el transporte de red)
+--------------------------------------------------------------------------------
+1. Un BINARIO SERVIDOR que:
+     - exponga oprf::Server::evaluate por la red (HTTP o gRPC),
+     - persista la clave secreta del servidor de forma segura,
+     - aplique rate-limit POR IDENTIDAD/IP (no solo un contador global),
+     - opcionalmente exija un CAPTCHA / prueba-de-trabajo antes de evaluar,
+     - registre intentos y detecte anomalías.
+2. Un CLIENTE en la librería que:
+     - haga blind(), llame al servidor por red, reciba la evaluación,
+     - haga finalize(), y use el output como pepper/entrada extra del KDF.
+3. INTEGRACIÓN con el api: p. ej. encode_online()/decode_online() que hagan el
+   ida-y-vuelta con el servidor antes de derivar la clave.
+4. SEGURIDAD DEL CANAL: TLS entre cliente y servidor; autenticar el servidor.
+
+--------------------------------------------------------------------------------
+ DEPENDENCIAS / RECURSOS NECESARIOS
+--------------------------------------------------------------------------------
+  - Crates de red en Rust (elegir uno):
+        axum + tokio        (HTTP, sencillo)   ó
+        tonic               (gRPC, tipado)
+  - reqwest (cliente HTTP) o el cliente de tonic.
+  - Un almacén para el rate-limit (en memoria para empezar; Redis si se escala).
+  - Infraestructura: un host/servidor donde desplegarlo + certificado TLS.
+  - Decisión de identidad: ¿se limita por IP, por cuenta, por token?
+
+--------------------------------------------------------------------------------
+ PASOS CONCRETOS SUGERIDOS
+--------------------------------------------------------------------------------
+  A. Definir el protocolo: 1 endpoint POST /oprf/evaluate que recibe el punto
+     cegado (32 bytes) y devuelve la evaluación (32 bytes).
+  B. Binario servidor (axum): carga la clave del servidor, mantiene un mapa
+     identidad -> consultas_restantes con ventana temporal, y llama
+     oprf::Server::evaluate.
+  C. Añadir rate-limit por IP/token + (opcional) CAPTCHA/PoW antes de evaluar.
+  D. Cliente en la librería: módulo oprf_client con evaluate_remote(url, blinded).
+  E. api: encode_online()/decode_online() que tejan blind -> servidor ->
+     finalize -> usar como entrada del KDF.
+  F. TLS + autenticación del servidor (que el cliente verifique con quién habla).
+  G. Tests de integración: levantar el servidor en un test y hacer el ciclo.
+
+--------------------------------------------------------------------------------
+ PUNTO DE INTEGRACIÓN EN LA LIBRERÍA
+--------------------------------------------------------------------------------
+  - Nuevo crate/binario: quipu-oprf-server (separado de la librería).
+  - Nuevo módulo: oprf_client (cliente de red).
+  - Nuevo en api: encode_online/decode_online (o un parámetro "online" en Options).
+  - oprf (la primitiva) YA está y no necesita cambios.
+
+--------------------------------------------------------------------------------
+ ESFUERZO ESTIMADO
+--------------------------------------------------------------------------------
+  - Servidor HTTP básico + cliente + integración: medio. Días.
+  - Endurecimiento (rate-limit por identidad, CAPTCHA, TLS, despliegue): alto.
+  RECOMENDACIÓN: primero un servidor HTTP simple en local con rate-limit por IP
+  (demostrable en un test de integración). El despliegue real y el CAPTCHA son
+  una fase posterior.
+
+--------------------------------------------------------------------------------
+ IMPORTANTE
+--------------------------------------------------------------------------------
+  Este modo NO reemplaza al AEAD: lo COMPLEMENTA. Su valor es convertir el
+  fuerza-bruta offline en online (limitado). Sin servidor, la librería sigue
+  protegiendo con Argon2id (antibot offline por coste). Con servidor, además,
+  se frena el nº de intentos.
+
+
+################################################################################
+ RESUMEN (estado tras la sesión posterior)
+################################################################################
+  PEND 1 (glifos IA):  HECHO en su mayor parte.
+     - glyphopt (selección por separabilidad)          -> HECHO (Rust)
+     - font nativo + render/recognize round-trip        -> HECHO (src/glyphfont.rs)
+     - generador geométrico + generativo (latente->glifo)-> HECHO (scripts/)
+     - modelo generativo ENTRENADO (VAE/difusión)        -> PENDIENTE (necesita GPU)
+  PEND 2 (OPRF red):   HECHO.
+     - oprf (cripto) + oprf_net (protocolo TCP)          -> HECHO
+     - api::encode_online/decode_online                  -> HECHO
+     - binario servidor (rate-limit por IP + persistencia)-> HECHO (examples/oprf_server.rs)
+     - despliegue en VPS con TLS + systemd               -> operacional (tú)
+
+  Único pendiente de código: entrenar el modelo generativo (requiere GPU).
+  Todo lo demás está implementado y probado. Ninguna capa cambia el modelo de
+  seguridad: la protección vive en el AEAD + la clave.
+================================================================================

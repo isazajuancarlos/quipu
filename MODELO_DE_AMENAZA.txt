@@ -1,0 +1,162 @@
+================================================================================
+ QUIPU — MODELO DE AMENAZA
+ Version: 1.0   Fecha: 2026-07-01
+ Estado: documento vivo. Debe revisarse ante cada cambio de diseño y es
+         insumo de entrada para la auditoría criptográfica independiente.
+================================================================================
+
+--------------------------------------------------------------------------------
+ 0. PROPÓSITO
+--------------------------------------------------------------------------------
+Definir QUÉ protege Quipu, DE QUIÉN, y BAJO QUÉ SUPUESTOS. Sin este marco, la
+frase "esto es seguro" no tiene significado verificable. Este documento acota
+las garantías reales de cada modo y explicita lo que queda FUERA de alcance.
+
+Principio rector (Kerckhoffs): la seguridad reside en las CLAVES y en los
+primitivos criptográficos vetados, NUNCA en el secreto de la representación
+(codebook, simbología, glifos, formato). Toda la simbología es pública y
+versionada. Si algo depende de ocultar el formato, es un defecto de diseño.
+
+--------------------------------------------------------------------------------
+ 1. ACTIVOS A PROTEGER
+--------------------------------------------------------------------------------
+ A1. Confidencialidad del plaintext (el dato codificado).
+ A2. Integridad/autenticidad del contenedor (detección de manipulación).
+ A3. La passphrase del usuario y las claves derivadas de ella.
+ A4. Las claves secretas asimétricas del destinatario (modo PQ híbrido).
+ A5. La clave del servidor OPRF (modo online). Su pérdida hace IRRECUPERABLES
+     todos los secretos endurecidos con ella; su robo permite ataques de
+     diccionario offline sobre esos secretos.
+ A6. El pepper (secreto fuera del dato).
+
+--------------------------------------------------------------------------------
+ 2. ADVERSARIOS Y CAPACIDADES
+--------------------------------------------------------------------------------
+ T1. Observador del dato en reposo/tránsito: tiene el contenedor cifrado
+     completo (bytes, imagen PNG o glifos) y el codebook público. NO tiene la
+     passphrase, el pepper ni las claves secretas.
+       -> Objetivo: leer el plaintext o distinguirlo de aleatorio.
+ T2. Manipulador activo: puede alterar, truncar o forjar contenedores y
+     entregarlos a la víctima para que los descifre.
+       -> Objetivo: causar aceptación de datos falsos, pánico/DoS, o filtración.
+ T3. Atacante offline con poder de cómputo: intenta fuerza bruta/diccionario
+     sobre la passphrase teniendo el contenedor.
+ T4. Servidor OPRF deshonesto o comprometido (modo online): responde con la
+     clave equivocada o intenta desviar la derivación.
+ T5. Adversario "harvest now, decrypt later" con computador cuántico futuro:
+     almacena hoy el tráfico asimétrico para descifrarlo cuando pueda romper
+     la parte clásica (X25519).
+ T6. Atacante con acceso a la memoria del proceso DESPUÉS de una operación
+     (volcado, swap, cold-boot parcial): busca claves residuales.
+
+FUERA del modelo de adversario (ver §5): atacante con acceso a la memoria
+DURANTE la operación, canal lateral físico local, o control del binario/SO.
+
+--------------------------------------------------------------------------------
+ 3. SUPUESTOS DE CONFIANZA
+--------------------------------------------------------------------------------
+ S1. Los primitivos vetados son seguros: XChaCha20-Poly1305, Argon2id,
+     HKDF-SHA256, X25519, ML-KEM-768 (FIPS-203), ristretto255.
+ S2. El RNG del sistema (getrandom/OsRng) es criptográficamente seguro.
+ S3. La passphrase tiene entropía suficiente Y/O se usa un coste Argon2id alto;
+     una passphrase débil es rompible por T3 pese a todo (ver R1).
+ S4. El pepper y las claves secretas se almacenan fuera del alcance de T1/T2.
+ S5. En modo online, el cliente FIJA (pin) la clave pública correcta del
+     servidor OPRF por un canal de confianza previo.
+ S6. El canal de red del OPRF va sobre TLS en producción (el protocolo propio
+     no aporta confidencialidad de transporte por sí mismo).
+ S7. La máquina que ejecuta Quipu no está comprometida durante la operación.
+
+--------------------------------------------------------------------------------
+ 4. GARANTÍAS DE SEGURIDAD POR MODO
+--------------------------------------------------------------------------------
+ MODO SIMÉTRICO (passphrase):
+   - Confidencialidad e integridad del plaintext (AEAD) frente a T1 y T2, bajo
+     S1-S3. La cabecera se autentica como AAD: cualquier bit alterado ->
+     descifrado RECHAZADO.
+   - Resistencia a fuerza bruta proporcional al coste Argon2id + entropía de la
+     passphrase (frente a T3). El pepper añade un secreto que T3 no posee.
+   - Parámetros KDF de una cabecera manipulada se VALIDAN (is_sane) antes de
+     derivar -> sin pánico/DoS (cierra el hallazgo del hackerbot, F3).
+
+ MODO ASIMÉTRICO PQ HÍBRIDO (cifrar a una clave pública):
+   - Confidencialidad frente a T1 y frente a T5: la clave de contenido combina
+     un secreto X25519 y uno ML-KEM-768 vía HKDF; romperla exige romper AMBOS.
+   - El transcript liga la clave pública COMPLETA del destinatario (X25519 pub
+     + ML-KEM ek) y la encapsulación (estilo X-Wing) -> resistente a ataques de
+     re-encapsulación / sustitución de clave pública (cierra F2).
+   - ML-KEM usa rechazo implícito: una clave secreta equivocada NO falla, pero
+     produce una clave de contenido distinta (el AEAD posterior lo detecta).
+
+ MODO ONLINE (endurecimiento con OPRF de servidor):
+   - El servidor participa en derivar la clave sin ver la passphrase ni el
+     resultado (cegado ristretto255). Convierte un ataque de diccionario
+     offline en uno ONLINE, sujeto a rate-limit del servidor.
+   - VERIFICABILIDAD (VOPRF + prueba DLEQ): el cliente comprueba que el
+     servidor usó la clave fijada; un servidor deshonesto (T4) se DETECTA y la
+     operación se aborta (cierra F1).
+
+ CANAL VISUAL (glifos / PNG) y ECC:
+   - Es SÓLO representación: no aporta ni resta seguridad. El PNG/glifo
+     transporta exactamente el contenedor cifrado. Reed-Solomon corrige
+     errores de canal, no es una defensa criptográfica. El parseo trata la
+     entrada como NO confiable (fuzzing + guardas anti-DoS).
+
+--------------------------------------------------------------------------------
+ 5. NO-OBJETIVOS (fuera de alcance)
+--------------------------------------------------------------------------------
+ N1. Ocultar la EXISTENCIA o el TAMAÑO exacto del mensaje. Se mitiga el tamaño
+     con padding Padmé (length-hiding aproximado), no esteganografía plena.
+ N2. Proteger contra un adversario que controla la máquina DURANTE la operación
+     (malware con acceso a RAM viva, keylogger, binario troyanizado).
+ N3. Canales laterales físicos locales (timing fino, potencia, EM). Se usa
+     comparación en tiempo constante donde aplica, pero no es el objetivo.
+ N4. Passphrases de baja entropía sin coste KDF alto (ver R1).
+ N5. Disponibilidad del modo online si el servidor OPRF cae (ver R2).
+ N6. Secreto de la representación/codebook (por diseño es público).
+ N7. Gestión/rotación de claves y su almacenamiento seguro (responsabilidad
+     del operador; Quipu provee las primitivas, no el custodio).
+
+--------------------------------------------------------------------------------
+ 6. SUPERFICIE DE ATAQUE (para el auditor)
+--------------------------------------------------------------------------------
+ - Parseo del contenedor (container::parse) y de imagen/PNG/glifos: entrada no
+   confiable. Cubierto por fuzzing (parse_container, unpad, codec_roundtrip).
+ - Combinador KEM híbrido y construcción del modo asimétrico.
+ - VOPRF: prueba DLEQ, protocolo de red (replay, rate-limit, denegación).
+ - Separación de dominios: cada derivación usa una etiqueta única
+   (quipu/v1/cipher, quipu/v2/hybrid-kem, quipu/v2/voprf[-dleq|-server-key],
+   quipu/v2/oprf[-server-key]). Verificado.
+ - Gestión de claves en memoria: zeroization de material intermedio
+   (passphrase normalizada, ss combinados, subclaves, plaintext con padding).
+
+--------------------------------------------------------------------------------
+ 7. RIESGOS RESIDUALES
+--------------------------------------------------------------------------------
+ R1. Passphrase débil: ninguna KDF salva una contraseña adivinable. Mitigar con
+     coste Argon2id alto + pepper + (opcional) modo online con rate-limit.
+ R2. El servidor OPRF es un punto único: su caída bloquea el descifrado online;
+     la pérdida de su clave hace irrecuperables los secretos. Backup offline +
+     rotación planificada + alta disponibilidad.
+ R3. Zeroization en Rust es best-effort: copias movidas por el optimizador o
+     spilled a swap pueden persistir. Se usa `zeroize` en los buffers clave,
+     pero no hay garantía absoluta frente a T6.
+ R4. Confianza en crates de terceros para los primitivos (S1). Mitigado con
+     cargo-audit en CI, pero un 0-day en una dependencia sigue siendo posible.
+ R5. El modelo no cubre un endpoint comprometido (N2): si la máquina del
+     usuario está tomada, la passphrase y el plaintext se filtran en claro.
+
+--------------------------------------------------------------------------------
+ 8. TRAZABILIDAD A MITIGACIONES (resumen)
+--------------------------------------------------------------------------------
+   T1 -> AEAD (XChaCha20-Poly1305), representación pública sin valor secreto.
+   T2 -> cabecera como AAD; validación is_sane de params KDF; guardas de parseo.
+   T3 -> Argon2id (memory-hard) + pepper; modo online con rate-limit.
+   T4 -> VOPRF con prueba DLEQ verificada contra clave pública fijada (F1).
+   T5 -> KEM híbrido X25519 + ML-KEM-768 (F2, transcript con ek ligada).
+   T6 -> zeroization best-effort del material sensible (parcial; ver R3).
+
+================================================================================
+ Referencias de construcción: RFC 9497 (OPRF/VOPRF), X-Wing (KEM híbrido),
+ FIPS-203 (ML-KEM), RFC 8439 (ChaCha20-Poly1305), RFC 9106 (Argon2).
+================================================================================

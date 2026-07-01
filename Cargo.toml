@@ -1,0 +1,49 @@
+[package]
+name = "quipu"
+version = "0.1.0"
+edition = "2024"
+description = "Codec criptográfico post-cuántico híbrido con endurecimiento online verificable (VOPRF) y canal visual de glifos."
+license = "AGPL-3.0-or-later"
+keywords = ["cryptography", "post-quantum", "encoding", "oprf", "aead"]
+categories = ["cryptography"]
+readme = "README.md"
+repository = "https://github.com/isazajuancarlos/quipu"
+homepage = "https://github.com/isazajuancarlos/quipu"
+documentation = "https://docs.rs/quipu"
+# No publicar en el crate los borradores internos de planificación/financiación.
+exclude = [
+    "GRANT_NLNET.md",
+    "OTF_RED_TEAM_LAB.md",
+    "PENDIENTES.txt",
+    "QUIPU_PROYECTO_Y_REQUISITOS.txt",
+    "conversaciones/",
+]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+python = ["dep:pyo3"]
+
+[dependencies]
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
+num-bigint = "0.4"
+num-traits = "0.2"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+hkdf = "0.12"
+sha2 = "0.10"
+unicode-normalization = "0.1"
+getrandom = "0.2"
+zeroize = "1"
+subtle = "2"
+ml-kem = "0.2"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+curve25519-dalek = { version = "4", features = ["digest"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+reed-solomon = "0.2"
+
+[dev-dependencies]
+proptest = "1"
+wycheproof = "0.6"
