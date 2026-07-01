@@ -1,0 +1,49 @@
+# Changelog
+
+All notable changes to this project are documented here. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims to
+follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Planned
+- Independent security audit and public remediation of findings.
+- Written specification with machine-readable interoperability test vectors.
+- Multi-language bindings over the C ABI (C / Node.js / Go).
+- Reference deployment of the online VOPRF hardening server.
+
+## [0.1.0] — 2026-07-01
+
+First public release. Published to crates.io (`quipu`) and PyPI
+(`quipu-crypto`).
+
+### Added
+- **Symmetric mode** (passphrase): Argon2id + HKDF-SHA256 key derivation with
+  NFKC normalization and optional pepper; XChaCha20-Poly1305 AEAD; 68-byte
+  authenticated container header bound as AAD.
+- **Hybrid post-quantum mode** (asymmetric): X25519 + ML-KEM-768 (FIPS-203)
+  combined via HKDF with X-Wing-style transcript binding (recipient's full public
+  key + encapsulation).
+- **Verifiable online hardening mode**: VOPRF over ristretto255 with
+  non-interactive DLEQ proofs (RFC 9497 style); the client cryptographically
+  detects a dishonest hardening server. Includes a dependency-free TCP server.
+- **Visual channels**: lossless PNG output, a native glyph alphabet, and a robust
+  print channel with Reed-Solomon error correction.
+- **Length hiding** via Padmé padding.
+- **Defensive layers**: key zeroization (`zeroize`), constant-time comparison
+  (`subtle`), KDF-parameter validation against malicious headers.
+- **Internal tooling**: a red-team component ("hackerbot") and a test platform.
+- **Bindings**: Python via PyO3 (abi3, CPython 3.9+); Rust `rlib` + C-ABI
+  `cdylib`.
+- **Docs**: internal pre-audit, threat model, licensing (dual AGPL + commercial),
+  runnable Rust and Python quickstart examples.
+
+### Security
+- All cryptographic primitives are vetted third-party crates; zero `unsafe` in
+  first-party code.
+- Verified against Google Wycheproof AEAD vectors; Miri (no UB) and `cargo-fuzz`
+  (no crashes) on the pure-logic and parsing modules; `cargo-audit` in CI.
+- **Not yet independently audited** — see [`SECURITY.md`](SECURITY.md).
+
+[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/isazajuancarlos/quipu/releases/tag/v0.1.0
