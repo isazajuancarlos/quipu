@@ -1,0 +1,36 @@
+# --- Build artifacts ---
+/target
+fuzz/target
+fuzz/corpus
+fuzz/artifacts
+fuzz/Cargo.lock
+
+# --- Python ---
+/venv
+__pycache__/
+*.pyc
+*.so
+
+# --- SECRETOS: nunca subir claves del servidor OPRF ni semillas ---
+*.bin
+oprf_seed*
+*.key
+*.pem
+
+# --- Local del agente / privado ---
+/.claude
+/.remember
+/conversaciones
+
+# --- Borradores de financiación (estrategia/datos personales, NO públicos) ---
+GRANT_NLNET.md
+OTF_RED_TEAM_LAB.md
+
+# --- Artefactos generados por ejemplos ---
+quickstart_glifos.png
+dist/
+
+# --- SO ---
+.DS_Store
+
+# NOTA: Cargo.lock SÍ se versiona (builds reproducibles, higiene de supply-chain).

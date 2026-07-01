@@ -1,0 +1,35 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+# En PyPI el nombre "quipu" ya está tomado por un paquete no relacionado, así que
+# la DISTRIBUCIÓN se llama "quipu-crypto". El módulo de IMPORT sigue siendo `quipu`
+# (ver [tool.maturin] module-name), por lo que en Python se usa `import quipu`.
+name = "quipu-crypto"
+version = "0.1.0"  # mantener sincronizado con Cargo.toml
+description = "Codec criptográfico post-cuántico híbrido con endurecimiento online verificable (VOPRF) y canal visual de glifos."
+readme = "README.md"
+license = { text = "AGPL-3.0-or-later" }
+requires-python = ">=3.9"
+keywords = ["cryptography", "post-quantum", "encoding", "oprf", "aead"]
+authors = [{ name = "isazajuancarlos", email = "isazajuancarlos@gmail.com" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security :: Cryptography",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/isazajuancarlos/quipu"
+Repository = "https://github.com/isazajuancarlos/quipu"
+
+[tool.maturin]
+# Compila con la feature `python` (activa PyO3). El módulo importable es `quipu`
+# aunque la distribución se llame quipu-crypto. abi3-py39 (en Cargo.toml) produce
+# una sola rueda compatible con CPython 3.9+.
+features = ["python"]
+module-name = "quipu"
