@@ -66,6 +66,13 @@ representación.
   constante, validación de parámetros KDF, errores uniformes.
 - **Hackerbot**: red-team interno (tamper/truncation/uniqueness). Encontró y se
   corrigió un DoS por parámetros Argon2 maliciosos.
+- **Security Lab** (features `lab` / `lab-offline`, no viajan en el build
+  publicado): red-team **adaptativo** que se ataca a sí mismo. Núcleo en CI
+  (fuga de formato + falsificación de firmas) con corpus encadenado y meta-tests
+  que fallan si se debilita una defensa antihacker; y un **banco offline aislado**
+  (contenedor sin red) para timing y coste de guessing acelerado por IA.
+  `cargo run --example securitylab --features lab` · `bash lab/run.sh`. Ver
+  [`lab/README.md`](lab/README.md) y `THREAT_MODEL.md` §9.
 
 ## Uso (Rust)
 
@@ -105,6 +112,11 @@ assert quipu.decode(s, "passphrase") == b"secreto"
 pub, sec = quipu.generate_keypair()
 s = quipu.encode_to_recipient(b"secreto", pub)
 assert quipu.decode_as_recipient(s, sec) == b"secreto"
+
+# Firma híbrida (autenticidad, post-cuántica)
+vk, sk = quipu.generate_signing_keypair()
+signed = quipu.encode_signed(b"acta oficial", sk)
+assert quipu.decode_verified(signed, vk) == b"acta oficial"  # falla si se altera
 ```
 
 ## Ejemplos funcionales
@@ -125,6 +137,8 @@ cargo run --example demo        # demo simétrico + glifos
 cargo run --example v2demo      # post-cuántico + OPRF + imagen
 cargo run --example hackerbot   # red-team
 cargo run --example testplatform --release   # batería completa
+cargo run --example securitylab --features lab   # laboratorio de seguridad (red-team adaptativo)
+bash lab/run.sh   # banco offline aislado (timing + guessing) — Etapa B
 
 # Fuzzing (nightly)
 cargo +nightly fuzz run parse_container
@@ -138,10 +152,12 @@ python tests/python/test_quipu.py
 ## Estado
 
 v1 + v1.1 + v2 + firmas implementados con TDD estricto. **104 tests Rust +
-Wycheproof + 5 Python** verdes, clippy limpio, fuzzing sin crashes, Miri sin UB.
+Wycheproof + 8 Python** verdes, clippy limpio, fuzzing sin crashes, Miri sin UB.
 Modo online con **VOPRF verificable** (prueba DLEQ), KEM híbrido con transcript
 ligado estilo X-Wing, **firma híbrida Ed25519 + ML-DSA-65** (combinador AND), y
 **pre-auditoría** propia (ver `INFORME_PREAUDITORIA.txt` y `MODELO_DE_AMENAZA.txt`).
+**Security Lab** (red-team adaptativo auto-hospedado): 14 ataques en CI
+(`--features lab`) + banco offline de timing/guessing (`--features lab-offline`).
 
 > ⚠️ Proyecto en desarrollo. La pre-auditoría interna NO sustituye una auditoría
 > criptográfica **independiente**: no usar para proteger datos críticos reales
@@ -159,6 +175,8 @@ ligado estilo X-Wing, **firma híbrida Ed25519 + ML-DSA-65** (combinador AND), y
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — cómo contribuir · [`CHANGELOG.md`](CHANGELOG.md).
 - [`LICENSING.md`](LICENSING.md) — modelo de licenciamiento dual.
 - [`docs/announcement.md`](docs/announcement.md) — artículo de diseño (EN/ES).
+- [`docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md`](docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md)
+  — diseño del **Security Lab** (red-team adaptativo, feature `lab`).
 
 > ⚠️ La pre-auditoría interna es preparación, **no** sustituye una auditoría
 > independiente. Ese sello externo es el siguiente paso del proyecto (solicitud

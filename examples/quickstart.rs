@@ -6,11 +6,11 @@
 //! con `assert_eq!`. Si el ejemplo termina, TODO funcionó.
 
 use quipu::api::{
-    Options, decode, decode_as_recipient, decode_from_glyph_image, encode, encode_to_glyph_image,
-    encode_to_recipient,
+    Options, decode, decode_as_recipient, decode_from_glyph_image, decode_verified, encode,
+    encode_signed, encode_to_glyph_image, encode_to_recipient,
 };
 use quipu::dictionaries;
-use quipu::pqhybrid;
+use quipu::{pqhybrid, pqsign};
 
 fn main() {
     let secret = b"Mensaje confidencial: el tesoro esta bajo el arbol viejo.";
@@ -72,7 +72,22 @@ fn main() {
     let enc_pq = encode_to_recipient(secret, &pk, &dict);
     let dec_pq = decode_as_recipient(&enc_pq, &sk, &dict).expect("decapsular con la clave secreta");
     assert_eq!(dec_pq, secret, "round-trip post-cuántico");
-    println!("[5] Post-cuántico (X25519 + ML-KEM-768) -> round-trip OK ✔");
+    println!("[5] Post-cuántico (X25519 + ML-KEM-768) -> round-trip OK ✔\n");
+
+    // -------------------------------------------------------------------------
+    // 6) Firma híbrida (autenticidad/no-repudio, NO confidencialidad).
+    // -------------------------------------------------------------------------
+    let (vk, signing_key) = pqsign::generate_keypair();
+    let signed = encode_signed(secret, &signing_key, &dict);
+    let verified = decode_verified(&signed, &vk, &dict).expect("firma válida verifica");
+    assert_eq!(verified, secret, "round-trip firmado");
+    // Otra clave NO debe verificar la firma:
+    let (other_vk, _) = pqsign::generate_keypair();
+    assert!(
+        decode_verified(&signed, &other_vk, &dict).is_err(),
+        "una clave de verificación equivocada debe fallar"
+    );
+    println!("[6] Firma híbrida (Ed25519 + ML-DSA-65) -> verifica y rechaza clave ajena ✔");
 
     println!("\n✅ Todos los modos funcionaron correctamente.");
 }

@@ -11,7 +11,33 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Written specification with machine-readable interoperability test vectors.
 - Multi-language bindings over the C ABI (C / Node.js / Go).
 - Reference deployment of the online VOPRF hardening server.
-- Python bindings for the hybrid signature mode.
+
+## [0.3.0] — 2026-07-01
+
+### Added
+- **Quipu Security Lab — Etapa B (offline bench)**: timing / side-channel harness
+  (surface 2: constant-time `ct_eq` and passphrase-independent `decode` timing)
+  and an AI-accelerated password-guessing cost model (surface 3: verifies the
+  Argon2id per-guess cost floor holds and that a ranked wordlist never cracks).
+  Gated behind a new non-default `lab-offline` feature (implies `lab`, not run by
+  CI) and shipped with an isolated `quipu-lab` OCI container (`--network none`,
+  non-root, read-only, no real keys). Rust-only and reproducible; the container is
+  documented as "ML-ready". Run with `bash lab/run.sh` or
+  `cargo run --release --example securitylab_offline --features lab-offline`.
+- **Python bindings for the hybrid signature mode**: `generate_signing_keypair`,
+  `encode_signed` and `decode_verified` are now exposed to Python, reaching
+  Rust/Python parity for the signature API. `quickstart.py` and the Python test
+  suite cover the signed round-trip and rejection of wrong/tampered artifacts.
+- **Quipu Security Lab (Etapa A)**: a self-hosted *adaptive* red-team behind a
+  non-default `lab` Cargo feature (never compiled into the published crate or the
+  PyPI wheel — "the weapon does not ship with the product"). A deterministic,
+  seed-reproducible engine drives breach-guided attacks over two surfaces:
+  ciphertext/format length-leak distinguishing (surface 1) and adaptive signature
+  forgery — frankensignatures, key-substitution and region tampering (surface 4).
+  Ships three anti-abuse locks: compile-time isolation, a tamper-evidence guard
+  that fails CI if the antihacker defenses (`ct_eq`, KDF-param validation, `wipe`)
+  are weakened, and a hash-chained findings corpus. Run with
+  `cargo run --example securitylab --features lab`.
 
 ## [0.2.0] — 2026-07-01
 
@@ -66,6 +92,7 @@ First public release. Published to crates.io (`quipu`) and PyPI
   (no crashes) on the pure-logic and parsing modules; `cargo-audit` in CI.
 - **Not yet independently audited** — see [`SECURITY.md`](SECURITY.md).
 
-[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/isazajuancarlos/quipu/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/isazajuancarlos/quipu/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/isazajuancarlos/quipu/releases/tag/v0.1.0

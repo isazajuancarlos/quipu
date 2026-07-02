@@ -13,12 +13,13 @@ use pyo3::types::PyBytes;
 
 use crate::api::{
     decode as core_decode, decode_as_recipient as core_decode_pq,
-    encode as core_encode, encode_to_recipient as core_encode_pq, Options,
+    decode_verified as core_decode_verified, encode as core_encode,
+    encode_signed as core_encode_signed, encode_to_recipient as core_encode_pq, Options,
 };
 use crate::dictionary::Dictionary;
 use crate::glyphopt;
 use crate::kdf::KdfParams;
-use crate::pqhybrid;
+use crate::{pqhybrid, pqsign};
 
 /// Diccionario por defecto: 94 símbolos ASCII imprimibles.
 fn default_dict() -> Dictionary {
@@ -90,6 +91,42 @@ fn decode_as_recipient<'py>(
     }
 }
 
+/// Genera un par de claves de FIRMA híbrida (Ed25519 + ML-DSA-65). Devuelve
+/// `(verifying_key, signing_key)` como bytes. La clave de firma es sensible.
+#[pyfunction]
+fn generate_signing_keypair(py: Python<'_>) -> (Bound<'_, PyBytes>, Bound<'_, PyBytes>) {
+    let (vk, sk) = pqsign::generate_keypair();
+    (
+        PyBytes::new(py, &vk.to_bytes()),
+        PyBytes::new(py, &sk.to_bytes()),
+    )
+}
+
+/// Firma `data` con la clave de firma híbrida. El resultado es autosuficiente y
+/// FIRMADO PERO EN CLARO (autenticidad y no-repudio; NO confidencialidad).
+#[pyfunction]
+fn encode_signed(data: &[u8], signing_key: &[u8]) -> PyResult<String> {
+    let sk = pqsign::SigningKey::from_bytes(signing_key)
+        .ok_or_else(|| PyValueError::new_err("clave de firma inválida"))?;
+    Ok(core_encode_signed(data, &sk, &default_dict()))
+}
+
+/// Verifica la firma de un artefacto contra la clave de verificación FIJADA y,
+/// solo si valida, devuelve el mensaje. Lanza `ValueError` si no verifica.
+#[pyfunction]
+fn decode_verified<'py>(
+    py: Python<'py>,
+    symbols: &str,
+    verifying_key: &[u8],
+) -> PyResult<Bound<'py, PyBytes>> {
+    let vk = pqsign::VerifyingKey::from_bytes(verifying_key)
+        .ok_or_else(|| PyValueError::new_err("clave de verificación inválida"))?;
+    match core_decode_verified(symbols, &vk, &default_dict()) {
+        Ok(bytes) => Ok(PyBytes::new(py, &bytes)),
+        Err(_) => Err(PyValueError::new_err("verificación fallida: firma inválida")),
+    }
+}
+
 /// Distancia mínima entre cualquier par de huellas (métrica de separabilidad).
 #[pyfunction]
 fn glyph_min_distance(fingerprints: Vec<Vec<u8>>) -> u32 {
@@ -110,6 +147,9 @@ fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate_keypair, m)?)?;
     m.add_function(wrap_pyfunction!(encode_to_recipient, m)?)?;
     m.add_function(wrap_pyfunction!(decode_as_recipient, m)?)?;
+    m.add_function(wrap_pyfunction!(generate_signing_keypair, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_signed, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_verified, m)?)?;
     m.add_function(wrap_pyfunction!(glyph_min_distance, m)?)?;
     m.add_function(wrap_pyfunction!(select_separable, m)?)?;
     Ok(())

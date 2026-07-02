@@ -52,10 +52,42 @@ def test_hybrid_wrong_recipient_raises():
         pass
 
 
+def test_signature_round_trip():
+    verifying, signing = quipu.generate_signing_keypair()
+    data = b"acta firmada desde Python"
+    signed = quipu.encode_signed(data, signing)
+    assert quipu.decode_verified(signed, verifying) == data
+
+
+def test_signature_wrong_key_raises():
+    verifying, signing = quipu.generate_signing_keypair()
+    other_vk, _ = quipu.generate_signing_keypair()
+    signed = quipu.encode_signed(b"datos", signing)
+    try:
+        quipu.decode_verified(signed, other_vk)
+        assert False, "debería haber lanzado ValueError"
+    except ValueError:
+        pass
+
+
+def test_signature_tampered_raises():
+    verifying, signing = quipu.generate_signing_keypair()
+    signed = quipu.encode_signed(b"orden importante", signing)
+    tampered = ("X" if signed[0] != "X" else "Y") + signed[1:]
+    try:
+        quipu.decode_verified(tampered, verifying)
+        assert False, "debería haber lanzado ValueError"
+    except ValueError:
+        pass
+
+
 if __name__ == "__main__":
     test_round_trip()
     test_wrong_passphrase_raises()
     test_pepper_round_trip()
     test_hybrid_post_quantum_round_trip()
     test_hybrid_wrong_recipient_raises()
+    test_signature_round_trip()
+    test_signature_wrong_key_raises()
+    test_signature_tampered_raises()
     print("OK: todos los tests de Python pasaron")
