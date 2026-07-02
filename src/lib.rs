@@ -26,5 +26,8 @@ pub mod prelayers;
 pub mod render;
 pub mod voprf;
 
+#[cfg(feature = "lab")]
+pub mod lab;
+
 #[cfg(feature = "python")]
 pub mod python;

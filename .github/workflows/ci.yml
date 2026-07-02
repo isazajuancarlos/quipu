@@ -40,3 +40,27 @@ jobs:
         run: cargo install cargo-audit --locked
       - name: Audit dependencies
         run: cargo audit
+
+  security-lab:
+    name: security lab (feature-gated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Isolation — el arma no viaja en el build por defecto
+        run: |
+          # Ningún módulo NO-lab debe referenciar crate::lab.
+          if grep -rn "crate::lab" src --include='*.rs' | grep -v '^src/lab/' | grep -v 'cfg(feature = "lab")'; then
+            echo "FALLO: referencia a crate::lab fuera del laboratorio" && exit 1
+          fi
+          # El build por defecto (el que se publica) no debe compilar el laboratorio.
+          cargo build
+      - name: Lab tests
+        run: cargo test --features lab --lib lab
+      - name: Lab example
+        run: cargo run --example securitylab --features lab
+      - name: Clippy (lab, deny warnings)
+        run: cargo clippy --features lab --all-targets -- -D warnings
