@@ -151,6 +151,47 @@ the operation, a local physical side channel, or control of the binary/OS.
 | T5 | Hybrid KEM X25519 + ML-KEM-768 (F2, transcript with bound ek). |
 | T6 | Best-effort zeroization of sensitive material (partial; see R3). |
 
+## 9. Continuous self-attack (Security Lab)
+
+Attackers keep learning, adapt, and increasingly train their own local AI models
+for offensive work. A fixed test battery ages; the countermeasure is a system
+that **attacks itself and corrects** ("antivirus with a lab included"). Quipu
+ships a self-hosted *adaptive* red-team, the **Security Lab**.
+
+Design principle — **the weapon does not ship with the product**: the whole lab
+lives behind non-default Cargo features (`lab`, and `lab-offline` for the heavy
+bench). It is never compiled into the published crate or the PyPI wheel, so it
+cannot be invoked at runtime against a deployed instance.
+
+Two speeds, two cages:
+
+- **CI core (`--features lab`)** — deterministic, seed-reproducible:
+  - *Surface 1 — format leak* (`src/lab/leak.rs`): checks that output length
+    depends only on plaintext length, never on content (guards T1).
+  - *Surface 4 — adaptive forgery* (`src/lab/forge.rs`): frankensignatures,
+    key-substitution, region tampering against `decode_verified` (guards the
+    signature mode).
+  - *Anti-abuse locks*: compile-time isolation (CI check that no non-lab module
+    references `crate::lab`); a **tamper-evidence guard** (`src/lab/guard.rs`)
+    that fails CI if the antihacker defenses — `ct_eq`, KDF-param validation,
+    `wipe` — are weakened; and a **hash-chained findings corpus**
+    (`src/lab/corpus.rs`) so results cannot be silently poisoned.
+- **Offline bench (`--features lab-offline`, run inside the `quipu-lab`
+  container)** — machine-dependent, isolated (`--network none`, non-root,
+  read-only, no real keys):
+  - *Surface 2 — timing* (`src/lab/timing.rs`): looks for secret-dependent
+    timing in `ct_eq` and `decode` (relates to T6 / side channels).
+  - *Surface 3 — AI-accelerated guessing* (`src/lab/guessing.rs`): confirms the
+    Argon2id per-guess cost floor holds and that a ranked wordlist never cracks
+    (relates to T3 / R1).
+
+On AI-assisted attacks: the lab treats the *attacker* as AI-capable but does not
+require AI to *defend*. A trained model only amplifies leaks that already exist;
+if there is no timing difference there is no trace to learn, and no ranking
+(however smart) beats a memory-hard per-guess cost. The offline bench is
+therefore Rust-only, deterministic and reproducible (audit-friendly), while the
+container is documented as "ML-ready" for optional heavy experiments.
+
 ---
 
 Construction references: RFC 9497 (OPRF/VOPRF), X-Wing (hybrid KEM), FIPS-203

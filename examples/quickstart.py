@@ -62,4 +62,21 @@ assert dec_pq == secret, "round-trip post-cuántico"
 print("[4] Post-cuántico (X25519 + ML-KEM-768) -> round-trip OK ✔")
 print()
 
+# -----------------------------------------------------------------------------
+# 5) Firma híbrida (autenticidad/no-repudio, NO confidencialidad).
+# -----------------------------------------------------------------------------
+verifying_key, signing_key = quipu.generate_signing_keypair()
+signed = quipu.encode_signed(secret, signing_key)
+verified = quipu.decode_verified(signed, verifying_key)
+assert verified == secret, "round-trip firmado"
+# Una clave de verificación ajena NO debe validar la firma:
+other_vk, _ = quipu.generate_signing_keypair()
+try:
+    quipu.decode_verified(signed, other_vk)
+    raise SystemExit("ERROR: una clave de verificación ajena no debería validar")
+except ValueError:
+    pass
+print("[5] Firma híbrida (Ed25519 + ML-DSA-65) -> verifica y rechaza clave ajena ✔")
+print()
+
 print("OK ✅  Todos los modos funcionaron correctamente.")

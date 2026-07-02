@@ -1,0 +1,18 @@
+//! Quipu Security Lab: red-team adaptativo AUTO-HOSPEDADO (Etapa A, núcleo CI).
+//!
+//! Se ataca a sí mismo, aprende de cada corrida y convierte cada brecha en un
+//! test de regresión. Todo el módulo está tras `#[cfg(feature = "lab")]`: NO se
+//! compila en release ni en la rueda de PyPI (el arma no viaja con el producto).
+//!
+//! Nunca inventa ni sustituye primitivas: compone las existentes y ataca a Quipu.
+
+pub mod corpus;
+pub mod engine;
+pub mod forge;
+pub mod guard;
+pub mod leak;
+
+#[cfg(feature = "lab-offline")]
+pub mod guessing;
+#[cfg(feature = "lab-offline")]
+pub mod timing;
