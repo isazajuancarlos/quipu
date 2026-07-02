@@ -59,7 +59,7 @@ public_key, secret_key = quipu.generate_keypair()
 enc_pq = quipu.encode_to_recipient(secret, public_key)
 dec_pq = quipu.decode_as_recipient(enc_pq, secret_key)
 assert dec_pq == secret, "round-trip post-cuántico"
-print("[4] Post-cuántico (X25519 + ML-KEM-768) -> round-trip OK ✔")
+print("[4] Post-cuántico (X25519 + ML-KEM-1024) -> round-trip OK ✔")
 print()
 
 # -----------------------------------------------------------------------------
@@ -76,7 +76,7 @@ try:
     raise SystemExit("ERROR: una clave de verificación ajena no debería validar")
 except ValueError:
     pass
-print("[5] Firma híbrida (Ed25519 + ML-DSA-65) -> verifica y rechaza clave ajena ✔")
+print("[5] Firma híbrida (Ed25519 + ML-DSA-87) -> verifica y rechaza clave ajena ✔")
 print()
 
 print("OK ✅  Todos los modos funcionaron correctamente.")

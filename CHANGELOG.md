@@ -12,6 +12,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Multi-language bindings over the C ABI (C / Node.js / Go).
 - Reference deployment of the online VOPRF hardening server.
 
+## [0.4.0] — 2026-07-02
+
+### Changed (BREAKING — wire format)
+- **Post-quantum primitives raised to NIST security category 5 (CNSA 2.0)**:
+  the hybrid KEM now uses **ML-KEM-1024** (was ML-KEM-768) and the hybrid
+  signature uses **ML-DSA-87** (was ML-DSA-65). This aligns Quipu with the NSA
+  Commercial National Security Algorithm Suite 2.0 parameter levels. The classical
+  halves (X25519, Ed25519), the X-Wing-style transcript binding, the AND signature
+  combiner and the domain-separation labels are unchanged.
+- **Consequence**: hybrid public/secret keys, encapsulations, verifying/signing
+  keys and signatures are larger, and artifacts/keys produced by 0.3.x are **not
+  interoperable** with 0.4.0. Sizes: ML-KEM ek/ct 1184/1088 → 1568/1568 B, dk
+  2400 → 3168 B; ML-DSA vk 1952 → 2592 B, signature 3309 → 4627 B (hybrid
+  signature 3373 → 4691 B). No security downgrade is possible: the recipient/signer
+  key fixes the parameter level and cross-level bytes fail length validation.
+
 ## [0.3.0] — 2026-07-01
 
 ### Added
@@ -92,7 +108,8 @@ First public release. Published to crates.io (`quipu`) and PyPI
   (no crashes) on the pure-logic and parsing modules; `cargo-audit` in CI.
 - **Not yet independently audited** — see [`SECURITY.md`](SECURITY.md).
 
-[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/isazajuancarlos/quipu/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/isazajuancarlos/quipu/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/isazajuancarlos/quipu/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/isazajuancarlos/quipu/releases/tag/v0.1.0
