@@ -1,4 +1,4 @@
-//! Firma digital híbrida post-cuántica: Ed25519 (clásico) + ML-DSA-65 (FIPS-204).
+//! Firma digital híbrida post-cuántica: Ed25519 (clásico) + ML-DSA-87 (FIPS-204).
 //!
 //! Combina DOS firmas independientes (una clásica, una post-cuántica) sobre el
 //! mismo mensaje. La firma híbrida se considera válida SÓLO si AMBAS verifican
@@ -19,7 +19,7 @@ use ed25519_dalek::{
 };
 use ml_dsa::signature::{Keypair as _, Signer as _, Verifier as _};
 use ml_dsa::{
-    EncodedSignature, EncodedVerifyingKey, MlDsa65, Seed, Signature as MlSignature,
+    EncodedSignature, EncodedVerifyingKey, MlDsa87, Seed, Signature as MlSignature,
     SigningKey as MlSigningKey, VerifyingKey as MlVerifyingKey,
 };
 use zeroize::Zeroizing;
@@ -30,20 +30,20 @@ pub const ED25519_PUB_LEN: usize = 32;
 pub const ED25519_SIG_LEN: usize = 64;
 /// Longitud de la semilla/clave secreta Ed25519.
 pub const ED25519_SEED_LEN: usize = 32;
-/// Longitud de la clave de verificación ML-DSA-65.
-pub const MLDSA_VK_LEN: usize = 1952;
-/// Longitud de la firma ML-DSA-65.
-pub const MLDSA_SIG_LEN: usize = 3309;
-/// Longitud de la semilla de la clave de firma ML-DSA-65 (reconstruye la clave).
+/// Longitud de la clave de verificación ML-DSA-87.
+pub const MLDSA_VK_LEN: usize = 2592;
+/// Longitud de la firma ML-DSA-87.
+pub const MLDSA_SIG_LEN: usize = 4627;
+/// Longitud de la semilla de la clave de firma ML-DSA-87 (reconstruye la clave).
 pub const MLDSA_SEED_LEN: usize = 32;
 
 /// Longitud de la clave de verificación híbrida serializada (Ed25519 || ML-DSA).
-pub const VERIFYING_KEY_LEN: usize = ED25519_PUB_LEN + MLDSA_VK_LEN; // 1984
+pub const VERIFYING_KEY_LEN: usize = ED25519_PUB_LEN + MLDSA_VK_LEN; // 2624
 /// Longitud de la clave de firma híbrida serializada (Ed25519 seed || ML-DSA seed).
 /// ¡Material sensible!
 pub const SIGNING_KEY_LEN: usize = ED25519_SEED_LEN + MLDSA_SEED_LEN; // 64
 /// Longitud de la firma híbrida (Ed25519 || ML-DSA).
-pub const SIGNATURE_LEN: usize = ED25519_SIG_LEN + MLDSA_SIG_LEN; // 3373
+pub const SIGNATURE_LEN: usize = ED25519_SIG_LEN + MLDSA_SIG_LEN; // 4691
 
 /// Etiqueta de dominio: ata la firma a Quipu y a esta versión del esquema.
 const SIGN_CONTEXT: &[u8] = b"quipu/v3/sign";
@@ -51,7 +51,7 @@ const SIGN_CONTEXT: &[u8] = b"quipu/v3/sign";
 /// Clave de verificación híbrida (pública). Publicable/fijable en el verificador.
 pub struct VerifyingKey {
     ed: EdVerifyingKey,
-    ml: MlVerifyingKey<MlDsa65>,
+    ml: MlVerifyingKey<MlDsa87>,
 }
 
 /// Clave de firma híbrida (secreta). Guarda semillas de 32 bytes por lado; el
@@ -76,9 +76,9 @@ pub fn generate_keypair() -> (VerifyingKey, SigningKey) {
 }
 
 /// Reconstruye la clave de firma ML-DSA desde su semilla.
-fn ml_signing_key(seed: &[u8; MLDSA_SEED_LEN]) -> MlSigningKey<MlDsa65> {
+fn ml_signing_key(seed: &[u8; MLDSA_SEED_LEN]) -> MlSigningKey<MlDsa87> {
     let s = Seed::try_from(&seed[..]).expect("semilla ML-DSA de 32 bytes");
-    MlSigningKey::<MlDsa65>::from_seed(&s)
+    MlSigningKey::<MlDsa87>::from_seed(&s)
 }
 
 impl SigningKey {
@@ -147,8 +147,8 @@ impl VerifyingKey {
 
         // Parte post-cuántica.
         let ml_sig_bytes = &signature[ED25519_SIG_LEN..];
-        let ml_ok = match EncodedSignature::<MlDsa65>::try_from(ml_sig_bytes) {
-            Ok(enc) => match MlSignature::<MlDsa65>::decode(&enc) {
+        let ml_ok = match EncodedSignature::<MlDsa87>::try_from(ml_sig_bytes) {
+            Ok(enc) => match MlSignature::<MlDsa87>::decode(&enc) {
                 Some(sig) => self.ml.verify(&preimage, &sig).is_ok(),
                 None => false,
             },
@@ -174,8 +174,8 @@ impl VerifyingKey {
         }
         let ed_bytes: [u8; ED25519_PUB_LEN] = b[0..ED25519_PUB_LEN].try_into().ok()?;
         let ed = EdVerifyingKey::from_bytes(&ed_bytes).ok()?;
-        let ml_enc = EncodedVerifyingKey::<MlDsa65>::try_from(&b[ED25519_PUB_LEN..]).ok()?;
-        let ml = MlVerifyingKey::<MlDsa65>::decode(&ml_enc);
+        let ml_enc = EncodedVerifyingKey::<MlDsa87>::try_from(&b[ED25519_PUB_LEN..]).ok()?;
+        let ml = MlVerifyingKey::<MlDsa87>::decode(&ml_enc);
         Some(VerifyingKey { ed, ml })
     }
 }
@@ -192,6 +192,14 @@ fn build_preimage(vk_bytes: &[u8], message: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parameters_are_cnsa_level5() {
+        // CNSA 2.0 (NSA) exige ML-DSA-87 = categoría de seguridad NIST 5.
+        // Fija los tamaños FIPS-204 del nivel 5 para detectar regresiones.
+        assert_eq!(MLDSA_VK_LEN, 2592, "vk ML-DSA-87");
+        assert_eq!(MLDSA_SIG_LEN, 4627, "firma ML-DSA-87");
+    }
 
     #[test]
     fn sign_verify_round_trips() {
