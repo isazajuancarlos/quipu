@@ -130,6 +130,63 @@ pub fn decode_timing(samples: usize) -> TimingReport {
     }
 }
 
+/// Tiempos crudos (nanosegundos) de `op` sobre `samples` repeticiones.
+fn sample_times_ns(samples: usize, mut op: impl FnMut()) -> Vec<f64> {
+    let n = samples.max(2);
+    let mut v = Vec::with_capacity(n);
+    for _ in 0..n {
+        let t = Instant::now();
+        op();
+        v.push(t.elapsed().as_nanos() as f64);
+    }
+    v
+}
+
+/// Veredicto dudect: t de Welch entre dos clases de tiempos y decisión
+/// constant-time.
+pub struct DudectReport {
+    /// Nombre de la operación evaluada.
+    pub name: &'static str,
+    /// t de Welch entre las dos clases.
+    pub t: f64,
+    /// Nº de muestras por clase (la menor de las dos).
+    pub n: usize,
+}
+
+impl DudectReport {
+    /// Construye el reporte a partir de dos muestras de tiempos ya recogidas.
+    pub fn from_classes(name: &'static str, a: &[f64], b: &[f64]) -> Self {
+        DudectReport {
+            name,
+            t: welch_t(a, b),
+            n: a.len().min(b.len()),
+        }
+    }
+
+    /// `true` si `|t|` no supera `threshold` (sin fuga detectable).
+    pub fn is_constant_time(&self, threshold: f64) -> bool {
+        self.t.abs() <= threshold
+    }
+}
+
+/// dudect sobre `ct_eq`: la clase A difiere en el PRIMER byte, la B en el ÚLTIMO.
+/// Una comparación en tiempo constante no debe distinguir ambas clases.
+pub fn dudect_ct_eq(samples: usize) -> DudectReport {
+    let base = [0x5Au8; 64];
+    let mut diff_first = base;
+    diff_first[0] ^= 0xFF;
+    let mut diff_last = base;
+    diff_last[63] ^= 0xFF;
+
+    let a = sample_times_ns(samples, || {
+        std::hint::black_box(ct_eq(&base, std::hint::black_box(&diff_first)));
+    });
+    let b = sample_times_ns(samples, || {
+        std::hint::black_box(ct_eq(&base, std::hint::black_box(&diff_last)));
+    });
+    DudectReport::from_classes("dudect/ct_eq", &a, &b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,5 +263,23 @@ mod tests {
         assert_eq!(welch_t(&[3.0, 3.0], &[5.0, 5.0]), f64::NEG_INFINITY);
         // Zero variance AND equal means = no leak.
         assert_eq!(welch_t(&[4.0, 4.0], &[4.0, 4.0]), 0.0);
+    }
+
+    #[test]
+    fn dudect_verdict_constant_time_for_similar_classes() {
+        // Dos clases con misma distribución (media 10, varianza pequeña) -> t≈0.
+        let a: Vec<f64> = (0..100).map(|i| if i % 2 == 0 { 9.0 } else { 11.0 }).collect();
+        let b = a.clone();
+        let r = DudectReport::from_classes("t", &a, &b);
+        assert!(r.is_constant_time(DUDECT_T_THRESHOLD), "t={}", r.t);
+    }
+
+    #[test]
+    fn dudect_verdict_flags_leaky_classes() {
+        // Clases con medias muy separadas (10 vs 30) -> |t| enorme -> fuga.
+        let a: Vec<f64> = (0..100).map(|i| if i % 2 == 0 { 9.0 } else { 11.0 }).collect();
+        let b: Vec<f64> = (0..100).map(|i| if i % 2 == 0 { 29.0 } else { 31.0 }).collect();
+        let r = DudectReport::from_classes("t", &a, &b);
+        assert!(!r.is_constant_time(DUDECT_T_THRESHOLD), "t={}", r.t);
     }
 }
