@@ -174,6 +174,8 @@ ML-DSA-87** (combinador AND), y
 - [`docs/PRE_AUDIT.md`](docs/PRE_AUDIT.md) — pre-auditoría interna (EN)
   · original [`INFORME_PREAUDITORIA.txt`](INFORME_PREAUDITORIA.txt) (ES).
 - [`SECURITY.md`](SECURITY.md) — política de seguridad y reporte de fallos.
+- [`docs/RELEASES.md`](docs/RELEASES.md) — cómo verificar la autenticidad de un
+  release (attestations PEP 740 + firmas sigstore/cosign).
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — cómo contribuir · [`CHANGELOG.md`](CHANGELOG.md).
 - [`LICENSING.md`](LICENSING.md) — modelo de licenciamiento dual.
 - [`docs/announcement.md`](docs/announcement.md) — artículo de diseño (EN/ES).
