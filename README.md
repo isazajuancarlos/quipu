@@ -66,6 +66,10 @@ representación.
   constante, validación de parámetros KDF, errores uniformes.
 - **Hackerbot**: red-team interno (tamper/truncation/uniqueness). Encontró y se
   corrigió un DoS por parámetros Argon2 maliciosos.
+- **Security Lab** (feature `lab`, no viaja en el build publicado): red-team
+  **adaptativo** que se ataca a sí mismo (fuga de formato y falsificación de
+  firmas), con corpus encadenado y meta-tests que fallan si se debilita alguna
+  defensa antihacker. `cargo run --example securitylab --features lab`.
 
 ## Uso (Rust)
 
@@ -125,6 +129,7 @@ cargo run --example demo        # demo simétrico + glifos
 cargo run --example v2demo      # post-cuántico + OPRF + imagen
 cargo run --example hackerbot   # red-team
 cargo run --example testplatform --release   # batería completa
+cargo run --example securitylab --features lab   # laboratorio de seguridad (red-team adaptativo)
 
 # Fuzzing (nightly)
 cargo +nightly fuzz run parse_container
