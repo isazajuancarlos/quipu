@@ -64,3 +64,35 @@ jobs:
         run: cargo run --example securitylab --features lab
       - name: Clippy (lab, deny warnings)
         run: cargo clippy --features lab --all-targets -- -D warnings
+
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+      - name: Generate SBOM (JSON)
+        run: cargo cyclonedx --format json
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            *.cdx.json
+            bom.json
+          if-no-files-found: error
+
+  vet:
+    name: cargo-vet (supply chain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-vet
+        run: cargo install cargo-vet --locked
+      - name: Vet dependencies
+        run: cargo vet --locked
