@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Planned
+- Independent security audit and public remediation of findings.
+- Written specification with machine-readable interoperability test vectors.
+- Multi-language bindings over the C ABI (C / Node.js / Go).
+- Reference deployment of the online VOPRF hardening server.
+
+## [0.3.0] — 2026-07-01
+
 ### Added
 - **Quipu Security Lab — Etapa B (offline bench)**: timing / side-channel harness
   (surface 2: constant-time `ct_eq` and passphrase-independent `decode` timing)
@@ -30,12 +38,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that fails CI if the antihacker defenses (`ct_eq`, KDF-param validation, `wipe`)
   are weakened, and a hash-chained findings corpus. Run with
   `cargo run --example securitylab --features lab`.
-
-### Planned
-- Independent security audit and public remediation of findings.
-- Written specification with machine-readable interoperability test vectors.
-- Multi-language bindings over the C ABI (C / Node.js / Go).
-- Reference deployment of the online VOPRF hardening server.
 
 ## [0.2.0] — 2026-07-01
 
@@ -90,6 +92,7 @@ First public release. Published to crates.io (`quipu`) and PyPI
   (no crashes) on the pure-logic and parsing modules; `cargo-audit` in CI.
 - **Not yet independently audited** — see [`SECURITY.md`](SECURITY.md).
 
-[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/isazajuancarlos/quipu/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/isazajuancarlos/quipu/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/isazajuancarlos/quipu/releases/tag/v0.1.0
