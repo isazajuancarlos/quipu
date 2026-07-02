@@ -5,7 +5,7 @@
 //! Ejecutar: `cargo run --release --example securitylab_offline --features lab-offline`
 
 use quipu::lab::guessing::guessing_cost;
-use quipu::lab::timing::{ct_eq_timing, decode_timing};
+use quipu::lab::timing::{ct_eq_timing, decode_timing, dudect_ct_eq, DUDECT_T_THRESHOLD};
 
 fn main() {
     println!("== Quipu Security Lab — banco offline (Etapa B) ==");
@@ -28,6 +28,18 @@ fn main() {
         dt.ratio()
     );
 
+    // Superficie 2 (dudect): t de Welch sobre ct_eq. |t| > umbral = posible fuga.
+    let dud = dudect_ct_eq(10_000);
+    let verdict = if dud.is_constant_time(DUDECT_T_THRESHOLD) {
+        "constant-time"
+    } else {
+        "POSIBLE FUGA"
+    };
+    println!(
+        "[dudect]   {:<27} t={:.2} (n={}, umbral={:.0}) -> {}",
+        dud.name, dud.t, dud.n, DUDECT_T_THRESHOLD, verdict
+    );
+
     // Superficie 3: coste de guessing.
     let g = guessing_cost(128, 2026);
     println!(
@@ -39,7 +51,10 @@ fn main() {
         g.cost_years(40)
     );
 
-    let clean = ct.within(0.5, 2.0) && dt.within(0.5, 2.0) && g.cracked == 0;
+    let clean = ct.within(0.5, 2.0)
+        && dt.within(0.5, 2.0)
+        && g.cracked == 0
+        && dud.is_constant_time(DUDECT_T_THRESHOLD);
     if clean {
         println!("Resultado: sin fuga gruesa de timing y 0 descifrados.");
     } else {
