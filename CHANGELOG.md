@@ -11,6 +11,27 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Written specification with machine-readable interoperability test vectors.
 - Multi-language bindings over the C ABI (C / Node.js / Go).
 - Reference deployment of the online VOPRF hardening server.
+- Python bindings for the hybrid signature mode.
+
+## [0.2.0] — 2026-07-01
+
+### Added
+- **Hybrid signature mode** (asymmetric authenticity): Ed25519 + ML-DSA-65
+  (FIPS-204) combined with an **AND** verification combiner — a signature is valid
+  only if *both* verify, so it stays unforgeable as long as at least one primitive
+  survives. Signatures bind the signer's full verifying key and a
+  `quipu/v3/sign` domain label into the signed preimage to prevent key
+  substitution and cross-component mixing. New `pqsign` module and
+  `api::encode_signed` / `api::decode_verified` (a signed-but-plaintext `QSG1`
+  container: authenticity + non-repudiation, not confidentiality).
+- **Red-team coverage**: hackerbot `forgery_attack` (tamper each symbol of a
+  signed artifact; every mutation must fail verification).
+
+### Security
+- Signing keys are stored as 32-byte seeds and zeroized on drop; Ed25519 uses
+  strict verification (rejects small-order keys and malleable signatures).
+- Signature primitives are vetted third-party crates (`ed25519-dalek`, `ml-dsa`);
+  zero `unsafe` in first-party code preserved.
 
 ## [0.1.0] — 2026-07-01
 
@@ -45,5 +66,6 @@ First public release. Published to crates.io (`quipu`) and PyPI
   (no crashes) on the pure-logic and parsing modules; `cargo-audit` in CI.
 - **Not yet independently audited** — see [`SECURITY.md`](SECURITY.md).
 
-[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/isazajuancarlos/quipu/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/isazajuancarlos/quipu/releases/tag/v0.1.0

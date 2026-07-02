@@ -21,6 +21,7 @@ pub mod kdf;
 pub mod oprf;
 pub mod oprf_net;
 pub mod pqhybrid;
+pub mod pqsign;
 pub mod prelayers;
 pub mod render;
 pub mod voprf;
