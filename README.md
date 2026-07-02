@@ -109,6 +109,11 @@ assert quipu.decode(s, "passphrase") == b"secreto"
 pub, sec = quipu.generate_keypair()
 s = quipu.encode_to_recipient(b"secreto", pub)
 assert quipu.decode_as_recipient(s, sec) == b"secreto"
+
+# Firma híbrida (autenticidad, post-cuántica)
+vk, sk = quipu.generate_signing_keypair()
+signed = quipu.encode_signed(b"acta oficial", sk)
+assert quipu.decode_verified(signed, vk) == b"acta oficial"  # falla si se altera
 ```
 
 ## Ejemplos funcionales
@@ -143,7 +148,7 @@ python tests/python/test_quipu.py
 ## Estado
 
 v1 + v1.1 + v2 + firmas implementados con TDD estricto. **104 tests Rust +
-Wycheproof + 5 Python** verdes, clippy limpio, fuzzing sin crashes, Miri sin UB.
+Wycheproof + 8 Python** verdes, clippy limpio, fuzzing sin crashes, Miri sin UB.
 Modo online con **VOPRF verificable** (prueba DLEQ), KEM híbrido con transcript
 ligado estilo X-Wing, **firma híbrida Ed25519 + ML-DSA-65** (combinador AND), y
 **pre-auditoría** propia (ver `INFORME_PREAUDITORIA.txt` y `MODELO_DE_AMENAZA.txt`).
