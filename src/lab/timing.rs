@@ -24,6 +24,35 @@ pub fn median_time(samples: usize, mut op: impl FnMut()) -> Duration {
     times[times.len() / 2]
 }
 
+/// Umbral dudect: `|t|` por encima de esto indica variación de tiempo dependiente
+/// del secreto (criterio del test dudect de Reparaz et al.).
+pub const DUDECT_T_THRESHOLD: f64 = 10.0;
+
+/// Media y varianza muestral (denominador n-1) de `x`.
+fn mean_var(x: &[f64]) -> (f64, f64) {
+    let n = x.len() as f64;
+    let mean = x.iter().sum::<f64>() / n;
+    let var = x.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    (mean, var)
+}
+
+/// t de Welch entre dos muestras de tiempos. Devuelve `0.0` si alguna muestra
+/// tiene menos de 2 elementos; `±INFINITY` si la varianza combinada es 0 pero
+/// las medias difieren (fuga determinista).
+pub fn welch_t(a: &[f64], b: &[f64]) -> f64 {
+    if a.len() < 2 || b.len() < 2 {
+        return 0.0;
+    }
+    let (ma, va) = mean_var(a);
+    let (mb, vb) = mean_var(b);
+    let denom = (va / a.len() as f64 + vb / b.len() as f64).sqrt();
+    let diff = ma - mb;
+    if denom == 0.0 {
+        return if diff == 0.0 { 0.0 } else { f64::INFINITY * diff.signum() };
+    }
+    diff / denom
+}
+
 /// Comparación de tiempos entre dos clases de entrada.
 pub struct TimingReport {
     /// Nombre de la comparación.
@@ -101,6 +130,63 @@ pub fn decode_timing(samples: usize) -> TimingReport {
     }
 }
 
+/// Tiempos crudos (nanosegundos) de `op` sobre `samples` repeticiones.
+fn sample_times_ns(samples: usize, mut op: impl FnMut()) -> Vec<f64> {
+    let n = samples.max(2);
+    let mut v = Vec::with_capacity(n);
+    for _ in 0..n {
+        let t = Instant::now();
+        op();
+        v.push(t.elapsed().as_nanos() as f64);
+    }
+    v
+}
+
+/// Veredicto dudect: t de Welch entre dos clases de tiempos y decisión
+/// constant-time.
+pub struct DudectReport {
+    /// Nombre de la operación evaluada.
+    pub name: &'static str,
+    /// t de Welch entre las dos clases.
+    pub t: f64,
+    /// Nº de muestras por clase (la menor de las dos).
+    pub n: usize,
+}
+
+impl DudectReport {
+    /// Construye el reporte a partir de dos muestras de tiempos ya recogidas.
+    pub fn from_classes(name: &'static str, a: &[f64], b: &[f64]) -> Self {
+        DudectReport {
+            name,
+            t: welch_t(a, b),
+            n: a.len().min(b.len()),
+        }
+    }
+
+    /// `true` si `|t|` no supera `threshold` (sin fuga detectable).
+    pub fn is_constant_time(&self, threshold: f64) -> bool {
+        self.t.abs() <= threshold
+    }
+}
+
+/// dudect sobre `ct_eq`: la clase A difiere en el PRIMER byte, la B en el ÚLTIMO.
+/// Una comparación en tiempo constante no debe distinguir ambas clases.
+pub fn dudect_ct_eq(samples: usize) -> DudectReport {
+    let base = [0x5Au8; 64];
+    let mut diff_first = base;
+    diff_first[0] ^= 0xFF;
+    let mut diff_last = base;
+    diff_last[63] ^= 0xFF;
+
+    let a = sample_times_ns(samples, || {
+        std::hint::black_box(ct_eq(&base, std::hint::black_box(&diff_first)));
+    });
+    let b = sample_times_ns(samples, || {
+        std::hint::black_box(ct_eq(&base, std::hint::black_box(&diff_last)));
+    });
+    DudectReport::from_classes("dudect/ct_eq", &a, &b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +229,57 @@ mod tests {
             "decode con pass correcta vs incorrecta debe costar ~lo mismo (Argon2 domina): ratio={}",
             report.ratio()
         );
+    }
+
+    #[test]
+    fn welch_t_is_zero_for_identical_samples() {
+        assert_eq!(welch_t(&[1.0, 2.0, 3.0, 4.0], &[1.0, 2.0, 3.0, 4.0]), 0.0);
+    }
+
+    #[test]
+    fn welch_t_is_antisymmetric() {
+        let a = [2.0, 4.0, 6.0];
+        let b = [1.0, 2.0, 3.0];
+        assert!((welch_t(&a, &b) + welch_t(&b, &a)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn welch_t_known_value() {
+        // a: mean 6, var 10 (n-1); b: mean 3, var 2.5; denom = sqrt(2 + 0.5).
+        let a = [2.0, 4.0, 6.0, 8.0, 10.0];
+        let b = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!((welch_t(&a, &b) - 1.897366).abs() < 1e-4);
+    }
+
+    #[test]
+    fn welch_t_handles_too_small_samples() {
+        assert_eq!(welch_t(&[1.0], &[1.0, 2.0]), 0.0);
+    }
+
+    #[test]
+    fn welch_t_infinite_for_zero_variance_different_means() {
+        // Zero variance in both classes but different means = deterministic leak.
+        assert_eq!(welch_t(&[5.0, 5.0], &[3.0, 3.0]), f64::INFINITY);
+        assert_eq!(welch_t(&[3.0, 3.0], &[5.0, 5.0]), f64::NEG_INFINITY);
+        // Zero variance AND equal means = no leak.
+        assert_eq!(welch_t(&[4.0, 4.0], &[4.0, 4.0]), 0.0);
+    }
+
+    #[test]
+    fn dudect_verdict_constant_time_for_similar_classes() {
+        // Dos clases con misma distribución (media 10, varianza pequeña) -> t≈0.
+        let a: Vec<f64> = (0..100).map(|i| if i % 2 == 0 { 9.0 } else { 11.0 }).collect();
+        let b = a.clone();
+        let r = DudectReport::from_classes("t", &a, &b);
+        assert!(r.is_constant_time(DUDECT_T_THRESHOLD), "t={}", r.t);
+    }
+
+    #[test]
+    fn dudect_verdict_flags_leaky_classes() {
+        // Clases con medias muy separadas (10 vs 30) -> |t| enorme -> fuga.
+        let a: Vec<f64> = (0..100).map(|i| if i % 2 == 0 { 9.0 } else { 11.0 }).collect();
+        let b: Vec<f64> = (0..100).map(|i| if i % 2 == 0 { 29.0 } else { 31.0 }).collect();
+        let r = DudectReport::from_classes("t", &a, &b);
+        assert!(!r.is_constant_time(DUDECT_T_THRESHOLD), "t={}", r.t);
     }
 }

@@ -35,3 +35,8 @@ dist/
 .DS_Store
 
 # NOTA: Cargo.lock SÍ se versiona (builds reproducibles, higiene de supply-chain).
+
+# SBOM generado (artefacto de build; se produce en CI, no se versiona)
+*.cdx.json
+bom.json
+bom.xml
