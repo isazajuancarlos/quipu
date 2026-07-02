@@ -35,6 +35,8 @@ plaintext
 | Hash | SHA-256, SHA-512 | `sha2` |
 | Classical KEM/DH | X25519 | `x25519-dalek` |
 | Post-quantum KEM | ML-KEM-768 (FIPS-203) | `ml-kem` |
+| Classical signature | Ed25519 (EdDSA) | `ed25519-dalek` |
+| Post-quantum signature | ML-DSA-65 (FIPS-204) | `ml-dsa` |
 | OPRF group | ristretto255 | `curve25519-dalek` |
 | Normalization | Unicode NFKC | `unicode-normalization` |
 
@@ -245,7 +247,62 @@ server → client:  status(1) ‖ Z(32) ‖ proof(64)   (97 bytes; status 1 = ok
 
 Rate limiting (e.g. per-IP) is the caller's responsibility.
 
-## 9. Domain-separation labels
+## 9. Hybrid signature mode (asymmetric authenticity)
+
+Signs a message with a hybrid key so that anyone holding the verifying key can
+check authorship and integrity. This mode provides **authenticity, integrity and
+non-repudiation**, publicly verifiable — but **not confidentiality** (the signed
+container is plaintext). It fits data-at-rest artifacts: signed documents,
+backups, releases.
+
+### 9.1 Keys and sizes
+
+| Item | Primitive | Size (bytes) |
+|------|-----------|-------------:|
+| Ed25519 verifying key | Ed25519 | 32 |
+| ML-DSA-65 verifying key | ML-DSA-65 (FIPS-204) | 1952 |
+| Hybrid verifying key (Ed25519 ‖ ML-DSA vk) | — | 1984 |
+| Ed25519 seed / ML-DSA seed | — | 32 / 32 |
+| Hybrid signing key (Ed25519 seed ‖ ML-DSA seed) | — | 64 |
+| Ed25519 signature | Ed25519 | 64 |
+| ML-DSA-65 signature | ML-DSA-65 | 3309 |
+| Hybrid signature (Ed25519 ‖ ML-DSA) | — | 3373 |
+
+Both signing keys are stored as their 32-byte seeds and re-expanded on use; the
+seed material is zeroized on drop.
+
+### 9.2 Signing and verification
+
+```
+preimage = "quipu/v3/sign" ‖ verifying_key(1984) ‖ message
+σ_ed     = Ed25519.Sign(sk_ed, preimage)            # 64 B, deterministic
+σ_ml     = MLDSA65.Sign(sk_ml, preimage)            # 3309 B, deterministic (empty ctx)
+signature = σ_ed(64) ‖ σ_ml(3309)                   # 3373 B
+
+verify(vk, message, signature):
+    preimage = "quipu/v3/sign" ‖ vk ‖ message
+    return Ed25519.VerifyStrict(vk_ed, preimage, σ_ed)   # rejects small-order / malleable
+           AND MLDSA65.Verify(vk_ml, preimage, σ_ml)     # AND-combiner
+```
+
+Binding the **full** verifying key (both components) and a domain label into the
+signed preimage prevents weak key-substitution and cross-component mixing (a
+component signature cannot be reused under a different keypair). The **AND**
+combiner (both must verify) makes the hybrid signature unforgeable as long as **at
+least one** of Ed25519 / ML-DSA-65 remains unforgeable.
+
+### 9.3 Signed container
+
+```
+blob = "QSG1"(4) ‖ version=1 (1) ‖ flags=0 (1) ‖ msg_len(u32 BE, 4)
+       ‖ message(msg_len) ‖ signature(3373)
+```
+
+`blob` is base-N encoded and rendered like the other modes. On decode the message
+is returned **only** if the signature verifies against the caller-pinned verifying
+key.
+
+## 10. Domain-separation labels
 
 Every key derivation / hash uses a unique label:
 
@@ -256,16 +313,19 @@ Every key derivation / hash uses a unique label:
 | `quipu/v2/voprf` | VOPRF hash-to-curve and final output |
 | `quipu/v2/voprf-dleq` | DLEQ challenge |
 | `quipu/v2/voprf-server-key` | Deterministic VOPRF server key from seed |
+| `quipu/v3/sign` | Hybrid signature preimage (Ed25519 + ML-DSA) |
 | `quipu/v2/oprf`, `quipu/v2/oprf-server-key` | Legacy non-verifiable OPRF (building block; unused by the online mode) |
 
-## 10. Constants
+## 11. Constants
 
 | Name | Value |
 |------|-------|
 | Symmetric magic / version | `"QUIP"` / `1` |
 | Symmetric header size | 68 bytes |
 | Hybrid magic / version | `"QPQ1"` / `1` |
+| Signed magic / version | `"QSG1"` / `1` |
 | AEAD key / nonce / tag | 32 / 24 / 16 bytes |
 | salt | 16 bytes |
 | DLEQ proof | 64 bytes |
 | VOPRF verified response | 97 bytes |
+| Hybrid verifying key / signing key / signature | 1984 / 64 / 3373 bytes |

@@ -4,8 +4,9 @@
 //! Es testing de seguridad sobre código PROPIO (autorizado), no ofensiva contra
 //! terceros. Cada hallazgo (breach) debe ser 0; si no, hay un fallo que arreglar.
 
-use crate::api::{decode, encode, Options};
+use crate::api::{decode, decode_verified, encode, encode_signed, Options};
 use crate::dictionary::Dictionary;
+use crate::pqsign;
 
 /// Resultado de un ataque.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +124,54 @@ pub fn uniqueness_attack(
     }
 }
 
+/// Ataque de falsificación sobre el modo firmado: sustituye símbolos del
+/// artefacto firmado por otros válidos y exige que `decode_verified` lo rechace.
+/// Una verificación exitosa sobre un artefacto alterado es una brecha.
+///
+/// `stride` muestrea posiciones (1 = exhaustivo). Como cada intento hace una
+/// verificación híbrida completa (Ed25519 + ML-DSA, costosa), un `stride > 1`
+/// permite barrer las tres regiones (cabecera, mensaje, firma) sin recorrer los
+/// miles de símbolos uno a uno.
+pub fn forgery_attack(
+    data: &[u8],
+    signer: &pqsign::SigningKey,
+    verifier: &pqsign::VerifyingKey,
+    dict: &Dictionary,
+    stride: usize,
+) -> AttackReport {
+    let stride = stride.max(1);
+    let symbols = encode_signed(data, signer, dict);
+    let chars: Vec<char> = symbols.chars().collect();
+    let mut attempts = 0;
+    let mut breaches = 0;
+
+    for i in (0..chars.len()).step_by(stride) {
+        let idx = dict
+            .symbol_to_index(chars[i])
+            .expect("símbolo del propio diccionario");
+        let new_sym = dict
+            .index_to_symbol((idx + 1) % dict.base())
+            .expect("índice válido");
+        if new_sym == chars[i] {
+            continue;
+        }
+        let mut mutated = chars.clone();
+        mutated[i] = new_sym;
+        let candidate: String = mutated.into_iter().collect();
+
+        attempts += 1;
+        if decode_verified(&candidate, verifier, dict).is_ok() {
+            breaches += 1;
+        }
+    }
+
+    AttackReport {
+        name: "forgery",
+        attempts,
+        breaches,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +215,16 @@ mod tests {
         let report = uniqueness_attack(b"mismo dato", "clave", &dict, &test_opts(), 20);
         assert_eq!(report.attempts, 20);
         assert_eq!(report.breaches, 0, "salt/nonce deben ser aleatorios por encode");
+    }
+
+    #[test]
+    fn library_survives_forgery_attack() {
+        let dict = ascii_dict();
+        let (vk, sk) = pqsign::generate_keypair();
+        // stride 64: barre cabecera/mensaje/firma (~decenas de intentos) sin que
+        // la verificación híbrida por símbolo domine el tiempo de test.
+        let report = forgery_attack(b"orden firmada", &sk, &vk, &dict, 64);
+        assert!(report.attempts > 0, "el ataque debe intentar algo");
+        assert_eq!(report.breaches, 0, "ninguna falsificación debe verificar");
     }
 }

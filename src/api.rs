@@ -13,6 +13,7 @@ use crate::kdf::{self, KdfParams, SALT_LEN};
 use crate::antihacker;
 use crate::oprf_net;
 use crate::pqhybrid;
+use crate::pqsign;
 use crate::prelayers;
 use crate::voprf;
 
@@ -50,6 +51,8 @@ pub enum DecodeError {
     CodebookMismatch,
     /// Descifrado fallido: passphrase/pepper incorrectos o datos alterados.
     Decrypt,
+    /// La firma híbrida no valida: mensaje alterado o firmante incorrecto.
+    BadSignature,
 }
 
 /// Codifica `data` protegido por `passphrase`, representado con `dict`.
@@ -360,6 +363,72 @@ pub fn decode_as_recipient(
     data
 }
 
+// ============================ Modo firmado (autenticidad, no confidencialidad) ============================
+
+/// Magic del contenedor firmado híbrido (Ed25519 + ML-DSA).
+const SIGNED_MAGIC: [u8; 4] = *b"QSG1";
+const SIGNED_VERSION: u8 = 1;
+/// Cabecera del contenedor firmado antes del mensaje: magic+version+flags+msg_len.
+const SIGNED_PREFIX: usize = 4 + 1 + 1 + 4;
+
+/// Firma `data` con la clave híbrida `signer` y lo representa con `dict`.
+///
+/// El resultado es un artefacto AUTOSUFICIENTE, FIRMADO PERO EN CLARO: cualquiera
+/// con la clave de verificación puede comprobar autoría e integridad Y leer el
+/// mensaje. Da autenticidad, integridad y no-repudio; NO da confidencialidad (si
+/// necesitas ocultar el contenido, usa además un modo de cifrado).
+pub fn encode_signed(data: &[u8], signer: &pqsign::SigningKey, dict: &Dictionary) -> String {
+    let signature = signer.sign(data);
+
+    let mut blob = Vec::with_capacity(SIGNED_PREFIX + data.len() + signature.len());
+    blob.extend_from_slice(&SIGNED_MAGIC);
+    blob.push(SIGNED_VERSION);
+    blob.push(0u8); // flags
+    blob.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    blob.extend_from_slice(data);
+    blob.extend_from_slice(&signature);
+
+    let indices = codec::encode_base_n(&blob, dict.base());
+    dict.encode(&indices)
+        .expect("los índices del codec están en [0, base)")
+}
+
+/// Verifica la firma de un artefacto de [`encode_signed`] contra la clave pública
+/// FIJADA `verifier` y, sólo si valida, devuelve el mensaje.
+pub fn decode_verified(
+    symbols: &str,
+    verifier: &pqsign::VerifyingKey,
+    dict: &Dictionary,
+) -> Result<Vec<u8>, DecodeError> {
+    let indices = dict.decode(symbols).map_err(DecodeError::Symbol)?;
+    let blob = codec::decode_base_n(&indices, dict.base());
+
+    if blob.len() < SIGNED_PREFIX + pqsign::SIGNATURE_LEN {
+        return Err(DecodeError::Container(ContainerError::TooShort));
+    }
+    if blob[0..4] != SIGNED_MAGIC {
+        return Err(DecodeError::Container(ContainerError::BadMagic));
+    }
+    if blob[4] != SIGNED_VERSION {
+        return Err(DecodeError::Container(ContainerError::UnsupportedVersion(
+            blob[4],
+        )));
+    }
+    let msg_len = u32::from_be_bytes(blob[6..10].try_into().expect("4 bytes")) as usize;
+
+    // La longitud declarada debe encajar EXACTAMENTE con mensaje + firma fija.
+    if blob.len() != SIGNED_PREFIX + msg_len + pqsign::SIGNATURE_LEN {
+        return Err(DecodeError::Container(ContainerError::TooShort));
+    }
+    let message = &blob[SIGNED_PREFIX..SIGNED_PREFIX + msg_len];
+    let signature = &blob[SIGNED_PREFIX + msg_len..];
+
+    if !verifier.verify(message, signature) {
+        return Err(DecodeError::BadSignature);
+    }
+    Ok(message.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,5 +654,59 @@ mod tests {
         let dict = ascii_dict();
         let symbols = encode_to_recipient(b"datos", &pk, &dict);
         assert!(decode_as_recipient(&symbols, &sk2, &dict).is_err());
+    }
+
+    #[test]
+    fn signed_round_trips_and_reveals_message() {
+        let (vk, sk) = pqsign::generate_keypair();
+        let dict = ascii_dict();
+        let data = b"acta firmada verificable por terceros";
+        let symbols = encode_signed(data, &sk, &dict);
+        assert_eq!(decode_verified(&symbols, &vk, &dict).unwrap(), data);
+    }
+
+    #[test]
+    fn signed_wrong_signer_fails() {
+        let (_vk, sk) = pqsign::generate_keypair();
+        let (vk2, _sk2) = pqsign::generate_keypair();
+        let dict = ascii_dict();
+        let symbols = encode_signed(b"datos", &sk, &dict);
+        assert_eq!(
+            decode_verified(&symbols, &vk2, &dict),
+            Err(DecodeError::BadSignature)
+        );
+    }
+
+    #[test]
+    fn signed_tampered_message_fails() {
+        let (vk, sk) = pqsign::generate_keypair();
+        let dict = ascii_dict();
+        let symbols = encode_signed(b"transferir 100", &sk, &dict);
+        // Sustituye un símbolo por otro válido del alfabeto.
+        let mut chars: Vec<char> = symbols.chars().collect();
+        chars[SIGNED_PREFIX] = if chars[SIGNED_PREFIX] == 'A' { 'B' } else { 'A' };
+        let tampered: String = chars.into_iter().collect();
+        assert!(decode_verified(&tampered, &vk, &dict).is_err());
+    }
+
+    #[test]
+    fn signed_empty_message_round_trips() {
+        let (vk, sk) = pqsign::generate_keypair();
+        let dict = ascii_dict();
+        let symbols = encode_signed(b"", &sk, &dict);
+        assert_eq!(decode_verified(&symbols, &vk, &dict).unwrap(), b"");
+    }
+
+    proptest! {
+        #[test]
+        fn signed_round_trips_any_data(
+            data in proptest::collection::vec(any::<u8>(), 0..96),
+        ) {
+            let (vk, sk) = pqsign::generate_keypair();
+            let dict = ascii_dict();
+            let symbols = encode_signed(&data, &sk, &dict);
+            let back = decode_verified(&symbols, &vk, &dict).unwrap();
+            prop_assert_eq!(back, data);
+        }
     }
 }

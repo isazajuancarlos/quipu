@@ -38,6 +38,7 @@ datos → KDF(passphrase+pepper) → AEAD → contenedor → codec base-N → di
 | Canal robusto (impreso) | `api::encode_to_robust_image` / `decode_from_robust_image` | + **Reed-Solomon** (corrige errores de canal) |
 | Glifos nativos | `api::encode_to_glyph_image` / `decode_from_glyph_image` | Alfabeto de glifos propio, reconocible |
 | Online (endurecimiento) | `api::encode_online` / `decode_online` | **VOPRF verificable** (prueba DLEQ): el cliente detecta un servidor deshonesto |
+| Firmado (autenticidad) | `api::encode_signed` / `decode_verified` | Firma híbrida **Ed25519 + ML-DSA-65** (combinador AND). Autenticidad y no-repudio verificables; **no** confidencialidad |
 
 ## Diccionarios (simbología enchufable)
 
@@ -75,6 +76,18 @@ use quipu::dictionaries;
 let dict = dictionaries::ascii94();
 let sym = encode(b"secreto", "passphrase", &dict, &Options::default());
 let data = decode(&sym, "passphrase", &dict, b"").unwrap();
+```
+
+Firma híbrida (autenticidad verificable por terceros, post-cuántica):
+
+```rust
+use quipu::api::{encode_signed, decode_verified};
+use quipu::{dictionaries, pqsign};
+
+let dict = dictionaries::ascii94();
+let (vk, sk) = pqsign::generate_keypair();
+let signed = encode_signed(b"acta oficial", &sk, &dict);
+let msg = decode_verified(&signed, &vk, &dict).unwrap(); // falla si se altera
 ```
 
 ## Uso (Python)
@@ -124,11 +137,11 @@ python tests/python/test_quipu.py
 
 ## Estado
 
-v1 + v1.1 + v2 implementados con TDD estricto. **89 tests Rust + Wycheproof + 5
-Python** verdes, clippy limpio, fuzzing sin crashes, Miri sin UB. Modo online con
-**VOPRF verificable** (prueba DLEQ), KEM híbrido con transcript ligado estilo
-X-Wing, y **pre-auditoría** propia (ver `INFORME_PREAUDITORIA.txt` y
-`MODELO_DE_AMENAZA.txt`).
+v1 + v1.1 + v2 + firmas implementados con TDD estricto. **104 tests Rust +
+Wycheproof + 5 Python** verdes, clippy limpio, fuzzing sin crashes, Miri sin UB.
+Modo online con **VOPRF verificable** (prueba DLEQ), KEM híbrido con transcript
+ligado estilo X-Wing, **firma híbrida Ed25519 + ML-DSA-65** (combinador AND), y
+**pre-auditoría** propia (ver `INFORME_PREAUDITORIA.txt` y `MODELO_DE_AMENAZA.txt`).
 
 > ⚠️ Proyecto en desarrollo. La pre-auditoría interna NO sustituye una auditoría
 > criptográfica **independiente**: no usar para proteger datos críticos reales
