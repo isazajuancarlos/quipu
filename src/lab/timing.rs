@@ -24,6 +24,35 @@ pub fn median_time(samples: usize, mut op: impl FnMut()) -> Duration {
     times[times.len() / 2]
 }
 
+/// Umbral dudect: `|t|` por encima de esto indica variación de tiempo dependiente
+/// del secreto (criterio del test dudect de Reparaz et al.).
+pub const DUDECT_T_THRESHOLD: f64 = 10.0;
+
+/// Media y varianza muestral (denominador n-1) de `x`.
+fn mean_var(x: &[f64]) -> (f64, f64) {
+    let n = x.len() as f64;
+    let mean = x.iter().sum::<f64>() / n;
+    let var = x.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    (mean, var)
+}
+
+/// t de Welch entre dos muestras de tiempos. Devuelve `0.0` si alguna muestra
+/// tiene menos de 2 elementos; `±INFINITY` si la varianza combinada es 0 pero
+/// las medias difieren (fuga determinista).
+pub fn welch_t(a: &[f64], b: &[f64]) -> f64 {
+    if a.len() < 2 || b.len() < 2 {
+        return 0.0;
+    }
+    let (ma, va) = mean_var(a);
+    let (mb, vb) = mean_var(b);
+    let denom = (va / a.len() as f64 + vb / b.len() as f64).sqrt();
+    let diff = ma - mb;
+    if denom == 0.0 {
+        return if diff == 0.0 { 0.0 } else { f64::INFINITY * diff.signum() };
+    }
+    diff / denom
+}
+
 /// Comparación de tiempos entre dos clases de entrada.
 pub struct TimingReport {
     /// Nombre de la comparación.
@@ -143,5 +172,30 @@ mod tests {
             "decode con pass correcta vs incorrecta debe costar ~lo mismo (Argon2 domina): ratio={}",
             report.ratio()
         );
+    }
+
+    #[test]
+    fn welch_t_is_zero_for_identical_samples() {
+        assert_eq!(welch_t(&[1.0, 2.0, 3.0, 4.0], &[1.0, 2.0, 3.0, 4.0]), 0.0);
+    }
+
+    #[test]
+    fn welch_t_is_antisymmetric() {
+        let a = [2.0, 4.0, 6.0];
+        let b = [1.0, 2.0, 3.0];
+        assert!((welch_t(&a, &b) + welch_t(&b, &a)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn welch_t_known_value() {
+        // a: mean 6, var 10 (n-1); b: mean 3, var 2.5; denom = sqrt(2 + 0.5).
+        let a = [2.0, 4.0, 6.0, 8.0, 10.0];
+        let b = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!((welch_t(&a, &b) - 1.897366).abs() < 1e-4);
+    }
+
+    #[test]
+    fn welch_t_handles_too_small_samples() {
+        assert_eq!(welch_t(&[1.0], &[1.0, 2.0]), 0.0);
     }
 }
