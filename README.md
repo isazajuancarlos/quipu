@@ -169,6 +169,8 @@ ligado estilo X-Wing, **firma híbrida Ed25519 + ML-DSA-65** (combinador AND), y
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — cómo contribuir · [`CHANGELOG.md`](CHANGELOG.md).
 - [`LICENSING.md`](LICENSING.md) — modelo de licenciamiento dual.
 - [`docs/announcement.md`](docs/announcement.md) — artículo de diseño (EN/ES).
+- [`docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md`](docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md)
+  — diseño del **Security Lab** (red-team adaptativo, feature `lab`).
 
 > ⚠️ La pre-auditoría interna es preparación, **no** sustituye una auditoría
 > independiente. Ese sello externo es el siguiente paso del proyecto (solicitud
