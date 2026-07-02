@@ -4,7 +4,7 @@
 [![crates.io](https://img.shields.io/crates/v/quipu.svg)](https://crates.io/crates/quipu)
 [![docs.rs](https://img.shields.io/docsrs/quipu)](https://docs.rs/quipu)
 [![CI](https://github.com/isazajuancarlos/quipu/actions/workflows/ci.yml/badge.svg)](https://github.com/isazajuancarlos/quipu/actions/workflows/ci.yml)
-[![post-quantum](https://img.shields.io/badge/post--quantum-ML--KEM--768-purple.svg)](#modos)
+[![post-quantum](https://img.shields.io/badge/post--quantum-ML--KEM--1024-purple.svg)](#modos)
 
 Librería de codificación con **protección criptográfica** y **simbología propia**.
 
