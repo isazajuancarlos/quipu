@@ -198,4 +198,13 @@ mod tests {
     fn welch_t_handles_too_small_samples() {
         assert_eq!(welch_t(&[1.0], &[1.0, 2.0]), 0.0);
     }
+
+    #[test]
+    fn welch_t_infinite_for_zero_variance_different_means() {
+        // Zero variance in both classes but different means = deterministic leak.
+        assert_eq!(welch_t(&[5.0, 5.0], &[3.0, 3.0]), f64::INFINITY);
+        assert_eq!(welch_t(&[3.0, 3.0], &[5.0, 5.0]), f64::NEG_INFINITY);
+        // Zero variance AND equal means = no leak.
+        assert_eq!(welch_t(&[4.0, 4.0], &[4.0, 4.0]), 0.0);
+    }
 }
