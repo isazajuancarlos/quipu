@@ -25,7 +25,7 @@ Así que las piezas críticas para la seguridad son todas crates estándar y vet
 
 - **AEAD:** XChaCha20-Poly1305
 - **KDF:** Argon2id + HKDF-SHA256 (+ normalización NFKC, pepper opcional)
-- **KEM post-cuántico:** ML-KEM-768 (FIPS-203) vía el crate `ml-kem`
+- **KEM post-cuántico:** ML-KEM-1024 (FIPS-203) vía el crate `ml-kem`
 - **KEM/DH clásico:** X25519 (`x25519-dalek`)
 - **Grupo del OPRF:** ristretto255 (`curve25519-dalek`)
 
@@ -50,7 +50,7 @@ normalmente no se molesta en hacer:
 
 ### 1. Modo híbrido post-cuántico
 Cifrar hacia la clave pública de un destinatario deriva la clave de contenido a
-partir de **ambos**: un secreto compartido X25519 **y** un secreto ML-KEM-768,
+partir de **ambos**: un secreto compartido X25519 **y** un secreto ML-KEM-1024,
 combinados con HKDF y un binding de transcript estilo X-Wing (la clave pública
 completa del destinatario —X25519 + la clave de encapsulación ML-KEM— se liga
 dentro del KDF). Un atacante tiene que romper **los dos** para recuperar la clave,
