@@ -7,6 +7,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Python bindings for the hybrid signature mode**: `generate_signing_keypair`,
+  `encode_signed` and `decode_verified` are now exposed to Python, reaching
+  Rust/Python parity for the signature API. `quickstart.py` and the Python test
+  suite cover the signed round-trip and rejection of wrong/tampered artifacts.
 - **Quipu Security Lab (Etapa A)**: a self-hosted *adaptive* red-team behind a
   non-default `lab` Cargo feature (never compiled into the published crate or the
   PyPI wheel — "the weapon does not ship with the product"). A deterministic,
@@ -23,7 +27,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Written specification with machine-readable interoperability test vectors.
 - Multi-language bindings over the C ABI (C / Node.js / Go).
 - Reference deployment of the online VOPRF hardening server.
-- Python bindings for the hybrid signature mode.
 
 ## [0.2.0] — 2026-07-01
 
