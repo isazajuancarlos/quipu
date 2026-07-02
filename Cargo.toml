@@ -27,6 +27,9 @@ python = ["dep:pyo3"]
 # Laboratorio de seguridad (red-team adaptativo). NUNCA se activa en release ni
 # en la rueda de PyPI: el arma no viaja con el producto.
 lab = []
+# Banco OFFLINE pesado/ruidoso (timing, guessing). Implica `lab`. NO lo corre el
+# job de CI (que usa --features lab); vive dentro del contenedor quipu-lab.
+lab-offline = ["lab"]
 
 [dependencies]
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
@@ -56,3 +59,7 @@ wycheproof = "0.6"
 [[example]]
 name = "securitylab"
 required-features = ["lab"]
+
+[[example]]
+name = "securitylab_offline"
+required-features = ["lab-offline"]

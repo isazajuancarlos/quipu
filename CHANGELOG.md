@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Quipu Security Lab — Etapa B (offline bench)**: timing / side-channel harness
+  (surface 2: constant-time `ct_eq` and passphrase-independent `decode` timing)
+  and an AI-accelerated password-guessing cost model (surface 3: verifies the
+  Argon2id per-guess cost floor holds and that a ranked wordlist never cracks).
+  Gated behind a new non-default `lab-offline` feature (implies `lab`, not run by
+  CI) and shipped with an isolated `quipu-lab` OCI container (`--network none`,
+  non-root, read-only, no real keys). Rust-only and reproducible; the container is
+  documented as "ML-ready". Run with `bash lab/run.sh` or
+  `cargo run --release --example securitylab_offline --features lab-offline`.
 - **Python bindings for the hybrid signature mode**: `generate_signing_keypair`,
   `encode_signed` and `decode_verified` are now exposed to Python, reaching
   Rust/Python parity for the signature API. `quickstart.py` and the Python test
