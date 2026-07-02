@@ -66,10 +66,13 @@ representación.
   constante, validación de parámetros KDF, errores uniformes.
 - **Hackerbot**: red-team interno (tamper/truncation/uniqueness). Encontró y se
   corrigió un DoS por parámetros Argon2 maliciosos.
-- **Security Lab** (feature `lab`, no viaja en el build publicado): red-team
-  **adaptativo** que se ataca a sí mismo (fuga de formato y falsificación de
-  firmas), con corpus encadenado y meta-tests que fallan si se debilita alguna
-  defensa antihacker. `cargo run --example securitylab --features lab`.
+- **Security Lab** (features `lab` / `lab-offline`, no viajan en el build
+  publicado): red-team **adaptativo** que se ataca a sí mismo. Núcleo en CI
+  (fuga de formato + falsificación de firmas) con corpus encadenado y meta-tests
+  que fallan si se debilita una defensa antihacker; y un **banco offline aislado**
+  (contenedor sin red) para timing y coste de guessing acelerado por IA.
+  `cargo run --example securitylab --features lab` · `bash lab/run.sh`. Ver
+  [`lab/README.md`](lab/README.md) y `THREAT_MODEL.md` §9.
 
 ## Uso (Rust)
 
@@ -153,6 +156,8 @@ Wycheproof + 8 Python** verdes, clippy limpio, fuzzing sin crashes, Miri sin UB.
 Modo online con **VOPRF verificable** (prueba DLEQ), KEM híbrido con transcript
 ligado estilo X-Wing, **firma híbrida Ed25519 + ML-DSA-65** (combinador AND), y
 **pre-auditoría** propia (ver `INFORME_PREAUDITORIA.txt` y `MODELO_DE_AMENAZA.txt`).
+**Security Lab** (red-team adaptativo auto-hospedado): 14 ataques en CI
+(`--features lab`) + banco offline de timing/guessing (`--features lab-offline`).
 
 > ⚠️ Proyecto en desarrollo. La pre-auditoría interna NO sustituye una auditoría
 > criptográfica **independiente**: no usar para proteger datos críticos reales
