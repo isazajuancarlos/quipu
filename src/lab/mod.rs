@@ -11,3 +11,8 @@ pub mod engine;
 pub mod forge;
 pub mod guard;
 pub mod leak;
+
+#[cfg(feature = "lab-offline")]
+pub mod guessing;
+#[cfg(feature = "lab-offline")]
+pub mod timing;

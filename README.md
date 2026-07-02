@@ -135,6 +135,7 @@ cargo run --example v2demo      # post-cuántico + OPRF + imagen
 cargo run --example hackerbot   # red-team
 cargo run --example testplatform --release   # batería completa
 cargo run --example securitylab --features lab   # laboratorio de seguridad (red-team adaptativo)
+bash lab/run.sh   # banco offline aislado (timing + guessing) — Etapa B
 
 # Fuzzing (nightly)
 cargo +nightly fuzz run parse_container

@@ -1,0 +1,147 @@
+//! Superficie 2 (banco offline): harness de timing / canales laterales.
+//!
+//! Mide tiempos de operaciones sensibles y compara distribuciones para detectar
+//! variación dependiente del secreto. La IA del atacante solo AMPLIFICA fugas que
+//! ya existan; si no hay diferencia de tiempo, no hay traza que aprender. Ruidoso
+//! y dependiente de la máquina: vive fuera del CI, dentro del contenedor.
+
+use crate::antihacker::ct_eq;
+use crate::api::{decode, encode, Options};
+use crate::dictionaries;
+use crate::kdf::KdfParams;
+use std::time::{Duration, Instant};
+
+/// Mediana del tiempo de `op` sobre `samples` repeticiones.
+pub fn median_time(samples: usize, mut op: impl FnMut()) -> Duration {
+    let n = samples.max(1);
+    let mut times = Vec::with_capacity(n);
+    for _ in 0..n {
+        let t = Instant::now();
+        op();
+        times.push(t.elapsed());
+    }
+    times.sort_unstable();
+    times[times.len() / 2]
+}
+
+/// Comparación de tiempos entre dos clases de entrada.
+pub struct TimingReport {
+    /// Nombre de la comparación.
+    pub name: &'static str,
+    /// Mediana de la clase A.
+    pub a: Duration,
+    /// Mediana de la clase B.
+    pub b: Duration,
+}
+
+impl TimingReport {
+    /// Razón b/a (1.0 = idénticos). Evita división por cero.
+    pub fn ratio(&self) -> f64 {
+        let a = self.a.as_secs_f64().max(1e-12);
+        self.b.as_secs_f64() / a
+    }
+
+    /// `true` si la razón está dentro de `[lo, hi]` (sin fuga gruesa de timing).
+    pub fn within(&self, lo: f64, hi: f64) -> bool {
+        let r = self.ratio();
+        r >= lo && r <= hi
+    }
+}
+
+/// Compara el tiempo de `ct_eq` cuando los buffers difieren en el PRIMER byte vs
+/// en el ÚLTIMO. Una comparación en tiempo constante no debe distinguirlos.
+pub fn ct_eq_timing(samples: usize) -> TimingReport {
+    let base = [0x5Au8; 64];
+    let mut diff_first = base;
+    diff_first[0] ^= 0xFF;
+    let mut diff_last = base;
+    diff_last[63] ^= 0xFF;
+
+    let a = median_time(samples, || {
+        std::hint::black_box(ct_eq(&base, std::hint::black_box(&diff_first)));
+    });
+    let b = median_time(samples, || {
+        std::hint::black_box(ct_eq(&base, std::hint::black_box(&diff_last)));
+    });
+    TimingReport {
+        name: "ct_eq/first-vs-last-diff",
+        a,
+        b,
+    }
+}
+
+/// Compara el tiempo de `decode` con la passphrase CORRECTA vs una INCORRECTA.
+/// Ambas ejecutan la derivación Argon2id completa, que domina el coste, así que
+/// no debe filtrarse por timing si la passphrase acertó.
+pub fn decode_timing(samples: usize) -> TimingReport {
+    let dict = dictionaries::ascii94();
+    // Coste moderado: suficiente para que Argon2 domine, ágil para el banco.
+    let opts = Options {
+        pepper: b"",
+        kdf_params: KdfParams {
+            mem_kib: 8 * 1024,
+            iterations: 2,
+            parallelism: 1,
+        },
+        codebook_id: 0,
+    };
+    let secret = b"contenido protegido para el banco de timing";
+    let sym = encode(secret, "passphrase-correcta", &dict, &opts);
+
+    let a = median_time(samples, || {
+        std::hint::black_box(decode(&sym, "passphrase-correcta", &dict, b"").is_ok());
+    });
+    let b = median_time(samples, || {
+        std::hint::black_box(decode(&sym, "passphrase-incorrecta", &dict, b"").is_ok());
+    });
+    TimingReport {
+        name: "decode/correct-vs-wrong-pass",
+        a,
+        b,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn median_time_measures_something() {
+        let d = median_time(16, || {
+            std::hint::black_box((0..100).sum::<u64>());
+        });
+        assert!(d >= Duration::ZERO);
+    }
+
+    #[test]
+    fn ratio_and_within_work() {
+        let r = TimingReport {
+            name: "t",
+            a: Duration::from_micros(100),
+            b: Duration::from_micros(110),
+        };
+        assert!(r.within(0.5, 2.0));
+        assert!((r.ratio() - 1.1).abs() < 0.01);
+    }
+
+    #[test]
+    fn ct_eq_shows_no_gross_timing_leak() {
+        let report = ct_eq_timing(2000);
+        // Tolerancia amplia (ruido de máquina); solo detecta fugas GRUESAS.
+        assert!(
+            report.within(0.5, 2.0),
+            "ct_eq no debería depender de dónde difieren los bytes: ratio={}",
+            report.ratio()
+        );
+    }
+
+    #[test]
+    fn decode_time_independent_of_passphrase_correctness() {
+        let report = decode_timing(24);
+        assert!(
+            report.within(0.5, 2.0),
+            "decode con pass correcta vs incorrecta debe costar ~lo mismo (Argon2 domina): ratio={}",
+            report.ratio()
+        );
+    }
+}
