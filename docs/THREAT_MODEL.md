@@ -55,7 +55,7 @@ the operation, a local physical side channel, or control of the binary/OS.
 ## 3. Trust assumptions
 
 - **S1.** The vetted primitives are secure: XChaCha20-Poly1305, Argon2id,
-  HKDF-SHA256, X25519, ML-KEM-768 (FIPS-203), ristretto255.
+  HKDF-SHA256, X25519, ML-KEM-1024 (FIPS-203), ristretto255.
 - **S2.** The system RNG (getrandom/OsRng) is cryptographically secure.
 - **S3.** The passphrase has sufficient entropy AND/OR a high Argon2id cost is
   used; a weak passphrase is breakable by T3 regardless (see R1).
@@ -79,7 +79,7 @@ the operation, a local physical side channel, or control of the binary/OS.
 
 **Asymmetric hybrid PQ mode (encrypt to a public key):**
 - Confidentiality against T1 and T5: the content key combines an X25519 secret
-  and an ML-KEM-768 secret via HKDF; breaking it requires breaking BOTH.
+  and an ML-KEM-1024 secret via HKDF; breaking it requires breaking BOTH.
 - The transcript binds the recipient's FULL public key (X25519 pub + ML-KEM ek)
   and the encapsulation (X-Wing style) → resistant to re-encapsulation /
   public-key-substitution attacks (closes F2).
@@ -148,7 +148,7 @@ the operation, a local physical side channel, or control of the binary/OS.
 | T2 | Header as AAD; `is_sane` validation of KDF params; parsing guards. |
 | T3 | Argon2id (memory-hard) + pepper; online mode with rate limiting. |
 | T4 | VOPRF with DLEQ proof verified against a pinned public key (F1). |
-| T5 | Hybrid KEM X25519 + ML-KEM-768 (F2, transcript with bound ek). |
+| T5 | Hybrid KEM X25519 + ML-KEM-1024 (F2, transcript with bound ek). |
 | T6 | Best-effort zeroization of sensitive material (partial; see R3). |
 
 ## 9. Continuous self-attack (Security Lab)

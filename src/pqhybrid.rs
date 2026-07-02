@@ -1,4 +1,4 @@
-//! Cifrado híbrido post-cuántico: X25519 (clásico) + ML-KEM-768 (FIPS-203).
+//! Cifrado híbrido post-cuántico: X25519 (clásico) + ML-KEM-1024 (FIPS-203).
 //!
 //! Combina DOS secretos compartidos (uno clásico, uno post-cuántico) vía HKDF
 //! en una única clave de contenido de 32 bytes. Resistente a "harvest now,
@@ -9,27 +9,27 @@
 
 use hkdf::Hkdf;
 use ml_kem::kem::{Decapsulate, Encapsulate};
-use ml_kem::{EncodedSizeUser, KemCore, MlKem768};
+use ml_kem::{EncodedSizeUser, KemCore, MlKem1024};
 use rand_core::OsRng;
 use sha2::Sha256;
 use x25519_dalek::{PublicKey as XPublic, StaticSecret as XSecret};
 use zeroize::Zeroize;
 
-type MlEk = <MlKem768 as KemCore>::EncapsulationKey;
-type MlDk = <MlKem768 as KemCore>::DecapsulationKey;
+type MlEk = <MlKem1024 as KemCore>::EncapsulationKey;
+type MlDk = <MlKem1024 as KemCore>::DecapsulationKey;
 
 /// Longitud de la clave pública X25519.
 pub const X25519_PUB_LEN: usize = 32;
-/// Longitud de la clave de encapsulación ML-KEM-768.
-pub const MLKEM_EK_LEN: usize = 1184;
-/// Longitud del ciphertext (encapsulación) ML-KEM-768.
-pub const MLKEM_CT_LEN: usize = 1088;
+/// Longitud de la clave de encapsulación ML-KEM-1024.
+pub const MLKEM_EK_LEN: usize = 1568;
+/// Longitud del ciphertext (encapsulación) ML-KEM-1024.
+pub const MLKEM_CT_LEN: usize = 1568;
 /// Longitud de la encapsulación híbrida (eph X25519 pub || ML-KEM ct).
 pub const ENCAPSULATION_LEN: usize = X25519_PUB_LEN + MLKEM_CT_LEN;
 /// Longitud de la clave pública híbrida serializada.
 pub const PUBLIC_KEY_LEN: usize = X25519_PUB_LEN + MLKEM_EK_LEN;
-/// Longitud de la clave de decapsulación ML-KEM-768.
-pub const MLKEM_DK_LEN: usize = 2400;
+/// Longitud de la clave de decapsulación ML-KEM-1024.
+pub const MLKEM_DK_LEN: usize = 3168;
 /// Longitud de la clave secreta híbrida serializada.
 pub const SECRET_KEY_LEN: usize = X25519_PUB_LEN + MLKEM_DK_LEN;
 /// Longitud de la clave de contenido derivada.
@@ -53,7 +53,7 @@ pub struct SecretKey {
 pub fn generate_keypair() -> (PublicKey, SecretKey) {
     let x_secret = XSecret::random_from_rng(OsRng);
     let x_public = XPublic::from(&x_secret);
-    let (ml_dk, ml_ek) = MlKem768::generate(&mut OsRng);
+    let (ml_dk, ml_ek) = MlKem1024::generate(&mut OsRng);
     (
         PublicKey {
             x: x_public,
@@ -144,7 +144,7 @@ pub fn decapsulate(sk: &SecretKey, encapsulation: &[u8]) -> Option<[u8; CONTENT_
     let eph_pub = XPublic::from(eph_bytes);
     let x_ss = sk.x.diffie_hellman(&eph_pub);
 
-    let ml_ct = ml_kem::Ciphertext::<MlKem768>::try_from(&encapsulation[32..]).ok()?;
+    let ml_ct = ml_kem::Ciphertext::<MlKem1024>::try_from(&encapsulation[32..]).ok()?;
     let ml_ss = sk.ml.decapsulate(&ml_ct).ok()?;
 
     // F2: reconstruye el mismo transcript con la clave pública COMPLETA del
@@ -187,6 +187,16 @@ fn combine(x_ss: &[u8], ml_ss: &[u8], transcript: &[u8]) -> [u8; CONTENT_KEY_LEN
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parameters_are_cnsa_level5() {
+        // CNSA 2.0 (NSA) exige ML-KEM-1024 = categoría de seguridad NIST 5.
+        // Fija los tamaños FIPS-203 del nivel 5 para detectar cualquier regresión
+        // de parámetros.
+        assert_eq!(MLKEM_EK_LEN, 1568, "ek ML-KEM-1024");
+        assert_eq!(MLKEM_CT_LEN, 1568, "ciphertext ML-KEM-1024");
+        assert_eq!(MLKEM_DK_LEN, 3168, "dk ML-KEM-1024");
+    }
 
     #[test]
     fn kem_round_trip_recovers_shared_secret() {

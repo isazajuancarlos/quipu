@@ -23,7 +23,7 @@ fn main() {
 
     println!("================ QUIPU v2 ================\n");
 
-    // (1) Híbrido post-cuántico (X25519 + ML-KEM-768).
+    // (1) Híbrido post-cuántico (X25519 + ML-KEM-1024).
     println!("[1] Cifrado híbrido post-cuántico a clave pública");
     let (pk, sk) = pqhybrid::generate_keypair();
     println!("    clave pública: {} bytes  | secreta: {} bytes",

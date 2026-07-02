@@ -34,9 +34,9 @@ plaintext
 | KDF | HKDF-SHA256 | `hkdf` |
 | Hash | SHA-256, SHA-512 | `sha2` |
 | Classical KEM/DH | X25519 | `x25519-dalek` |
-| Post-quantum KEM | ML-KEM-768 (FIPS-203) | `ml-kem` |
+| Post-quantum KEM | ML-KEM-1024 (FIPS-203) | `ml-kem` |
 | Classical signature | Ed25519 (EdDSA) | `ed25519-dalek` |
-| Post-quantum signature | ML-DSA-65 (FIPS-204) | `ml-dsa` |
+| Post-quantum signature | ML-DSA-87 (FIPS-204) | `ml-dsa` |
 | OPRF group | ristretto255 | `curve25519-dalek` |
 | Normalization | Unicode NFKC | `unicode-normalization` |
 
@@ -159,10 +159,10 @@ from the KEM.
 | Item | Size (bytes) |
 |------|-------------:|
 | X25519 public | 32 |
-| ML-KEM-768 encapsulation key (ek) | 1184 |
-| ML-KEM-768 ciphertext (ct) | 1088 |
-| Hybrid public key (X25519 pub ‖ ek) | 1216 |
-| Encapsulation (eph X25519 pub ‖ ct) | 1120 |
+| ML-KEM-1024 encapsulation key (ek) | 1568 |
+| ML-KEM-1024 ciphertext (ct) | 1568 |
+| Hybrid public key (X25519 pub ‖ ek) | 1600 |
+| Encapsulation (eph X25519 pub ‖ ct) | 1600 |
 
 ### 7.2 Encapsulation and key combination
 
@@ -180,7 +180,7 @@ content_key(32)= HKDF-SHA256(ikm = x_ss ‖ ml_ss, salt = none,
 Binding the recipient's **full** public key (X25519 + ek) is X-Wing style and
 prevents public-key-substitution / re-encapsulation attacks. On decapsulation the
 recipient recomputes `ek` from its decapsulation key. Breaking `content_key`
-requires breaking **both** X25519 and ML-KEM-768.
+requires breaking **both** X25519 and ML-KEM-1024.
 
 ### 7.3 Container
 
@@ -260,13 +260,13 @@ backups, releases.
 | Item | Primitive | Size (bytes) |
 |------|-----------|-------------:|
 | Ed25519 verifying key | Ed25519 | 32 |
-| ML-DSA-65 verifying key | ML-DSA-65 (FIPS-204) | 1952 |
-| Hybrid verifying key (Ed25519 ‖ ML-DSA vk) | — | 1984 |
+| ML-DSA-87 verifying key | ML-DSA-87 (FIPS-204) | 2592 |
+| Hybrid verifying key (Ed25519 ‖ ML-DSA vk) | — | 2624 |
 | Ed25519 seed / ML-DSA seed | — | 32 / 32 |
 | Hybrid signing key (Ed25519 seed ‖ ML-DSA seed) | — | 64 |
 | Ed25519 signature | Ed25519 | 64 |
-| ML-DSA-65 signature | ML-DSA-65 | 3309 |
-| Hybrid signature (Ed25519 ‖ ML-DSA) | — | 3373 |
+| ML-DSA-87 signature | ML-DSA-87 | 4627 |
+| Hybrid signature (Ed25519 ‖ ML-DSA) | — | 4691 |
 
 Both signing keys are stored as their 32-byte seeds and re-expanded on use; the
 seed material is zeroized on drop.
@@ -289,7 +289,7 @@ Binding the **full** verifying key (both components) and a domain label into the
 signed preimage prevents weak key-substitution and cross-component mixing (a
 component signature cannot be reused under a different keypair). The **AND**
 combiner (both must verify) makes the hybrid signature unforgeable as long as **at
-least one** of Ed25519 / ML-DSA-65 remains unforgeable.
+least one** of Ed25519 / ML-DSA-87 remains unforgeable.
 
 ### 9.3 Signed container
 

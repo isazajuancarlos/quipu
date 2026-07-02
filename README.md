@@ -4,13 +4,13 @@
 [![crates.io](https://img.shields.io/crates/v/quipu.svg)](https://crates.io/crates/quipu)
 [![docs.rs](https://img.shields.io/docsrs/quipu)](https://docs.rs/quipu)
 [![CI](https://github.com/isazajuancarlos/quipu/actions/workflows/ci.yml/badge.svg)](https://github.com/isazajuancarlos/quipu/actions/workflows/ci.yml)
-[![post-quantum](https://img.shields.io/badge/post--quantum-ML--KEM--768-purple.svg)](#modos)
+[![post-quantum](https://img.shields.io/badge/post--quantum-ML--KEM--1024-purple.svg)](#modos)
 
 Librería de codificación con **protección criptográfica** y **simbología propia**.
 
 > 🇬🇧 *Quipu is a free/libre (AGPL-3.0) library that encrypts and encodes data
 > using only vetted cryptographic primitives (XChaCha20-Poly1305, Argon2id,
-> HKDF), with a hybrid post-quantum mode (X25519 + ML-KEM-768) and a verifiable
+> HKDF), with a hybrid post-quantum mode (X25519 + ML-KEM-1024) and a verifiable
 > online hardening mode (VOPRF + DLEQ). It never invents primitives — security
 > lives in the keys, not in hiding the format.*
 
@@ -33,12 +33,12 @@ datos → KDF(passphrase+pepper) → AEAD → contenedor → codec base-N → di
 | Modo | API (Rust) | Descripción |
 |---|---|---|
 | Simétrico (passphrase) | `api::encode` / `api::decode` | Argon2id + XChaCha20-Poly1305 |
-| Post-cuántico (clave pública) | `api::encode_to_recipient` / `decode_as_recipient` | Híbrido **X25519 + ML-KEM-768** (transcript ligado estilo X-Wing) |
+| Post-cuántico (clave pública) | `api::encode_to_recipient` / `decode_as_recipient` | Híbrido **X25519 + ML-KEM-1024** (transcript ligado estilo X-Wing) |
 | Canal visual | `api::encode_to_image` / `decode_from_image` | Salida **PNG** lossless |
 | Canal robusto (impreso) | `api::encode_to_robust_image` / `decode_from_robust_image` | + **Reed-Solomon** (corrige errores de canal) |
 | Glifos nativos | `api::encode_to_glyph_image` / `decode_from_glyph_image` | Alfabeto de glifos propio, reconocible |
 | Online (endurecimiento) | `api::encode_online` / `decode_online` | **VOPRF verificable** (prueba DLEQ): el cliente detecta un servidor deshonesto |
-| Firmado (autenticidad) | `api::encode_signed` / `decode_verified` | Firma híbrida **Ed25519 + ML-DSA-65** (combinador AND). Autenticidad y no-repudio verificables; **no** confidencialidad |
+| Firmado (autenticidad) | `api::encode_signed` / `decode_verified` | Firma híbrida **Ed25519 + ML-DSA-87** (combinador AND). Autenticidad y no-repudio verificables; **no** confidencialidad |
 
 ## Diccionarios (simbología enchufable)
 
@@ -151,10 +151,12 @@ python tests/python/test_quipu.py
 
 ## Estado
 
-v1 + v1.1 + v2 + firmas implementados con TDD estricto. **104 tests Rust +
+v1 + v1.1 + v2 + firmas implementados con TDD estricto. **106 tests Rust +
 Wycheproof + 8 Python** verdes, clippy limpio, fuzzing sin crashes, Miri sin UB.
-Modo online con **VOPRF verificable** (prueba DLEQ), KEM híbrido con transcript
-ligado estilo X-Wing, **firma híbrida Ed25519 + ML-DSA-65** (combinador AND), y
+Parámetros post-cuánticos en **categoría de seguridad NIST 5 (CNSA 2.0)**:
+**ML-KEM-1024** y **ML-DSA-87**. Modo online con **VOPRF verificable** (prueba
+DLEQ), KEM híbrido con transcript ligado estilo X-Wing, **firma híbrida Ed25519 +
+ML-DSA-87** (combinador AND), y
 **pre-auditoría** propia (ver `INFORME_PREAUDITORIA.txt` y `MODELO_DE_AMENAZA.txt`).
 **Security Lab** (red-team adaptativo auto-hospedado): 14 ataques en CI
 (`--features lab`) + banco offline de timing/guessing (`--features lab-offline`).

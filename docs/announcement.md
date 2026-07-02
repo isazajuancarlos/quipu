@@ -24,7 +24,7 @@ So the security-critical pieces are all standard, vetted crates:
 
 - **AEAD:** XChaCha20-Poly1305
 - **KDF:** Argon2id + HKDF-SHA256 (+ NFKC normalization, optional pepper)
-- **Post-quantum KEM:** ML-KEM-768 (FIPS-203) via the `ml-kem` crate
+- **Post-quantum KEM:** ML-KEM-1024 (FIPS-203) via the `ml-kem` crate
 - **Classical KEM/DH:** X25519 (`x25519-dalek`)
 - **OPRF group:** ristretto255 (`curve25519-dalek`)
 
@@ -48,7 +48,7 @@ usually doesn't bother with:
 
 ### 1. Hybrid post-quantum mode
 Encrypting to a recipient's public key derives the content key from **both** an
-X25519 shared secret **and** an ML-KEM-768 shared secret, combined through HKDF
+X25519 shared secret **and** an ML-KEM-1024 shared secret, combined through HKDF
 with an X-Wing-style transcript binding (the recipient's full public key —
 X25519 + ML-KEM encapsulation key — is bound into the KDF). An attacker has to
 break **both** to recover the key, which is the point of "harvest now, decrypt

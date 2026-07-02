@@ -91,7 +91,7 @@ fn decode_as_recipient<'py>(
     }
 }
 
-/// Genera un par de claves de FIRMA híbrida (Ed25519 + ML-DSA-65). Devuelve
+/// Genera un par de claves de FIRMA híbrida (Ed25519 + ML-DSA-87). Devuelve
 /// `(verifying_key, signing_key)` como bytes. La clave de firma es sensible.
 #[pyfunction]
 fn generate_signing_keypair(py: Python<'_>) -> (Bound<'_, PyBytes>, Bound<'_, PyBytes>) {

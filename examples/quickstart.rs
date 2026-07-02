@@ -72,7 +72,7 @@ fn main() {
     let enc_pq = encode_to_recipient(secret, &pk, &dict);
     let dec_pq = decode_as_recipient(&enc_pq, &sk, &dict).expect("decapsular con la clave secreta");
     assert_eq!(dec_pq, secret, "round-trip post-cuántico");
-    println!("[5] Post-cuántico (X25519 + ML-KEM-768) -> round-trip OK ✔\n");
+    println!("[5] Post-cuántico (X25519 + ML-KEM-1024) -> round-trip OK ✔\n");
 
     // -------------------------------------------------------------------------
     // 6) Firma híbrida (autenticidad/no-repudio, NO confidencialidad).
@@ -87,7 +87,7 @@ fn main() {
         decode_verified(&signed, &other_vk, &dict).is_err(),
         "una clave de verificación equivocada debe fallar"
     );
-    println!("[6] Firma híbrida (Ed25519 + ML-DSA-65) -> verifica y rechaza clave ajena ✔");
+    println!("[6] Firma híbrida (Ed25519 + ML-DSA-87) -> verifica y rechaza clave ajena ✔");
 
     println!("\n✅ Todos los modos funcionaron correctamente.");
 }
