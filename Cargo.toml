@@ -24,6 +24,9 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 python = ["dep:pyo3"]
+# Laboratorio de seguridad (red-team adaptativo). NUNCA se activa en release ni
+# en la rueda de PyPI: el arma no viaja con el producto.
+lab = []
 
 [dependencies]
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
@@ -49,3 +52,7 @@ reed-solomon = "0.2"
 [dev-dependencies]
 proptest = "1"
 wycheproof = "0.6"
+
+[[example]]
+name = "securitylab"
+required-features = ["lab"]

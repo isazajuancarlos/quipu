@@ -6,6 +6,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Quipu Security Lab (Etapa A)**: a self-hosted *adaptive* red-team behind a
+  non-default `lab` Cargo feature (never compiled into the published crate or the
+  PyPI wheel — "the weapon does not ship with the product"). A deterministic,
+  seed-reproducible engine drives breach-guided attacks over two surfaces:
+  ciphertext/format length-leak distinguishing (surface 1) and adaptive signature
+  forgery — frankensignatures, key-substitution and region tampering (surface 4).
+  Ships three anti-abuse locks: compile-time isolation, a tamper-evidence guard
+  that fails CI if the antihacker defenses (`ct_eq`, KDF-param validation, `wipe`)
+  are weakened, and a hash-chained findings corpus. Run with
+  `cargo run --example securitylab --features lab`.
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - Written specification with machine-readable interoperability test vectors.
