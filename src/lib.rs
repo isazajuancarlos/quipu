@@ -18,6 +18,7 @@ pub mod glyphfont;
 pub mod glyphopt;
 pub mod hackerbot;
 pub mod kdf;
+pub mod netlimit;
 pub mod oprf;
 pub mod oprf_net;
 pub mod pqhybrid;
