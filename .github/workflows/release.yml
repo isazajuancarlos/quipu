@@ -72,13 +72,13 @@ jobs:
           skip-existing: true
 
   sign:
-    name: sign artifacts (sigstore)
+    name: sign artifacts (sigstore) + GitHub Release
     needs: [wheels, sdist]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       id-token: write   # cosign keyless (OIDC), sin claves en secretos
-      contents: read
+      contents: write   # crear el GitHub Release y adjuntar artefactos + firmas
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -96,3 +96,18 @@ jobs:
           name: signatures
           path: dist/*.sigstore
           if-no-files-found: error
+      # Publica un GitHub Release con las ruedas/sdist Y sus bundles .sigstore,
+      # para que cualquiera pueda `cosign verify-blob --bundle` según docs/RELEASES.md.
+      - name: Create GitHub Release with signed artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.sigstore
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            Artefactos firmados con sigstore/cosign (keyless, OIDC).
+            Verificación: ver [`docs/RELEASES.md`](https://github.com/isazajuancarlos/quipu/blob/main/docs/RELEASES.md)
+            (attestations PEP 740 en PyPI + `cosign verify-blob --bundle` para cada `.sigstore`).

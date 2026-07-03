@@ -130,18 +130,6 @@ pub fn decode_timing(samples: usize) -> TimingReport {
     }
 }
 
-/// Tiempos crudos (nanosegundos) de `op` sobre `samples` repeticiones.
-fn sample_times_ns(samples: usize, mut op: impl FnMut()) -> Vec<f64> {
-    let n = samples.max(2);
-    let mut v = Vec::with_capacity(n);
-    for _ in 0..n {
-        let t = Instant::now();
-        op();
-        v.push(t.elapsed().as_nanos() as f64);
-    }
-    v
-}
-
 /// Veredicto dudect: t de Welch entre dos clases de tiempos y decisión
 /// constant-time.
 pub struct DudectReport {
@@ -169,8 +157,36 @@ impl DudectReport {
     }
 }
 
+/// Muestrea dos clases de tiempos **intercaladas** (A,B,A,B,…) en un único
+/// bucle. Así la deriva del sistema (escalado de frecuencia de CPU, planificación,
+/// calentamiento de caché) afecta a ambas clases por igual dentro de cada
+/// iteración y se cancela en la diferencia de medias — requisito del método
+/// dudect. Muestrear cada clase en un bucle separado (como en el bench de
+/// `decode`, donde ambas clases son la *misma* operación) deja que un offset
+/// sistemático entre bucles infle `|t|` de forma espuria.
+fn sample_two_classes_interleaved(
+    samples: usize,
+    mut op_a: impl FnMut(),
+    mut op_b: impl FnMut(),
+) -> (Vec<f64>, Vec<f64>) {
+    let n = samples.max(2);
+    let mut a = Vec::with_capacity(n);
+    let mut b = Vec::with_capacity(n);
+    for _ in 0..n {
+        let ta = Instant::now();
+        op_a();
+        a.push(ta.elapsed().as_nanos() as f64);
+        let tb = Instant::now();
+        op_b();
+        b.push(tb.elapsed().as_nanos() as f64);
+    }
+    (a, b)
+}
+
 /// dudect sobre `ct_eq`: la clase A difiere en el PRIMER byte, la B en el ÚLTIMO.
-/// Una comparación en tiempo constante no debe distinguir ambas clases.
+/// Una comparación en tiempo constante no debe distinguir ambas clases. Las dos
+/// clases se muestrean intercaladas para que la deriva del sistema no produzca
+/// un veredicto de fuga espurio.
 pub fn dudect_ct_eq(samples: usize) -> DudectReport {
     let base = [0x5Au8; 64];
     let mut diff_first = base;
@@ -178,12 +194,21 @@ pub fn dudect_ct_eq(samples: usize) -> DudectReport {
     let mut diff_last = base;
     diff_last[63] ^= 0xFF;
 
-    let a = sample_times_ns(samples, || {
-        std::hint::black_box(ct_eq(&base, std::hint::black_box(&diff_first)));
-    });
-    let b = sample_times_ns(samples, || {
-        std::hint::black_box(ct_eq(&base, std::hint::black_box(&diff_last)));
-    });
+    let (a, b) = sample_two_classes_interleaved(
+        samples,
+        || {
+            std::hint::black_box(ct_eq(
+                std::hint::black_box(&base),
+                std::hint::black_box(&diff_first),
+            ));
+        },
+        || {
+            std::hint::black_box(ct_eq(
+                std::hint::black_box(&base),
+                std::hint::black_box(&diff_last),
+            ));
+        },
+    );
     DudectReport::from_classes("dudect/ct_eq", &a, &b)
 }
 
@@ -281,5 +306,23 @@ mod tests {
         let b: Vec<f64> = (0..100).map(|i| if i % 2 == 0 { 29.0 } else { 31.0 }).collect();
         let r = DudectReport::from_classes("t", &a, &b);
         assert!(!r.is_constant_time(DUDECT_T_THRESHOLD), "t={}", r.t);
+    }
+
+    #[test]
+    fn interleaved_sampling_runs_both_classes_equally() {
+        // El muestreo intercalado ejecuta cada clase exactamente `samples` veces
+        // y devuelve vectores de igual longitud (base para que la deriva se
+        // cancele: una medición de A y una de B por iteración).
+        let mut count_a = 0usize;
+        let mut count_b = 0usize;
+        let (a, b) = sample_two_classes_interleaved(
+            32,
+            || count_a += 1,
+            || count_b += 1,
+        );
+        assert_eq!(a.len(), 32);
+        assert_eq!(b.len(), 32);
+        assert_eq!(count_a, 32);
+        assert_eq!(count_b, 32);
     }
 }
