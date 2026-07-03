@@ -27,6 +27,10 @@ GRANT_NLNET.md
 OTF_RED_TEAM_LAB.md
 OTF_IFF_CONCEPT_NOTE.md
 
+# --- Notas internas de planificación/diseño (NO públicas) ---
+PENDIENTES.txt
+QUIPU_PROYECTO_Y_REQUISITOS.txt
+
 # --- Artefactos generados por ejemplos ---
 quickstart_glifos.png
 dist/
