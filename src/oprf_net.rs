@@ -14,8 +14,9 @@ use std::net::TcpStream;
 use crate::oprf::Server;
 use crate::voprf;
 
-/// Cliente: envía el punto cegado al servidor y devuelve la evaluación, o
-/// `None` si el servidor la denegó (rate-limit / punto inválido).
+/// Cliente SIN verificación (sin prueba DLEQ): no detecta un servidor
+/// deshonesto. Prefiere [`evaluate_remote_verified`]. Oculto de la doc.
+#[doc(hidden)]
 pub fn evaluate_remote(addr: &str, blinded: &[u8; 32]) -> std::io::Result<Option<[u8; 32]>> {
     let mut stream = TcpStream::connect(addr)?;
     stream.write_all(blinded)?;
@@ -28,8 +29,9 @@ pub fn evaluate_remote(addr: &str, blinded: &[u8; 32]) -> std::io::Result<Option
     Ok(if status[0] == 1 { Some(resp) } else { None })
 }
 
-/// Servidor: atiende una conexión. `allowed` = decisión de rate-limit ya tomada
-/// por el llamante (true = permitir, false = denegar sin evaluar).
+/// Servidor SIN verificación (responde sin prueba DLEQ). Prefiere
+/// [`handle_connection_verified`]. Oculto de la doc.
+#[doc(hidden)]
 pub fn handle_connection<S: Read + Write>(
     stream: &mut S,
     server: &Server,

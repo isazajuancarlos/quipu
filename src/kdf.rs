@@ -40,9 +40,13 @@ impl Default for KdfParams {
 }
 
 impl KdfParams {
-    /// Memoria máxima soportada (1 GiB). Acota el coste y evita el overflow
-    /// de Argon2 con parámetros maliciosos (mem_kib * 1024 debe caber en u32).
-    pub const MAX_MEM_KIB: u32 = 1_048_576;
+    /// Memoria máxima soportada (256 MiB). Acota dos cosas: el overflow de
+    /// Argon2 con parámetros maliciosos, y la AMPLIFICACIÓN de coste al descifrar
+    /// entrada NO confiable — un contenedor ajeno fija sus propios params y el
+    /// KDF corre ANTES de que el tag AEAD falle, así que un blob diminuto no debe
+    /// poder forzar 1 GiB. 256 MiB sigue siendo 4× el coste interactivo por
+    /// defecto (64 MiB) y cubre de sobra los presets sensibles habituales.
+    pub const MAX_MEM_KIB: u32 = 262_144;
     /// Iteraciones máximas.
     pub const MAX_ITERATIONS: u32 = 16;
     /// Paralelismo máximo.
@@ -116,6 +120,38 @@ mod tests {
             iterations: 1,
             parallelism: 1,
         }
+    }
+
+    #[test]
+    fn is_sane_bounds_the_cost_ceiling() {
+        // El default es sano.
+        assert!(KdfParams::default().is_sane());
+        // 256 MiB (el techo) es sano; por encima se rechaza (anti-amplificación).
+        assert!(
+            KdfParams {
+                mem_kib: KdfParams::MAX_MEM_KIB,
+                iterations: 3,
+                parallelism: 1,
+            }
+            .is_sane()
+        );
+        assert!(
+            !KdfParams {
+                mem_kib: KdfParams::MAX_MEM_KIB + 1,
+                iterations: 3,
+                parallelism: 1,
+            }
+            .is_sane()
+        );
+        // Params extremos (u32::MAX) siguen rechazados.
+        assert!(
+            !KdfParams {
+                mem_kib: u32::MAX,
+                iterations: u32::MAX,
+                parallelism: u32::MAX,
+            }
+            .is_sane()
+        );
     }
 
     #[test]

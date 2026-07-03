@@ -195,9 +195,9 @@ impl GlyphFont {
 
     /// Reconoce los índices desde un PNG de glifos (vecino más cercano).
     pub fn recognize(&self, png: &[u8]) -> Option<Vec<u32>> {
-        let img = image::load_from_memory_with_format(png, ImageFormat::Png)
-            .ok()?
-            .to_luma8();
+        // Decodifica con límites de tamaño (anti bomba de descompresión), igual
+        // que el canal PNG directo.
+        let img = crate::render::decode_png_luma(png)?;
         let n = (img.width() as usize) / CELL;
         let mut out = Vec::with_capacity(n);
         for i in 0..n {

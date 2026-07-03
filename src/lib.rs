@@ -18,6 +18,12 @@ pub mod glyphfont;
 pub mod glyphopt;
 pub mod hackerbot;
 pub mod kdf;
+pub mod netlimit;
+/// OPRF **sin verificación** (sin prueba DLEQ). Prefiere `voprf` (verificable):
+/// con él el cliente detecta un servidor deshonesto. Se mantiene por
+/// compatibilidad y usos de bajo nivel; oculto de la documentación para no
+/// invitar a saltarse la verificación.
+#[doc(hidden)]
 pub mod oprf;
 pub mod oprf_net;
 pub mod pqhybrid;
