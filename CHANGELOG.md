@@ -6,12 +6,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-- **Supply-chain & side-channel credibility (Security Lab Fase 0)**: a dudect-style
-  constant-time gate (Welch's t-test) in the offline timing bench; a CycloneDX SBOM
-  and a `cargo-vet` dependency-review gate in CI; and sigstore/cosign keyless
-  signatures for release artifacts, documented in `docs/RELEASES.md`.
-
 ### Planned
 - Independent security audit and public remediation of findings.
 - Written specification with machine-readable interoperability test vectors.
@@ -19,6 +13,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reference deployment of the online VOPRF hardening server.
 
 ## [0.4.0] — 2026-07-02
+
+### Added
+- **Supply-chain & side-channel credibility (Security Lab Fase 0)**: a dudect-style
+  constant-time gate (Welch's t-test) in the offline timing bench; a CycloneDX SBOM
+  and a `cargo-vet` dependency-review gate in CI; and sigstore/cosign keyless
+  signatures for release artifacts, documented in `docs/RELEASES.md`.
 
 ### Changed (BREAKING — wire format)
 - **Post-quantum primitives raised to NIST security category 5 (CNSA 2.0)**:
