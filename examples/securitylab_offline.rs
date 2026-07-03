@@ -29,11 +29,17 @@ fn main() {
     );
 
     // Superficie 2 (dudect): t de Welch sobre ct_eq. |t| > umbral = posible fuga.
-    let dud = dudect_ct_eq(10_000);
+    // Una sola corrida es sensible al ruido del sistema, así que tomamos la
+    // MEDIANA de varias corridas por |t|. La mediana descarta un valor atípico
+    // en CUALQUIER dirección: no oculta una fuga real (a diferencia de quedarse
+    // con el menor |t|, que sería fail-open) ni falla por un pico espurio.
+    let mut runs: Vec<_> = (0..3).map(|_| dudect_ct_eq(10_000)).collect();
+    runs.sort_by(|a, b| a.t.abs().partial_cmp(&b.t.abs()).unwrap());
+    let dud = runs.swap_remove(runs.len() / 2);
     let verdict = if dud.is_constant_time(DUDECT_T_THRESHOLD) {
         "constant-time"
     } else {
-        "POSIBLE FUGA"
+        "POSIBLE FUGA (mediana de 3 corridas)"
     };
     println!(
         "[dudect]   {:<27} t={:.2} (n={}, umbral={:.0}) -> {}",
