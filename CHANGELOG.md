@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Planned
+- Independent security audit and public remediation of findings.
+- Written specification with machine-readable interoperability test vectors.
+- Multi-language bindings over the C ABI (C / Node.js / Go).
+- Reference deployment of the online VOPRF hardening server.
+
+## [0.4.1] — 2026-07-02
+
 ### Security
 - **Internal security audit remediation** (availability/robustness hardening;
   no confidentiality/integrity issue was found). Online OPRF server: per-connection
@@ -15,17 +23,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   limits (anti decompression-bomb); `ecc::recover` rejects a degenerate parity
   byte; `decode_verified` uses checked arithmetic (no 32-bit length overflow);
   the unverified OPRF path is hidden from docs in favour of the verifiable VOPRF.
+
+### Changed
 - **`KdfParams` maximum memory lowered from 1 GiB to 256 MiB.** Decrypting an
   untrusted container runs Argon2 with the container's own parameters before the
   AEAD tag is checked, so the ceiling bounds a cost-amplification DoS. 256 MiB is
   4× the interactive default. **Compatibility:** artifacts encoded with
   `mem_kib > 256 MiB` (very unusual) can no longer be decoded.
-
-### Planned
-- Independent security audit and public remediation of findings.
-- Written specification with machine-readable interoperability test vectors.
-- Multi-language bindings over the C ABI (C / Node.js / Go).
-- Reference deployment of the online VOPRF hardening server.
 
 ## [0.4.0] — 2026-07-02
 
@@ -134,7 +138,8 @@ First public release. Published to crates.io (`quipu`) and PyPI
   (no crashes) on the pure-logic and parsing modules; `cargo-audit` in CI.
 - **Not yet independently audited** — see [`SECURITY.md`](SECURITY.md).
 
-[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/isazajuancarlos/quipu/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/isazajuancarlos/quipu/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/isazajuancarlos/quipu/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/isazajuancarlos/quipu/compare/v0.1.0...v0.2.0
