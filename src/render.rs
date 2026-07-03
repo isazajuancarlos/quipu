@@ -7,10 +7,35 @@
 
 use std::io::Cursor;
 
-use image::{GrayImage, ImageFormat, Luma};
+use image::{GrayImage, ImageFormat, ImageReader, Limits, Luma};
 
 /// Prefijo de longitud (u32 little-endian) al inicio del payload.
 const LEN_PREFIX: usize = 4;
+
+/// Dimensión máxima (ancho o alto) de un PNG no confiable al decodificar.
+const MAX_IMG_DIM: u32 = 8192;
+/// Asignación máxima permitida al decodificar un PNG no confiable (128 MiB).
+const MAX_IMG_ALLOC: u64 = 128 * 1024 * 1024;
+
+/// Decodifica un PNG no confiable a escala de grises, RECHAZANDO imágenes cuyas
+/// dimensiones o asignación excedan los límites. Sin esto, un PNG con
+/// dimensiones enormes (IHDR malicioso) provocaría una asignación de varios GB
+/// (bomba de descompresión / OOM) antes de que ningún dato se autentique.
+pub(crate) fn decode_png_luma(png: &[u8]) -> Option<GrayImage> {
+    decode_png_luma_limited(png, MAX_IMG_DIM, MAX_IMG_ALLOC)
+}
+
+fn decode_png_luma_limited(png: &[u8], max_dim: u32, max_alloc: u64) -> Option<GrayImage> {
+    let mut reader = ImageReader::new(Cursor::new(png));
+    reader.set_format(ImageFormat::Png);
+    let mut limits = Limits::no_limits();
+    limits.max_image_width = Some(max_dim);
+    limits.max_image_height = Some(max_dim);
+    limits.max_alloc = Some(max_alloc);
+    reader.limits(limits);
+    // decode() aplica los límites contra el IHDR ANTES de asignar el búfer.
+    Some(reader.decode().ok()?.to_luma8())
+}
 
 /// Convierte `data` en un PNG en escala de grises (imagen cuadrada).
 pub fn bytes_to_png(data: &[u8]) -> Vec<u8> {
@@ -41,9 +66,7 @@ pub fn bytes_to_png(data: &[u8]) -> Vec<u8> {
 
 /// Recupera los bytes desde un PNG generado por [`bytes_to_png`].
 pub fn png_to_bytes(png: &[u8]) -> Option<Vec<u8>> {
-    let img = image::load_from_memory_with_format(png, ImageFormat::Png)
-        .ok()?
-        .to_luma8();
+    let img = decode_png_luma(png)?;
     let payload: Vec<u8> = img.pixels().map(|p| p.0[0]).collect();
 
     if payload.len() < LEN_PREFIX {
@@ -84,5 +107,27 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         assert!(png_to_bytes(b"no soy un png").is_none());
+    }
+
+    #[test]
+    fn rejects_image_exceeding_dimension_limit() {
+        // Un PNG legítimo de ~71×71 px (payload de 5000 B). Con un límite de
+        // dimensión bajo se rechaza SIN asignar; con el límite normal, pasa.
+        let png = bytes_to_png(&vec![0u8; 5000]);
+        assert!(
+            decode_png_luma_limited(&png, 8, 1 << 30).is_none(),
+            "una imagen mayor que el límite de dimensión debe rechazarse"
+        );
+        assert!(
+            decode_png_luma_limited(&png, 8192, 1 << 30).is_some(),
+            "dentro del límite debe decodificar"
+        );
+    }
+
+    #[test]
+    fn rejects_image_exceeding_alloc_limit() {
+        // El mismo PNG con un techo de asignación diminuto se rechaza.
+        let png = bytes_to_png(&vec![0u8; 5000]);
+        assert!(decode_png_luma_limited(&png, 8192, 16).is_none());
     }
 }
