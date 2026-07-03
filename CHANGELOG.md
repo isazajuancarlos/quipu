@@ -19,6 +19,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   constant-time gate (Welch's t-test) in the offline timing bench; a CycloneDX SBOM
   and a `cargo-vet` dependency-review gate in CI; and sigstore/cosign keyless
   signatures for release artifacts, documented in `docs/RELEASES.md`.
+- **Signed release**: the wheels, sdist and their `.sigstore` bundles are attached
+  to the [v0.4.0 GitHub Release](https://github.com/isazajuancarlos/quipu/releases/tag/v0.4.0),
+  verifiable with `cosign verify-blob --bundle` (keyless, GitHub OIDC identity);
+  the PyPI wheels additionally carry PEP 740 provenance attestations. Verification
+  steps are in [`docs/RELEASES.md`](docs/RELEASES.md).
 
 ### Changed (BREAKING — wire format)
 - **Post-quantum primitives raised to NIST security category 5 (CNSA 2.0)**:
