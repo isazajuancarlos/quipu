@@ -37,7 +37,10 @@ pub fn recover(protected: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let parity = protected[0];
-    if parity < 2 {
+    // `parity` viene de la cabecera NO protegida. Debe dejar sitio para datos:
+    // con parity==255 el chunk sería 0 (bloque de pura paridad) -> trabajo inútil
+    // y parámetros Reed-Solomon degenerados. Exige 2 <= parity <= 254.
+    if parity < 2 || 255 - (parity as usize) == 0 {
         return None;
     }
     let data_len = u32::from_le_bytes(protected[1..HEADER].try_into().ok()?) as usize;
@@ -118,5 +121,18 @@ mod tests {
         let mut prot = protect(b"hola", 8);
         prot[1..5].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(recover(&prot).is_none());
+    }
+
+    #[test]
+    fn rejects_degenerate_parity_byte() {
+        // parity==255 (chunk==0) en la cabecera manipulada -> None, sin bucle inútil.
+        let mut prot = protect(b"hola", 8);
+        prot[0] = 255;
+        assert!(recover(&prot).is_none());
+        // parity==254 (chunk==1) sigue siendo un valor límite aceptable de leer.
+        let mut prot2 = protect(b"hola", 8);
+        prot2[0] = 254;
+        // No debe entrar en pánico; devuelve None por longitudes inconsistentes.
+        let _ = recover(&prot2);
     }
 }

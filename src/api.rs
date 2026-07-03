@@ -417,11 +417,20 @@ pub fn decode_verified(
     let msg_len = u32::from_be_bytes(blob[6..10].try_into().expect("4 bytes")) as usize;
 
     // La longitud declarada debe encajar EXACTAMENTE con mensaje + firma fija.
-    if blob.len() != SIGNED_PREFIX + msg_len + pqsign::SIGNATURE_LEN {
+    // Aritmética VERIFICADA: en targets de 32 bits, `msg_len` (hasta ~4 GiB)
+    // podría desbordar `usize` al sumar y hacer pasar el chequeo con un rango de
+    // slice fuera de límites (panic/DoS). `checked_add` lo rechaza limpiamente.
+    let Some(msg_end) = SIGNED_PREFIX.checked_add(msg_len) else {
+        return Err(DecodeError::Container(ContainerError::TooShort));
+    };
+    let Some(expected_len) = msg_end.checked_add(pqsign::SIGNATURE_LEN) else {
+        return Err(DecodeError::Container(ContainerError::TooShort));
+    };
+    if blob.len() != expected_len {
         return Err(DecodeError::Container(ContainerError::TooShort));
     }
-    let message = &blob[SIGNED_PREFIX..SIGNED_PREFIX + msg_len];
-    let signature = &blob[SIGNED_PREFIX + msg_len..];
+    let message = &blob[SIGNED_PREFIX..msg_end];
+    let signature = &blob[msg_end..];
 
     if !verifier.verify(message, signature) {
         return Err(DecodeError::BadSignature);
@@ -535,6 +544,25 @@ mod tests {
         chars[0] = if chars[0] == 'A' { 'B' } else { 'A' };
         let tampered: String = chars.into_iter().collect();
         assert!(decode(&tampered, "clave", &dict, b"").is_err());
+    }
+
+    #[test]
+    fn decode_verified_rejects_overflowing_msg_len_without_panic() {
+        // Contenedor firmado manipulado con msg_len = u32::MAX: en 32-bit la suma
+        // SIGNED_PREFIX+msg_len+SIGNATURE_LEN desbordaría; `checked_add` lo
+        // rechaza limpiamente en cualquier target, sin panic de slice.
+        let dict = ascii_dict();
+        let mut blob = Vec::new();
+        blob.extend_from_slice(b"QSG1");
+        blob.push(1); // version
+        blob.push(0); // flags
+        blob.extend_from_slice(&u32::MAX.to_be_bytes()); // msg_len malicioso
+        blob.extend_from_slice(&[0u8; 200]); // cuerpo corto (no cuadra)
+        let indices = crate::codec::encode_base_n(&blob, dict.base());
+        let symbols = dict.encode(&indices).unwrap();
+        let (vk, _sk) = pqsign::generate_keypair();
+        // No debe entrar en pánico; devuelve error de contenedor/firma.
+        assert!(decode_verified(&symbols, &vk, &dict).is_err());
     }
 
     proptest! {
