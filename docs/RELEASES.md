@@ -12,8 +12,10 @@ también puedes inspeccionarlas en la página del proyecto en PyPI.
 
 ## 2. Artefactos firmados con cosign (sigstore)
 
-El job `sign` firma cada artefacto de `dist/` y sube un *bundle* `<archivo>.sigstore`.
-Para verificar un artefacto descargado junto a su bundle:
+El job `sign` firma cada artefacto de `dist/` (keyless, OIDC) y adjunta cada
+*bundle* `<archivo>.sigstore` al **GitHub Release** del tag correspondiente,
+junto a las ruedas y el sdist. Descarga el artefacto y su `.sigstore` desde
+[Releases](https://github.com/isazajuancarlos/quipu/releases) y verifícalo:
 
 ```bash
 cosign verify-blob \
