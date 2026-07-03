@@ -6,6 +6,21 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **Internal security audit remediation** (availability/robustness hardening;
+  no confidentiality/integrity issue was found). Online OPRF server: per-connection
+  read/write timeouts (anti-slowloris), a bounded worker-thread pool, and a
+  rate limiter that expires entries and caps tracked IPs (bounded memory).
+  Offline library: untrusted PNG decoding now enforces `image` size/allocation
+  limits (anti decompression-bomb); `ecc::recover` rejects a degenerate parity
+  byte; `decode_verified` uses checked arithmetic (no 32-bit length overflow);
+  the unverified OPRF path is hidden from docs in favour of the verifiable VOPRF.
+- **`KdfParams` maximum memory lowered from 1 GiB to 256 MiB.** Decrypting an
+  untrusted container runs Argon2 with the container's own parameters before the
+  AEAD tag is checked, so the ceiling bounds a cost-amplification DoS. 256 MiB is
+  4× the interactive default. **Compatibility:** artifacts encoded with
+  `mem_kib > 256 MiB` (very unusual) can no longer be decoded.
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - Written specification with machine-readable interoperability test vectors.
