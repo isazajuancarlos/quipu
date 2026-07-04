@@ -42,26 +42,35 @@ defecto: la firma pesa ~34 KB.
 | 3 | Param set | **SLH-DSA-SHA2-256s** (`Sha2_256s`, nivel 5) | Firma pequeña (~29 KB) vs 256f (~49 KB); SHA-2 ya es dependencia del crate. |
 | 4 | Combinador | AND 3-de-3 | Infalsificable mientras sobreviva ≥1 de {curva, retículo, hash}. |
 | 5 | Determinismo | Firma determinista (`sk.sign(msg)`) | Coherente con el modo doble (Ed25519/ML-DSA deterministas). |
-| 6 | Clave secreta SLH | Guardar los **bytes completos** de la SigningKey (128 B), no una semilla | La API de `slh-dsa` genera desde RNG, no expone keygen desde semilla de 32 B. |
+| 6 | Clave secreta SLH | Guardar los **bytes completos** de la PrivateKey (128 B), no una semilla | La API expone `into_bytes`/`try_from_bytes`, no keygen desde semilla de 32 B. |
 | 7 | Bindings Python | **Fuera de alcance** esta fase (Rust-first) | Mantiene la wheel por defecto ligera; se añade luego si hay demanda. |
+| 8 | Tests `slh` | Correr en **`--release`** | La firma SLH-DSA-256s en build *debug* tarda ~40 s; en release ~2 s. |
 
 ## 4. Dependencia
+
+**Nota (cambio respecto al diseño inicial):** el crate `slh-dsa` v0.1.0 de
+RustCrypto depende de un *prerelease* de la crate `signature` (`2.3.0-pre`) que
+**choca** con `ed25519-dalek`/`ml-dsa` (que fijan `signature ^2` estable). Se usa en
+su lugar **`fips205`** (integritychain), implementación FIPS-205 pura en Rust con
+API propia (traits `SerDes`/`Signer`/`Verifier`), que **no** depende de `signature`
+y por tanto no genera conflicto.
 
 Añadir a `Cargo.toml`, **opcional**, activada por la feature `slh`:
 
 ```toml
 [dependencies]
-slh-dsa = { version = "0.1.0", optional = true }
+fips205 = { version = "0.4.1", optional = true, default-features = false, features = ["slh_dsa_sha2_256s", "default-rng"] }
 
 [features]
-slh = ["dep:slh-dsa"]
+slh = ["dep:fips205"]
 ```
 
 - Rust puro, sin toolchain C (a diferencia de `aws-lc-rs` de la Fase 2).
-- API usada: `slh_dsa::{SigningKey, VerifyingKey, Signature, Sha2_256s}` y los
-  traits `signature::{Signer, Verifier, Keypair}`.
-- Fuente de aleatoriedad para keygen: un RNG del sistema (`rand_core::OsRng` o
-  wrapper sobre `getrandom`); resolver en el plan.
+- `default-features = false` + sólo el param set 256s → no compila los otros 11.
+- API usada: `fips205::slh_dsa_sha2_256s::{try_keygen, PublicKey, PrivateKey,
+  PK_LEN, SK_LEN, SIG_LEN}` y `fips205::traits::{SerDes, Signer, Verifier}`.
+  Firma determinista con `try_sign(msg, ctx, /*hedged=*/false)`; contexto FIPS-205
+  vacío (todo el binding va en la preimagen).
 - Actualizar SBOM CycloneDX y `cargo-vet` para el nuevo crate cuando se integre.
 
 ## 5. Cambios en `src/pqsign.rs`

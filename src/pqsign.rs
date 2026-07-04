@@ -293,3 +293,69 @@ mod tests {
         assert!(!vk.verify(b"m", &sig));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Fase 1: firma triple-híbrida (Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s).
+// Opt-in tras la feature `slh`. Aditivo: el modo doble de arriba no cambia.
+// ---------------------------------------------------------------------------
+// SLH-DSA-SHA2-256s vía el crate `fips205` (implementación FIPS-205 pura,
+// sin dependencia de la crate `signature` → sin choque con ed25519/ml-dsa).
+#[cfg(feature = "slh")]
+use fips205::slh_dsa_sha2_256s;
+#[cfg(feature = "slh")]
+use fips205::traits::{SerDes as _, Signer as _, Verifier as _};
+
+/// Longitud de la clave pública SLH-DSA-SHA2-256s.
+#[cfg(feature = "slh")]
+pub const SLH_PUB_LEN: usize = slh_dsa_sha2_256s::PK_LEN; // 64
+/// Longitud de la clave secreta SLH-DSA-SHA2-256s (serializada).
+#[cfg(feature = "slh")]
+pub const SLH_SECRET_LEN: usize = slh_dsa_sha2_256s::SK_LEN; // 128
+/// Longitud de la firma SLH-DSA-SHA2-256s.
+#[cfg(feature = "slh")]
+pub const SLH_SIG_LEN: usize = slh_dsa_sha2_256s::SIG_LEN; // 29792
+
+/// Contexto FIPS-205 (vacío): todo el binding de dominio va en la preimagen.
+#[cfg(feature = "slh")]
+const SLH_CTX: &[u8] = b"";
+
+/// Clave de verificación triple serializada (Ed25519 || ML-DSA || SLH-DSA).
+#[cfg(feature = "slh")]
+pub const TRIPLE_VERIFYING_KEY_LEN: usize = ED25519_PUB_LEN + MLDSA_VK_LEN + SLH_PUB_LEN; // 2688
+/// Clave de firma triple serializada (Ed25519 seed || ML-DSA seed || SLH sk). ¡Sensible!
+#[cfg(feature = "slh")]
+pub const TRIPLE_SIGNING_KEY_LEN: usize = ED25519_SEED_LEN + MLDSA_SEED_LEN + SLH_SECRET_LEN; // 192
+/// Firma triple (Ed25519 || ML-DSA || SLH-DSA).
+#[cfg(feature = "slh")]
+pub const TRIPLE_SIGNATURE_LEN: usize = ED25519_SIG_LEN + MLDSA_SIG_LEN + SLH_SIG_LEN; // 34483
+
+/// Etiqueta de dominio del modo triple. Distinta de `quipu/v3/sign`.
+#[cfg(feature = "slh")]
+const SIGN_TRIPLE_CONTEXT: &[u8] = b"quipu/v4/sign-triple";
+
+#[cfg(all(test, feature = "slh"))]
+mod triple_spike {
+    use super::*;
+
+    #[test]
+    fn slh_dsa_256s_sizes_and_roundtrip() {
+        // Bloquea la API y los tamaños del param set antes de componer.
+        assert_eq!(SLH_PUB_LEN, 64, "SLH pk len");
+        assert_eq!(SLH_SECRET_LEN, 128, "SLH sk len");
+        assert_eq!(SLH_SIG_LEN, 29_792, "SLH sig len");
+
+        let (pk, sk) = slh_dsa_sha2_256s::try_keygen().unwrap();
+        // Firma determinista (hedged=false) para reflejar Ed25519/ML-DSA.
+        let sig = sk.try_sign(b"spike", SLH_CTX, false).unwrap();
+
+        // Round-trip de serialización de clave pública y verificación.
+        let pk_bytes = pk.into_bytes();
+        assert_eq!(pk_bytes.len(), SLH_PUB_LEN);
+        let pk2 = slh_dsa_sha2_256s::PublicKey::try_from_bytes(&pk_bytes).unwrap();
+        assert!(pk2.verify(b"spike", &sig, SLH_CTX));
+        assert!(!pk2.verify(b"otro", &sig, SLH_CTX));
+
+        let sk_bytes = sk.into_bytes();
+        assert_eq!(sk_bytes.len(), SLH_SECRET_LEN);
+    }
+}

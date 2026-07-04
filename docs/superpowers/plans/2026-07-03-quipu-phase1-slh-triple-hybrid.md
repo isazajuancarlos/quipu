@@ -6,7 +6,7 @@
 
 **Architecture:** A parallel API and parallel key types (`TripleVerifyingKey` / `TripleSigningKey`) live in `src/pqsign.rs` under `#[cfg(feature = "slh")]`, mirroring the existing double-hybrid types. `src/api.rs` gains `encode_signed_triple` / `decode_verified_triple` over a new `QSG3` container that reuses the hardened (checked-arithmetic) parsing of `decode_verified`. The Security Lab (`src/lab/forge.rs`) gains 3-of-3 forgery coverage. The suite is determined by the key *type* — there is no in-band suite negotiation and thus no downgrade surface.
 
-**Tech Stack:** Rust (edition 2024), `slh-dsa` v0.1.0 (RustCrypto, pure Rust), `ed25519-dalek`, `ml-dsa`, `zeroize`, `rand_core` (OsRng).
+**Tech Stack:** Rust (edition 2024), `fips205` v0.4.1 (integritychain, pure-Rust FIPS-205; chosen over RustCrypto `slh-dsa` v0.1.0 because the latter pulls a `signature` prerelease that conflicts with `ed25519-dalek`/`ml-dsa`), `ed25519-dalek`, `ml-dsa`, `zeroize`.
 
 ## Global Constraints
 
@@ -19,7 +19,8 @@
 - Fixed sizes (FIPS-205): `SLH_PUB_LEN = 64`, `SLH_SECRET_LEN = 128`, `SLH_SIG_LEN = 29_792`, `TRIPLE_VERIFYING_KEY_LEN = 2_688`, `TRIPLE_SIGNING_KEY_LEN = 192`, `TRIPLE_SIGNATURE_LEN = 34_483`.
 - Every `cargo` invocation in this environment must be prefixed with `export PATH="$HOME/.cargo/bin:$PATH";`.
 - Branch: `feat/phase1-slh-triple` (already created). Do **not** tag or publish — release is a separate, gated step.
-- **RustCrypto serialization caveat:** `to_bytes()` returns a `hybrid_array::Array` (deref to `[u8]`); use `.as_slice()` / `&x[..]` at call sites and `TryFrom<&[u8]>` to parse. If a conversion does not compile, adjust the slice/`.as_ref()` call to satisfy the compiler — do **not** change the stored lengths.
+- **Run all `slh` tests in `--release`.** SLH-DSA-256s signing takes ~40 s in a debug build and ~2 s optimized; every `cargo test --features slh …` command below must add `--release`.
+- **`fips205` serialization:** `into_bytes()` consumes the key and returns a fixed `[u8; N]`; parse back with `PublicKey::try_from_bytes(&[u8; PK_LEN])` / `PrivateKey::try_from_bytes(&[u8; SK_LEN])`. `verify(msg, sig, ctx)` takes `sig: &[u8; SIG_LEN]` — convert a slice with `slice.try_into()` (yields `&[u8; N]`). The stored lengths (64/128/29_792) are fixed by the `PK_LEN`/`SK_LEN`/`SIG_LEN` consts.
 
 ---
 
