@@ -30,6 +30,7 @@ pub mod pqhybrid;
 pub mod pqsign;
 pub mod prelayers;
 pub mod render;
+pub mod stream;
 pub mod voprf;
 
 #[cfg(feature = "lab")]

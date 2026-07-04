@@ -64,6 +64,8 @@ jobs:
           cargo build
       - name: Lab tests
         run: cargo test --features lab --lib lab
+      - name: Lab tests (streaming forgery)
+        run: cargo test --features lab stream_attack
       - name: Lab example
         run: cargo run --example securitylab --features lab
       - name: Clippy (lab, deny warnings)

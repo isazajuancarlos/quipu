@@ -13,6 +13,7 @@ pub mod forge;
 pub mod forge_triple;
 pub mod guard;
 pub mod leak;
+pub mod stream_attack;
 
 #[cfg(feature = "lab-offline")]
 pub mod guessing;

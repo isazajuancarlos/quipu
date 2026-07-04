@@ -17,6 +17,11 @@ use crate::pqsign;
 use crate::prelayers;
 use crate::voprf;
 
+pub use crate::stream::{
+    decrypt_stream, decrypt_stream_bytes, encrypt_stream, encrypt_stream_bytes, StreamError,
+    StreamOptions,
+};
+
 /// Etiqueta de dominio HKDF para la subclave de cifrado.
 const CIPHER_SUBKEY_INFO: &[u8] = b"quipu/v1/cipher";
 

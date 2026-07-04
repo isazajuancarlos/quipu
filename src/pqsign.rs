@@ -22,7 +22,7 @@
 //! sobreviva al menos una de tres familias (curva, retículo, hash). La firma pesa
 //! ~34 KB y firmar es lento: es un modo de **alta garantía** para artefactos de
 //! altísimo valor, no el por defecto. Contenedor `QSG3` vía
-//! [`crate::api::encode_signed_triple`] / [`crate::api::decode_verified_triple`].
+//! `api::encode_signed_triple` / `api::decode_verified_triple`.
 
 use ed25519_dalek::{
     Signature as EdSignature, Signer as _, SigningKey as EdSigningKey, VerifyingKey as EdVerifyingKey,
