@@ -33,6 +33,10 @@ jobs:
         run: cargo test --features slh --release
       - name: Clippy (slh feature, deny warnings)
         run: cargo clippy --features slh --all-targets --release -- -D warnings
+      - name: Tests (honey feature — decoy encryption)
+        run: cargo test --features honey --all-targets
+      - name: Clippy (honey feature, deny warnings)
+        run: cargo clippy --features honey --all-targets -- -D warnings
 
   audit:
     name: cargo-audit (RustSec)
@@ -72,6 +76,8 @@ jobs:
         run: cargo clippy --features lab --all-targets -- -D warnings
       - name: Lab tests (triple-hybrid forgery, release)
         run: cargo test --features "lab slh" --release forge_triple
+      - name: Lab tests (honey success-oracle)
+        run: cargo test --features "lab honey" honey_attack
 
   sbom:
     name: SBOM (CycloneDX)
