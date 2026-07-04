@@ -558,4 +558,94 @@ mod triple_tests {
         assert_eq!(TRIPLE_SIGNING_KEY_LEN, 192);
         assert_eq!(TRIPLE_SIGNATURE_LEN, 34_483);
     }
+
+    #[test]
+    fn triple_tampered_message_fails() {
+        let (vk, sk) = generate_triple_keypair();
+        let sig = sk.sign(b"pagar 100");
+        assert!(!vk.verify(b"pagar 900", &sig));
+    }
+
+    #[test]
+    fn triple_tampered_signature_fails() {
+        let (vk, sk) = generate_triple_keypair();
+        let msg = b"mensaje";
+        // Voltear un bit en CADA uno de los tres componentes por separado.
+        for pos in [0, ED25519_SIG_LEN + 10, ED25519_SIG_LEN + MLDSA_SIG_LEN + 10] {
+            let mut sig = sk.sign(msg);
+            sig[pos] ^= 0x01;
+            assert!(!vk.verify(msg, &sig), "flip en offset {pos} debio fallar");
+        }
+    }
+
+    #[test]
+    fn triple_wrong_key_fails() {
+        let (_vk, sk) = generate_triple_keypair();
+        let (vk2, _sk2) = generate_triple_keypair();
+        let sig = sk.sign(b"mensaje");
+        assert!(!vk2.verify(b"mensaje", &sig));
+    }
+
+    #[test]
+    fn triple_and_combiner_rejects_swapped_component() {
+        // Sustituir CADA componente por el de otra firma (misma msg, otra clave)
+        // debe fallar: el AND 3-de-3 exige que los tres validen bajo la MISMA vk.
+        let (vk, sk) = generate_triple_keypair();
+        let (_vk2, sk2) = generate_triple_keypair();
+        let msg = b"mensaje";
+        let sig = sk.sign(msg);
+        let other = sk2.sign(msg);
+
+        let ed_end = ED25519_SIG_LEN;
+        let ml_end = ED25519_SIG_LEN + MLDSA_SIG_LEN;
+
+        // (a) Ed25519 de sk2, resto de sk.
+        let mut a = other[..ed_end].to_vec();
+        a.extend_from_slice(&sig[ed_end..]);
+        assert!(!vk.verify(msg, &a), "swap Ed25519");
+
+        // (b) ML-DSA de sk2, resto de sk.
+        let mut b = sig[..ed_end].to_vec();
+        b.extend_from_slice(&other[ed_end..ml_end]);
+        b.extend_from_slice(&sig[ml_end..]);
+        assert!(!vk.verify(msg, &b), "swap ML-DSA");
+
+        // (c) SLH-DSA de sk2, resto de sk.
+        let mut c = sig[..ml_end].to_vec();
+        c.extend_from_slice(&other[ml_end..]);
+        assert!(!vk.verify(msg, &c), "swap SLH-DSA");
+    }
+
+    #[test]
+    fn triple_signing_key_serialization_round_trips() {
+        let (vk, sk) = generate_triple_keypair();
+        let bytes = sk.to_bytes();
+        assert_eq!(bytes.len(), TRIPLE_SIGNING_KEY_LEN);
+        let sk2 = TripleSigningKey::from_bytes(&bytes).unwrap();
+        assert!(vk.verify(b"m", &sk2.sign(b"m")));
+    }
+
+    #[test]
+    fn triple_verifying_key_serialization_round_trips() {
+        let (vk, sk) = generate_triple_keypair();
+        let bytes = vk.to_bytes();
+        assert_eq!(bytes.len(), TRIPLE_VERIFYING_KEY_LEN);
+        let vk2 = TripleVerifyingKey::from_bytes(&bytes).unwrap();
+        assert!(vk2.verify(b"m", &sk.sign(b"m")));
+    }
+
+    #[test]
+    fn triple_wrong_length_signature_rejected() {
+        let (vk, sk) = generate_triple_keypair();
+        let mut sig = sk.sign(b"m");
+        sig.truncate(TRIPLE_SIGNATURE_LEN - 1);
+        assert!(!vk.verify(b"m", &sig));
+    }
+
+    #[test]
+    fn triple_signatures_are_deterministic_but_bind_message() {
+        let (_vk, sk) = generate_triple_keypair();
+        assert_eq!(sk.sign(b"a"), sk.sign(b"a"));
+        assert_ne!(sk.sign(b"a"), sk.sign(b"b"));
+    }
 }
