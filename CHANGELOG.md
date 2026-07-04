@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Planned
+- Independent security audit and public remediation of findings.
+- Written specification with machine-readable interoperability test vectors.
+- Multi-language bindings over the C ABI (C / Node.js / Go).
+- Reference deployment of the online VOPRF hardening server.
+
+## [0.6.0] — 2026-07-04
+
 ### Added
 - **Honey Encryption — decoy mode for low-entropy secrets (opt-in `honey`
   feature)**: `honey::encrypt`/`decrypt` (and `encrypt_pin`/`decrypt_pin`) protect
@@ -26,11 +34,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `chunk_size` outside the 4 KiB–16 MiB range or a failed authentication raises
   `ValueError` instead of aborting the interpreter.
 
-### Planned
-- Independent security audit and public remediation of findings.
-- Written specification with machine-readable interoperability test vectors.
-- Multi-language bindings over the C ABI (C / Node.js / Go).
-- Reference deployment of the online VOPRF hardening server.
+### Security Lab
+- **Consolidated red-team runner** (`examples/redteam.rs`): launches every
+  adversarial surface at once — adaptive (leak, symmetric/streaming/triple-hybrid
+  forgery, honey success-oracle) and deterministic (tamper, truncation,
+  salt/nonce uniqueness, signature forgery) — with a single verdict, an
+  antihacker-defense latch, and a `QUIPU_REDTEAM_SCALE` soak knob.
+- **Honey parser fuzzer** (`lab::honey_fuzz`): feeds adversarial byte strings to
+  `honey::decrypt` and proves it never panics (caught via `catch_unwind`) nor
+  allocates unbounded — only a decoy or a structural error.
 
 ## [0.5.0] — 2026-07-04
 
