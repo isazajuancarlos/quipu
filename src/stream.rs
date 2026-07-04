@@ -498,4 +498,99 @@ mod tests {
             Err(StreamError::Decrypt)
         ));
     }
+
+    // Un cifrado de 2 chunks completos + 1 final parcial => 3 bloques de ct.
+    fn three_block_blob() -> Vec<u8> {
+        let data: Vec<u8> = (0..MIN_CHUNK_SIZE * 2 + 10).map(|i| (i % 251) as u8).collect();
+        encrypt_stream_bytes(&data, "k", &fast_opts())
+    }
+
+    // Tamaño en bytes de un bloque de ciphertext no-final (chunk + tag).
+    const CT_BLOCK: usize = MIN_CHUNK_SIZE + TAG_LEN;
+
+    #[test]
+    fn truncated_last_chunk_fails() {
+        let blob = three_block_blob();
+        let cut = HEADER_LEN + 2 * CT_BLOCK; // deja header + 2 bloques, dropea el final
+        assert!(decrypt_stream_bytes(&blob[..cut], "k", b"").is_err());
+    }
+
+    #[test]
+    fn truncated_middle_fails() {
+        let blob = three_block_blob();
+        // Elimina el segundo bloque de ct.
+        let mut spliced = blob[..HEADER_LEN + CT_BLOCK].to_vec();
+        spliced.extend_from_slice(&blob[HEADER_LEN + 2 * CT_BLOCK..]);
+        assert!(decrypt_stream_bytes(&spliced, "k", b"").is_err());
+    }
+
+    #[test]
+    fn appended_chunk_fails() {
+        let blob = three_block_blob();
+        // Duplica el primer bloque de ct al final.
+        let mut extended = blob.clone();
+        extended.extend_from_slice(&blob[HEADER_LEN..HEADER_LEN + CT_BLOCK]);
+        assert!(decrypt_stream_bytes(&extended, "k", b"").is_err());
+    }
+
+    #[test]
+    fn reordered_chunks_fail() {
+        let blob = three_block_blob();
+        // Intercambia los dos primeros bloques de ct (mismo tamaño).
+        let mut reordered = blob[..HEADER_LEN].to_vec();
+        reordered.extend_from_slice(&blob[HEADER_LEN + CT_BLOCK..HEADER_LEN + 2 * CT_BLOCK]);
+        reordered.extend_from_slice(&blob[HEADER_LEN..HEADER_LEN + CT_BLOCK]);
+        reordered.extend_from_slice(&blob[HEADER_LEN + 2 * CT_BLOCK..]);
+        assert!(decrypt_stream_bytes(&reordered, "k", b"").is_err());
+    }
+
+    #[test]
+    fn cross_file_chunk_fails() {
+        let blob_a = three_block_blob();
+        let blob_b = three_block_blob(); // otra sal/prefix aleatorios => otra clave
+        let mut spliced = blob_a[..HEADER_LEN].to_vec();
+        spliced.extend_from_slice(&blob_b[HEADER_LEN..HEADER_LEN + CT_BLOCK]);
+        spliced.extend_from_slice(&blob_a[HEADER_LEN + CT_BLOCK..]);
+        assert!(decrypt_stream_bytes(&spliced, "k", b"").is_err());
+    }
+
+    #[test]
+    fn header_tamper_fails() {
+        let mut blob = three_block_blob();
+        blob[6] ^= 0x01; // altera KdfParams en la cabecera (es AAD)
+        assert!(decrypt_stream_bytes(&blob, "k", b"").is_err());
+    }
+
+    #[test]
+    fn body_tamper_fails() {
+        let mut blob = three_block_blob();
+        let p = HEADER_LEN + 5;
+        blob[p] ^= 0x01;
+        assert!(matches!(
+            decrypt_stream_bytes(&blob, "k", b""),
+            Err(StreamError::Decrypt)
+        ));
+    }
+
+    #[test]
+    fn rejects_out_of_range_chunk_size_on_encrypt() {
+        let mut opts = fast_opts();
+        opts.chunk_size = 10; // < MIN
+        let mut out = Vec::new();
+        assert!(matches!(
+            encrypt_stream(&b"x"[..], &mut out, "k", &opts),
+            Err(StreamError::BadChunkSize)
+        ));
+    }
+
+    #[test]
+    fn rejects_insane_kdf_on_encrypt() {
+        let mut opts = fast_opts();
+        opts.kdf_params.mem_kib = KdfParams::MAX_MEM_KIB + 1;
+        let mut out = Vec::new();
+        assert!(matches!(
+            encrypt_stream(&b"x"[..], &mut out, "k", &opts),
+            Err(StreamError::InsaneKdf)
+        ));
+    }
 }
