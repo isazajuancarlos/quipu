@@ -71,3 +71,7 @@ required-features = ["lab"]
 [[example]]
 name = "securitylab_offline"
 required-features = ["lab-offline"]
+
+[[example]]
+name = "redteam"
+required-features = ["lab"]

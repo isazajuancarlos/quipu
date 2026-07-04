@@ -78,6 +78,8 @@ jobs:
         run: cargo test --features "lab slh" --release forge_triple
       - name: Lab tests (honey success-oracle)
         run: cargo test --features "lab honey" honey_attack
+      - name: Red-team (all surfaces consolidated)
+        run: cargo run --example redteam --features "lab slh honey" --release
 
   sbom:
     name: SBOM (CycloneDX)
