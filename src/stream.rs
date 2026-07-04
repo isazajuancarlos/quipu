@@ -191,6 +191,153 @@ fn read_chunk<R: Read>(reader: &mut R, buf: &mut [u8]) -> std::io::Result<usize>
     Ok(filled)
 }
 
+/// Cifra `reader` → `writer` por streaming. Memoria acotada por `chunk_size`.
+pub fn encrypt_stream<R: Read, W: Write>(
+    mut reader: R,
+    mut writer: W,
+    passphrase: &str,
+    opts: &StreamOptions,
+) -> Result<(), StreamError> {
+    if !opts.kdf_params.is_sane() {
+        return Err(StreamError::InsaneKdf);
+    }
+    if opts.chunk_size < MIN_CHUNK_SIZE || opts.chunk_size > MAX_CHUNK_SIZE {
+        return Err(StreamError::BadChunkSize);
+    }
+    let mut salt = [0u8; SALT_LEN];
+    let mut prefix = [0u8; NONCE_PREFIX_LEN];
+    getrandom::getrandom(&mut salt).expect("RNG del sistema");
+    getrandom::getrandom(&mut prefix).expect("RNG del sistema");
+
+    let header = StreamHeader {
+        kdf_params: opts.kdf_params,
+        salt,
+        nonce_prefix: prefix,
+        chunk_size: opts.chunk_size as u32,
+    };
+    let header_bytes = header.to_bytes();
+    writer.write_all(&header_bytes)?;
+
+    let key = derive_stream_key(passphrase, opts.pepper, &opts.kdf_params, &salt, &prefix);
+
+    let chunk = opts.chunk_size;
+    let mut counter: u32 = 0;
+    let mut cur = vec![0u8; chunk];
+    let mut nxt = vec![0u8; chunk];
+    let mut n_cur = read_chunk(&mut reader, &mut cur)?;
+
+    loop {
+        let is_last = if n_cur < chunk {
+            true
+        } else {
+            let n_nxt = read_chunk(&mut reader, &mut nxt)?;
+            if n_nxt == 0 {
+                true
+            } else {
+                let nonce = chunk_nonce(&prefix, counter, false);
+                let ct = cipher::encrypt(&key, &nonce, &cur[..n_cur], &header_bytes);
+                writer.write_all(&ct)?;
+                counter = counter.checked_add(1).ok_or(StreamError::Truncated)?;
+                std::mem::swap(&mut cur, &mut nxt);
+                n_cur = n_nxt;
+                continue;
+            }
+        };
+        debug_assert!(is_last);
+        let nonce = chunk_nonce(&prefix, counter, true);
+        let ct = cipher::encrypt(&key, &nonce, &cur[..n_cur], &header_bytes);
+        writer.write_all(&ct)?;
+        break;
+    }
+    Ok(())
+}
+
+/// Descifra `reader` → `writer`. Falla ante truncación/reordenamiento/manipulación.
+/// El `pepper` es secreto y NO viaja en el contenedor: se pasa explícito.
+pub fn decrypt_stream<R: Read, W: Write>(
+    mut reader: R,
+    mut writer: W,
+    passphrase: &str,
+    pepper: &[u8],
+) -> Result<(), StreamError> {
+    let mut header_bytes = [0u8; HEADER_LEN];
+    read_exact_or_header_err(&mut reader, &mut header_bytes)?;
+    let header = StreamHeader::from_bytes(&header_bytes)?;
+    let key = derive_stream_key(
+        passphrase,
+        pepper,
+        &header.kdf_params,
+        &header.salt,
+        &header.nonce_prefix,
+    );
+
+    let block = header.chunk_size as usize + TAG_LEN;
+    let mut counter: u32 = 0;
+    let mut cur = vec![0u8; block];
+    let mut nxt = vec![0u8; block];
+    let mut n_cur = read_chunk(&mut reader, &mut cur)?;
+    if n_cur < TAG_LEN {
+        return Err(StreamError::Truncated);
+    }
+
+    loop {
+        let is_last = if n_cur < block {
+            true
+        } else {
+            let n_nxt = read_chunk(&mut reader, &mut nxt)?;
+            if n_nxt == 0 {
+                true
+            } else {
+                if n_nxt < TAG_LEN {
+                    return Err(StreamError::Truncated);
+                }
+                let nonce = chunk_nonce(&header.nonce_prefix, counter, false);
+                let pt = cipher::decrypt(&key, &nonce, &cur[..n_cur], &header_bytes)
+                    .map_err(|_| StreamError::Decrypt)?;
+                writer.write_all(&pt)?;
+                counter = counter.checked_add(1).ok_or(StreamError::Truncated)?;
+                std::mem::swap(&mut cur, &mut nxt);
+                n_cur = n_nxt;
+                continue;
+            }
+        };
+        debug_assert!(is_last);
+        let nonce = chunk_nonce(&header.nonce_prefix, counter, true);
+        let pt = cipher::decrypt(&key, &nonce, &cur[..n_cur], &header_bytes)
+            .map_err(|_| StreamError::Decrypt)?;
+        writer.write_all(&pt)?;
+        break;
+    }
+    Ok(())
+}
+
+/// Lee exactamente `buf.len()` bytes o devuelve `Header` si el flujo se acaba antes.
+fn read_exact_or_header_err<R: Read>(reader: &mut R, buf: &mut [u8]) -> Result<(), StreamError> {
+    let n = read_chunk(reader, buf)?;
+    if n != buf.len() {
+        return Err(StreamError::Header);
+    }
+    Ok(())
+}
+
+/// Conveniencia: cifra un slice completo en memoria y devuelve el contenedor.
+pub fn encrypt_stream_bytes(data: &[u8], passphrase: &str, opts: &StreamOptions) -> Vec<u8> {
+    let mut out = Vec::new();
+    encrypt_stream(data, &mut out, passphrase, opts).expect("cifrado en memoria no debe fallar de I/O");
+    out
+}
+
+/// Conveniencia: descifra un contenedor completo en memoria.
+pub fn decrypt_stream_bytes(
+    blob: &[u8],
+    passphrase: &str,
+    pepper: &[u8],
+) -> Result<Vec<u8>, StreamError> {
+    let mut out = Vec::new();
+    decrypt_stream(blob, &mut out, passphrase, pepper)?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +423,79 @@ mod tests {
         assert_eq!(n[23], 1);
         let n0 = chunk_nonce(&prefix, 0, false);
         assert_eq!(n0[23], 0);
+    }
+
+    fn fast_opts() -> StreamOptions<'static> {
+        StreamOptions {
+            pepper: b"",
+            kdf_params: KdfParams {
+                mem_kib: 64,
+                iterations: 1,
+                parallelism: 1,
+            },
+            chunk_size: MIN_CHUNK_SIZE, // 4096, para forzar multi-chunk barato
+        }
+    }
+
+    fn roundtrip(data: &[u8]) {
+        let blob = encrypt_stream_bytes(data, "clave-correcta", &fast_opts());
+        let back = decrypt_stream_bytes(&blob, "clave-correcta", b"").unwrap();
+        assert_eq!(back, data);
+    }
+
+    #[test]
+    fn round_trips_empty() {
+        roundtrip(b"");
+    }
+
+    #[test]
+    fn round_trips_one_byte() {
+        roundtrip(b"x");
+    }
+
+    #[test]
+    fn round_trips_small() {
+        roundtrip(b"un mensaje corto en reposo");
+    }
+
+    #[test]
+    fn round_trips_multichunk() {
+        let data: Vec<u8> = (0..MIN_CHUNK_SIZE * 3 + 123).map(|i| (i % 251) as u8).collect();
+        roundtrip(&data);
+    }
+
+    #[test]
+    fn round_trips_exact_multiple() {
+        let data: Vec<u8> = (0..MIN_CHUNK_SIZE * 2).map(|i| (i % 251) as u8).collect();
+        roundtrip(&data);
+    }
+
+    #[test]
+    fn round_trips_with_pepper() {
+        let opts = StreamOptions {
+            pepper: b"pimienta",
+            kdf_params: KdfParams {
+                mem_kib: 64,
+                iterations: 1,
+                parallelism: 1,
+            },
+            chunk_size: MIN_CHUNK_SIZE,
+        };
+        let blob = encrypt_stream_bytes(b"con pepper", "k", &opts);
+        assert_eq!(
+            decrypt_stream_bytes(&blob, "k", b"pimienta").unwrap(),
+            b"con pepper"
+        );
+        // Pepper equivocado => falla.
+        assert!(decrypt_stream_bytes(&blob, "k", b"otra").is_err());
+    }
+
+    #[test]
+    fn wrong_passphrase_fails() {
+        let blob = encrypt_stream_bytes(b"secreto", "clave-a", &fast_opts());
+        assert!(matches!(
+            decrypt_stream_bytes(&blob, "clave-b", b""),
+            Err(StreamError::Decrypt)
+        ));
     }
 }
