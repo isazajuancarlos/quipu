@@ -107,12 +107,14 @@ pub fn encrypt_stream<R: Read, W: Write>(reader: R, writer: W, passphrase: &str,
                                          opts: &StreamOptions) -> Result<(), StreamError>;
 
 /// Descifra `reader` → `writer`. Falla si hay truncación/reordenamiento/manipulación.
-pub fn decrypt_stream<R: Read, W: Write>(reader: R, writer: W, passphrase: &str)
+/// El `pepper` es secreto y NO viaja en el contenedor: se pasa explícito (simétrico
+/// con `api::decode`).
+pub fn decrypt_stream<R: Read, W: Write>(reader: R, writer: W, passphrase: &str, pepper: &[u8])
                                          -> Result<(), StreamError>;
 
 /// Conveniencia bytes↔bytes (para uso simple y tests).
 pub fn encrypt_stream_bytes(data: &[u8], passphrase: &str, opts: &StreamOptions) -> Vec<u8>;
-pub fn decrypt_stream_bytes(blob: &[u8], passphrase: &str) -> Result<Vec<u8>, StreamError>;
+pub fn decrypt_stream_bytes(blob: &[u8], passphrase: &str, pepper: &[u8]) -> Result<Vec<u8>, StreamError>;
 ```
 
 `api.rs` reexporta: `pub use crate::stream::{encrypt_stream, decrypt_stream,
