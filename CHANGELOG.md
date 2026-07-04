@@ -16,6 +16,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   signatures are ~34 KB and signing is slow, so it is opt-in, not the default. The
   double-hybrid mode and v0.4.x artifacts are unchanged. Covered by an adaptive
   3-of-3 forgery attack in the Security Lab.
+- **Streaming AEAD for large data-at-rest**: `api::encrypt_stream` /
+  `decrypt_stream` (and byte-slice `*_bytes` helpers) encrypt an `io::Read` to an
+  `io::Write` in bounded memory using the STREAM construction (Tink-inspired) —
+  fixed-size chunks under XChaCha20-Poly1305 with a per-file Argon2id+HKDF key and
+  a `QST1` header bound as AAD. Resistant to truncation (final-chunk flag),
+  reordering and duplication (per-chunk counter in the nonce), cross-file splicing
+  (per-file key) and tampering. Covered by an adaptive forgery surface in the
+  Security Lab. No new dependencies.
 
 ### Planned
 - Independent security audit and public remediation of findings.
