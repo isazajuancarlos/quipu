@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Planned
+- Independent security audit and public remediation of findings.
+- Written specification with machine-readable interoperability test vectors.
+- Multi-language bindings over the C ABI (C / Node.js / Go).
+- Reference deployment of the online VOPRF hardening server.
+
+## [0.5.0] — 2026-07-04
+
 ### Added
 - **Triple-hybrid signature mode (opt-in `slh` feature)**: Ed25519 + ML-DSA-87 +
   **SLH-DSA-SHA2-256s** (FIPS-205, stateless hash-based, via the `fips205` crate)
@@ -24,12 +32,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reordering and duplication (per-chunk counter in the nonce), cross-file splicing
   (per-file key) and tampering. Covered by an adaptive forgery surface in the
   Security Lab. No new dependencies.
-
-### Planned
-- Independent security audit and public remediation of findings.
-- Written specification with machine-readable interoperability test vectors.
-- Multi-language bindings over the C ABI (C / Node.js / Go).
-- Reference deployment of the online VOPRF hardening server.
 
 ## [0.4.1] — 2026-07-02
 
