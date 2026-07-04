@@ -14,6 +14,8 @@ pub mod forge_triple;
 pub mod guard;
 #[cfg(feature = "honey")]
 pub mod honey_attack;
+#[cfg(feature = "honey")]
+pub mod honey_fuzz;
 pub mod leak;
 pub mod stream_attack;
 
