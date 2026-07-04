@@ -348,7 +348,7 @@ version = "1.2.3"
 criteria = "safe-to-run"
 
 [[exemptions.quipu]]
-version = "0.4.1"
+version = "0.5.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.quote]]
