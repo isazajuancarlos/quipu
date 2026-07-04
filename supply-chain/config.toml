@@ -159,6 +159,10 @@ criteria = "safe-to-deploy"
 version = "0.2.9"
 criteria = "safe-to-deploy"
 
+[[exemptions.fips205]]
+version = "0.4.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.flate2]]
 version = "1.1.9"
 criteria = "safe-to-deploy"

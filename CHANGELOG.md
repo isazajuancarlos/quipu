@@ -6,6 +6,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Triple-hybrid signature mode (opt-in `slh` feature)**: Ed25519 + ML-DSA-87 +
+  **SLH-DSA-SHA2-256s** (FIPS-205, stateless hash-based, via the `fips205` crate)
+  combined with an **AND 3-of-3** combiner — a signature is valid only if all three
+  verify, so it stays unforgeable as long as at least one of three independent
+  families (elliptic curve, lattice, hash) survives. New `QSG3` container and
+  `api::encode_signed_triple` / `decode_verified_triple`. High-assurance mode:
+  signatures are ~34 KB and signing is slow, so it is opt-in, not the default. The
+  double-hybrid mode and v0.4.x artifacts are unchanged. Covered by an adaptive
+  3-of-3 forgery attack in the Security Lab.
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - Written specification with machine-readable interoperability test vectors.
