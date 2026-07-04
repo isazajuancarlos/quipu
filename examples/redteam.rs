@@ -25,6 +25,17 @@ use quipu::pqsign;
 use quipu::lab::forge_triple::ForgeTripleAttack;
 #[cfg(feature = "honey")]
 use quipu::lab::honey_attack::HoneyAttack;
+#[cfg(feature = "honey")]
+use quipu::lab::honey_fuzz::HoneyFuzz;
+
+/// Multiplicador de presupuesto (soak). `QUIPU_REDTEAM_SCALE=50` -> 50× intentos.
+fn scale() -> usize {
+    std::env::var("QUIPU_REDTEAM_SCALE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&s| s >= 1)
+        .unwrap_or(1)
+}
 
 /// Coste Argon2id bajo: la simulación mide defensas, no la dureza del KDF.
 fn cheap() -> KdfParams {
@@ -69,12 +80,18 @@ fn main() {
     println!("╚══════════════════════════════════════════════════════════════╝\n");
 
     // Superficies opcionales realmente compiladas.
+    let k = scale();
     let surfaces: Vec<&str> = ["leak", "forge", "stream", "tamper", "trunc", "unique", "sig-forge"]
         .into_iter()
         .chain(cfg!(feature = "slh").then_some("triple(slh)"))
         .chain(cfg!(feature = "honey").then_some("honey"))
+        .chain(cfg!(feature = "honey").then_some("honey-fuzz"))
         .collect();
-    println!("Superficies activas: {}\n", surfaces.join(" · "));
+    println!("Superficies activas: {}", surfaces.join(" · "));
+    if k > 1 {
+        println!("Modo SOAK: presupuesto ×{k}");
+    }
+    println!();
 
     // -- Candado de defensas ------------------------------------------------
     let defenses = all_defenses_intact();
@@ -97,20 +114,22 @@ fn main() {
 
     // -- Adaptativas (aprenden por semilla) --------------------------------
     rows.extend([
-        from_lab(&run(&mut LeakAttack::new(), 20_260_701, 128), "adaptativo"),
-        from_lab(&run(&mut ForgeAttack::new(), 1337, 120), "adaptativo"),
-        from_lab(&run(&mut StreamAttack::new(), 4242, 60), "adaptativo"),
+        from_lab(&run(&mut LeakAttack::new(), 20_260_701, 128 * k), "adaptativo"),
+        from_lab(&run(&mut ForgeAttack::new(), 1337, 120 * k), "adaptativo"),
+        from_lab(&run(&mut StreamAttack::new(), 4242, 60 * k), "adaptativo"),
     ]);
     #[cfg(feature = "slh")]
-    rows.push(from_lab(&run(&mut ForgeTripleAttack::new(), 7, 24), "adaptativo·slh"));
+    rows.push(from_lab(&run(&mut ForgeTripleAttack::new(), 7, 24 * k), "adaptativo·slh"));
     #[cfg(feature = "honey")]
-    rows.push(from_lab(&run(&mut HoneyAttack::new(), 909_090, 60), "adaptativo·honey"));
+    rows.push(from_lab(&run(&mut HoneyAttack::new(), 909_090, 60 * k), "adaptativo·honey"));
+    #[cfg(feature = "honey")]
+    rows.push(from_lab(&run(&mut HoneyFuzz::new(), 0xF0F0, 1000 * k), "fuzz·honey"));
 
     // -- Deterministas (hackerbot) -----------------------------------------
     rows.extend([
         from_bot(&hackerbot::tamper_attack(data, "clave-roja", &dict, b"", &opts), "determinista"),
         from_bot(&hackerbot::truncation_attack(data, "clave-roja", &dict, b"", &opts), "determinista"),
-        from_bot(&hackerbot::uniqueness_attack(data, "clave-roja", &dict, &opts, 64), "determinista"),
+        from_bot(&hackerbot::uniqueness_attack(data, "clave-roja", &dict, &opts, 64 * k), "determinista"),
         from_bot(&hackerbot::forgery_attack(data, &sk, &vk, &dict, 8), "determinista"),
     ]);
 
