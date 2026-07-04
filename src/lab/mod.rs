@@ -9,6 +9,8 @@
 pub mod corpus;
 pub mod engine;
 pub mod forge;
+#[cfg(feature = "slh")]
+pub mod forge_triple;
 pub mod guard;
 pub mod leak;
 
