@@ -333,6 +333,184 @@ pub const TRIPLE_SIGNATURE_LEN: usize = ED25519_SIG_LEN + MLDSA_SIG_LEN + SLH_SI
 #[cfg(feature = "slh")]
 const SIGN_TRIPLE_CONTEXT: &[u8] = b"quipu/v4/sign-triple";
 
+/// Clave de verificación triple-híbrida (pública).
+#[cfg(feature = "slh")]
+pub struct TripleVerifyingKey {
+    ed: EdVerifyingKey,
+    ml: MlVerifyingKey<MlDsa87>,
+    slh: slh_dsa_sha2_256s::PublicKey,
+}
+
+/// Clave de firma triple-híbrida (secreta). Ed25519/ML-DSA como semillas de 32 B;
+/// SLH-DSA como sus bytes de clave secreta (la API no expone keygen desde semilla
+/// de 32 B). Todo el material se borra al soltarse.
+#[cfg(feature = "slh")]
+pub struct TripleSigningKey {
+    ed_seed: Zeroizing<[u8; ED25519_SEED_LEN]>,
+    ml_seed: Zeroizing<[u8; MLDSA_SEED_LEN]>,
+    slh_sk: Zeroizing<[u8; SLH_SECRET_LEN]>,
+}
+
+/// Genera un par de claves triple-híbrido.
+#[cfg(feature = "slh")]
+pub fn generate_triple_keypair() -> (TripleVerifyingKey, TripleSigningKey) {
+    let mut ed_seed = [0u8; ED25519_SEED_LEN];
+    let mut ml_seed = [0u8; MLDSA_SEED_LEN];
+    getrandom::getrandom(&mut ed_seed).expect("RNG del sistema");
+    getrandom::getrandom(&mut ml_seed).expect("RNG del sistema");
+
+    let (_slh_pk, slh_priv) = slh_dsa_sha2_256s::try_keygen().expect("keygen SLH-DSA");
+    let slh_sk = slh_priv.into_bytes();
+
+    let sk = TripleSigningKey {
+        ed_seed: Zeroizing::new(ed_seed),
+        ml_seed: Zeroizing::new(ml_seed),
+        slh_sk: Zeroizing::new(slh_sk),
+    };
+    let vk = sk.verifying_key();
+    (vk, sk)
+}
+
+/// Reconstruye la clave secreta SLH-DSA desde sus bytes serializados.
+#[cfg(feature = "slh")]
+fn slh_signing_key(sk_bytes: &[u8; SLH_SECRET_LEN]) -> slh_dsa_sha2_256s::PrivateKey {
+    slh_dsa_sha2_256s::PrivateKey::try_from_bytes(sk_bytes).expect("clave secreta SLH de 128 bytes")
+}
+
+#[cfg(feature = "slh")]
+impl TripleSigningKey {
+    /// Deriva la clave de verificación (pública) correspondiente.
+    pub fn verifying_key(&self) -> TripleVerifyingKey {
+        let ed = EdSigningKey::from_bytes(&self.ed_seed).verifying_key();
+        let ml = ml_signing_key(&self.ml_seed).verifying_key();
+        let slh = slh_signing_key(&self.slh_sk).get_public_key();
+        TripleVerifyingKey { ed, ml, slh }
+    }
+
+    /// Firma `message` con las tres primitivas sobre la misma preimagen.
+    pub fn sign(&self, message: &[u8]) -> Vec<u8> {
+        let vk = self.verifying_key();
+        let preimage = build_triple_preimage(&vk.to_bytes(), message);
+
+        let ed_sig = EdSigningKey::from_bytes(&self.ed_seed).sign(&preimage);
+        let ml_sig = ml_signing_key(&self.ml_seed).sign(&preimage);
+        let slh_sig = slh_signing_key(&self.slh_sk)
+            .try_sign(&preimage, SLH_CTX, false)
+            .expect("firma SLH-DSA determinista");
+
+        let mut out = Vec::with_capacity(TRIPLE_SIGNATURE_LEN);
+        out.extend_from_slice(&ed_sig.to_bytes());
+        out.extend_from_slice(ml_sig.encode().as_slice());
+        out.extend_from_slice(&slh_sig);
+        out
+    }
+
+    /// Serializa la clave de firma (ed seed || ml seed || slh sk). ¡Sensible!
+    pub fn to_bytes(&self) -> Zeroizing<Vec<u8>> {
+        let mut v = Vec::with_capacity(TRIPLE_SIGNING_KEY_LEN);
+        v.extend_from_slice(self.ed_seed.as_ref());
+        v.extend_from_slice(self.ml_seed.as_ref());
+        v.extend_from_slice(self.slh_sk.as_ref());
+        Zeroizing::new(v)
+    }
+
+    /// Reconstruye la clave de firma desde bytes.
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        if b.len() != TRIPLE_SIGNING_KEY_LEN {
+            return None;
+        }
+        let ed_seed: [u8; ED25519_SEED_LEN] = b[0..ED25519_SEED_LEN].try_into().ok()?;
+        let ml_start = ED25519_SEED_LEN;
+        let ml_seed: [u8; MLDSA_SEED_LEN] =
+            b[ml_start..ml_start + MLDSA_SEED_LEN].try_into().ok()?;
+        let slh_start = ml_start + MLDSA_SEED_LEN;
+        let slh_sk: [u8; SLH_SECRET_LEN] = b[slh_start..].try_into().ok()?;
+        Some(TripleSigningKey {
+            ed_seed: Zeroizing::new(ed_seed),
+            ml_seed: Zeroizing::new(ml_seed),
+            slh_sk: Zeroizing::new(slh_sk),
+        })
+    }
+}
+
+#[cfg(feature = "slh")]
+impl TripleVerifyingKey {
+    /// Verifica una firma triple. `true` sólo si las TRES validan (AND 3-de-3).
+    pub fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
+        if signature.len() != TRIPLE_SIGNATURE_LEN {
+            return false;
+        }
+        let preimage = build_triple_preimage(&self.to_bytes(), message);
+
+        let (ed_sig_bytes, rest) = signature.split_at(ED25519_SIG_LEN);
+        let (ml_sig_bytes, slh_sig_bytes) = rest.split_at(MLDSA_SIG_LEN);
+
+        // Ed25519 (verify_strict rechaza orden pequeño y maleabilidad).
+        let ed_arr: [u8; ED25519_SIG_LEN] = match ed_sig_bytes.try_into() {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let ed_ok = self
+            .ed
+            .verify_strict(&preimage, &EdSignature::from_bytes(&ed_arr))
+            .is_ok();
+
+        // ML-DSA-87.
+        let ml_ok = match EncodedSignature::<MlDsa87>::try_from(ml_sig_bytes) {
+            Ok(enc) => match MlSignature::<MlDsa87>::decode(&enc) {
+                Some(sig) => self.ml.verify(&preimage, &sig).is_ok(),
+                None => false,
+            },
+            Err(_) => false,
+        };
+
+        // SLH-DSA-256s.
+        let slh_arr: &[u8; SLH_SIG_LEN] = match slh_sig_bytes.try_into() {
+            Ok(a) => a,
+            Err(_) => return false,
+        };
+        let slh_ok = self.slh.verify(&preimage, slh_arr, SLH_CTX);
+
+        ed_ok && ml_ok && slh_ok
+    }
+
+    /// Serializa la clave de verificación (Ed25519 pub || ML-DSA vk || SLH vk).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v = Vec::with_capacity(TRIPLE_VERIFYING_KEY_LEN);
+        v.extend_from_slice(self.ed.as_bytes());
+        v.extend_from_slice(self.ml.encode().as_slice());
+        v.extend_from_slice(&self.slh.clone().into_bytes());
+        v
+    }
+
+    /// Reconstruye la clave de verificación desde bytes.
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        if b.len() != TRIPLE_VERIFYING_KEY_LEN {
+            return None;
+        }
+        let ed_bytes: [u8; ED25519_PUB_LEN] = b[0..ED25519_PUB_LEN].try_into().ok()?;
+        let ed = EdVerifyingKey::from_bytes(&ed_bytes).ok()?;
+        let ml_start = ED25519_PUB_LEN;
+        let ml_enc =
+            EncodedVerifyingKey::<MlDsa87>::try_from(&b[ml_start..ml_start + MLDSA_VK_LEN]).ok()?;
+        let ml = MlVerifyingKey::<MlDsa87>::decode(&ml_enc);
+        let slh_start = ml_start + MLDSA_VK_LEN;
+        let slh_bytes: [u8; SLH_PUB_LEN] = b[slh_start..].try_into().ok()?;
+        let slh = slh_dsa_sha2_256s::PublicKey::try_from_bytes(&slh_bytes).ok()?;
+        Some(TripleVerifyingKey { ed, ml, slh })
+    }
+}
+
+/// Preimagen triple: etiqueta de dominio || clave pública triple completa || mensaje.
+#[cfg(feature = "slh")]
+fn build_triple_preimage(vk_bytes: &[u8], message: &[u8]) -> Vec<u8> {
+    let mut p = Vec::with_capacity(SIGN_TRIPLE_CONTEXT.len() + vk_bytes.len() + message.len());
+    p.extend_from_slice(SIGN_TRIPLE_CONTEXT);
+    p.extend_from_slice(vk_bytes);
+    p.extend_from_slice(message);
+    p
+}
+
 #[cfg(all(test, feature = "slh"))]
 mod triple_spike {
     use super::*;
@@ -357,5 +535,27 @@ mod triple_spike {
 
         let sk_bytes = sk.into_bytes();
         assert_eq!(sk_bytes.len(), SLH_SECRET_LEN);
+    }
+}
+
+#[cfg(all(test, feature = "slh"))]
+mod triple_tests {
+    use super::*;
+
+    #[test]
+    fn triple_sign_verify_round_trips() {
+        let (vk, sk) = generate_triple_keypair();
+        let msg = b"documento de altisimo valor";
+        let sig = sk.sign(msg);
+        assert_eq!(sig.len(), TRIPLE_SIGNATURE_LEN);
+        assert!(vk.verify(msg, &sig));
+    }
+
+    #[test]
+    fn triple_parameters_are_level5() {
+        assert_eq!(SLH_SIG_LEN, 29_792);
+        assert_eq!(TRIPLE_VERIFYING_KEY_LEN, 2_688);
+        assert_eq!(TRIPLE_SIGNING_KEY_LEN, 192);
+        assert_eq!(TRIPLE_SIGNATURE_LEN, 34_483);
     }
 }
