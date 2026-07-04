@@ -69,13 +69,11 @@ fn main() {
     println!("╚══════════════════════════════════════════════════════════════╝\n");
 
     // Superficies opcionales realmente compiladas.
-    let mut surfaces = vec!["leak", "forge", "stream", "tamper", "trunc", "unique", "sig-forge"];
-    if cfg!(feature = "slh") {
-        surfaces.push("triple(slh)");
-    }
-    if cfg!(feature = "honey") {
-        surfaces.push("honey");
-    }
+    let surfaces: Vec<&str> = ["leak", "forge", "stream", "tamper", "trunc", "unique", "sig-forge"]
+        .into_iter()
+        .chain(cfg!(feature = "slh").then_some("triple(slh)"))
+        .chain(cfg!(feature = "honey").then_some("honey"))
+        .collect();
     println!("Superficies activas: {}\n", surfaces.join(" · "));
 
     // -- Candado de defensas ------------------------------------------------
@@ -94,35 +92,27 @@ fn main() {
     };
     let data = b"acta confidencial del red-team: el tesoro esta bajo el arbol viejo";
 
+    let (vk, sk) = pqsign::generate_keypair();
     let mut rows: Vec<Row> = Vec::new();
 
-    // -- Adaptativas --------------------------------------------------------
-    rows.push(from_lab(&run(&mut LeakAttack::new(), 20_260_701, 128), "adaptativo"));
-    rows.push(from_lab(&run(&mut ForgeAttack::new(), 1337, 120), "adaptativo"));
-    rows.push(from_lab(&run(&mut StreamAttack::new(), 4242, 60), "adaptativo"));
+    // -- Adaptativas (aprenden por semilla) --------------------------------
+    rows.extend([
+        from_lab(&run(&mut LeakAttack::new(), 20_260_701, 128), "adaptativo"),
+        from_lab(&run(&mut ForgeAttack::new(), 1337, 120), "adaptativo"),
+        from_lab(&run(&mut StreamAttack::new(), 4242, 60), "adaptativo"),
+    ]);
     #[cfg(feature = "slh")]
     rows.push(from_lab(&run(&mut ForgeTripleAttack::new(), 7, 24), "adaptativo·slh"));
     #[cfg(feature = "honey")]
     rows.push(from_lab(&run(&mut HoneyAttack::new(), 909_090, 60), "adaptativo·honey"));
 
     // -- Deterministas (hackerbot) -----------------------------------------
-    rows.push(from_bot(
-        &hackerbot::tamper_attack(data, "clave-roja", &dict, b"", &opts),
-        "determinista",
-    ));
-    rows.push(from_bot(
-        &hackerbot::truncation_attack(data, "clave-roja", &dict, b"", &opts),
-        "determinista",
-    ));
-    rows.push(from_bot(
-        &hackerbot::uniqueness_attack(data, "clave-roja", &dict, &opts, 64),
-        "determinista",
-    ));
-    let (vk, sk) = pqsign::generate_keypair();
-    rows.push(from_bot(
-        &hackerbot::forgery_attack(data, &sk, &vk, &dict, 8),
-        "determinista",
-    ));
+    rows.extend([
+        from_bot(&hackerbot::tamper_attack(data, "clave-roja", &dict, b"", &opts), "determinista"),
+        from_bot(&hackerbot::truncation_attack(data, "clave-roja", &dict, b"", &opts), "determinista"),
+        from_bot(&hackerbot::uniqueness_attack(data, "clave-roja", &dict, &opts, 64), "determinista"),
+        from_bot(&hackerbot::forgery_attack(data, &sk, &vk, &dict, 8), "determinista"),
+    ]);
 
     // -- Reporte ------------------------------------------------------------
     println!(
