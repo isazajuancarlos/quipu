@@ -13,6 +13,16 @@
 //! Filosofía Quipu: no inventamos la primitiva. Reutilizamos crates vetados
 //! (`ed25519-dalek`, `ml-dsa`); lo propio es el FORMATO, el binding de dominio
 //! y la composición híbrida.
+//!
+//! # Modo triple-híbrido (feature `slh`, opt-in)
+//!
+//! Con la feature no-default `slh` se añade **SLH-DSA-SHA2-256s** (FIPS-205,
+//! hash-based *stateless*, vía el crate `fips205`), combinando
+//! Ed25519 + ML-DSA-87 + SLH-DSA con **AND 3-de-3**: infalsificable mientras
+//! sobreviva al menos una de tres familias (curva, retículo, hash). La firma pesa
+//! ~34 KB y firmar es lento: es un modo de **alta garantía** para artefactos de
+//! altísimo valor, no el por defecto. Contenedor `QSG3` vía
+//! [`crate::api::encode_signed_triple`] / [`crate::api::decode_verified_triple`].
 
 use ed25519_dalek::{
     Signature as EdSignature, Signer as _, SigningKey as EdSigningKey, VerifyingKey as EdVerifyingKey,
