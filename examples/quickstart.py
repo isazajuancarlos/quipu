@@ -79,4 +79,22 @@ except ValueError:
 print("[5] Firma híbrida (Ed25519 + ML-DSA-87) -> verifica y rechaza clave ajena ✔")
 print()
 
+# -----------------------------------------------------------------------------
+# 6) Streaming AEAD para datos grandes (memoria acotada, salida BINARIA).
+#    A diferencia de los modos anteriores, la salida son bytes, no símbolos.
+# -----------------------------------------------------------------------------
+big = secret * 10_000  # ~medio MB, varios chunks
+blob = quipu.encrypt_stream(big, "correct-horse-battery-staple")
+assert isinstance(blob, bytes)
+assert quipu.decrypt_stream(blob, "correct-horse-battery-staple") == big, "round-trip streaming"
+# Manipular el contenedor (truncarlo) debe ser rechazado:
+try:
+    quipu.decrypt_stream(blob[: len(blob) // 2], "correct-horse-battery-staple")
+    raise SystemExit("ERROR: un contenedor truncado no debería descifrar")
+except ValueError:
+    pass
+print(f"[6] Streaming AEAD (STREAM/XChaCha20-Poly1305) -> {len(big)} B en {len(blob)} B, "
+      "round-trip OK y truncado rechazado ✔")
+print()
+
 print("OK ✅  Todos los modos funcionaron correctamente.")

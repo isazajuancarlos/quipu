@@ -6,6 +6,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Streaming AEAD exposed in the Python bindings**: `quipu.encrypt_stream` /
+  `quipu.decrypt_stream` (optional `pepper` and `chunk_size`) wrap the STREAM
+  construction. Output is raw `bytes` (a binary container), not symbols; a
+  `chunk_size` outside the 4 KiB–16 MiB range or a failed authentication raises
+  `ValueError` instead of aborting the interpreter.
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - Written specification with machine-readable interoperability test vectors.

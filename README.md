@@ -119,6 +119,10 @@ assert quipu.decode_as_recipient(s, sec) == b"secreto"
 vk, sk = quipu.generate_signing_keypair()
 signed = quipu.encode_signed(b"acta oficial", sk)
 assert quipu.decode_verified(signed, vk) == b"acta oficial"  # falla si se altera
+
+# Streaming AEAD para datos grandes (salida binaria, no símbolos)
+blob = quipu.encrypt_stream(b"...datos grandes...", "passphrase")
+assert quipu.decrypt_stream(blob, "passphrase") == b"...datos grandes..."
 ```
 
 ## Ejemplos funcionales
