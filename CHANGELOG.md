@@ -7,6 +7,19 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Honey Encryption — decoy mode for low-entropy secrets (opt-in `honey`
+  feature)**: `honey::encrypt`/`decrypt` (and `encrypt_pin`/`decrypt_pin`) protect
+  a secret modelled as a uniform fixed-alphabet sequence (a PIN, a mnemonic
+  phrase) so that **any wrong passphrase decrypts to a different but plausible
+  secret**, not an error. An offline brute-force attacker never gets a
+  "correct-key" signal — the success oracle that makes guessing a weak passphrase
+  viable is removed (Juels & Ristenpart, 2014). Construction is a base-`A`
+  one-time-pad keyed by Argon2id + HKDF; no new dependencies. **By design this
+  mode carries no authentication tag** (a tag would itself be a success oracle),
+  so it does not detect tampering and is a specialised companion to — never a
+  replacement for — the authenticated AEAD core. Only sound for uniform,
+  low-entropy secrets, not arbitrary data. Covered by a "success-oracle" attack
+  in the Security Lab.
 - **Streaming AEAD exposed in the Python bindings**: `quipu.encrypt_stream` /
   `quipu.decrypt_stream` (optional `pepper` and `chunk_size`) wrap the STREAM
   construction. Output is raw `bytes` (a binary container), not symbols; a

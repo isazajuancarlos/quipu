@@ -109,6 +109,15 @@ pub fn derive_subkey(master: &[u8; KEY_LEN], info: &[u8]) -> [u8; KEY_LEN] {
     out
 }
 
+/// Expande un flujo pseudoaleatorio de longitud arbitraria desde la clave
+/// maestra (HKDF-SHA256, etiqueta de dominio `info`). El máximo es 255*32 =
+/// 8160 bytes por el límite de HKDF-Expand.
+pub fn derive_stream(master: &[u8; KEY_LEN], info: &[u8], out: &mut [u8]) {
+    let hk = Hkdf::<Sha256>::new(None, master);
+    hk.expand(info, out)
+        .expect("longitud de expansión HKDF dentro del límite (<= 8160 bytes)");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

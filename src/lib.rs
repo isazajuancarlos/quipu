@@ -17,6 +17,11 @@ pub mod ecc;
 pub mod glyphfont;
 pub mod glyphopt;
 pub mod hackerbot;
+/// Honey Encryption (modo con señuelos, opt-in). Ver el modelo de amenaza del
+/// módulo: **sin autenticación** por diseño, solo para secretos uniformes de
+/// baja entropía; no sustituye al núcleo AEAD.
+#[cfg(feature = "honey")]
+pub mod honey;
 pub mod kdf;
 pub mod netlimit;
 /// OPRF **sin verificación** (sin prueba DLEQ). Prefiere `voprf` (verificable):
