@@ -371,6 +371,80 @@ const SIGNED_VERSION: u8 = 1;
 /// Cabecera del contenedor firmado antes del mensaje: magic+version+flags+msg_len.
 const SIGNED_PREFIX: usize = 4 + 1 + 1 + 4;
 
+#[cfg(feature = "slh")]
+const SIGNED_TRIPLE_MAGIC: [u8; 4] = *b"QSG3";
+#[cfg(feature = "slh")]
+const SIGNED_TRIPLE_VERSION: u8 = 1;
+/// Cabecera QSG3: magic+version+flags+msg_len (idéntico layout que QSG1).
+#[cfg(feature = "slh")]
+const SIGNED_TRIPLE_PREFIX: usize = 4 + 1 + 1 + 4;
+
+/// Firma `data` con la clave triple-híbrida y lo representa con `dict` (contenedor
+/// QSG3). Autosuficiente, FIRMADO PERO EN CLARO: autenticidad/integridad/no-repudio,
+/// no confidencialidad. Modo de alta garantía (firma ~34 KB, firma lenta).
+#[cfg(feature = "slh")]
+pub fn encode_signed_triple(
+    data: &[u8],
+    signer: &pqsign::TripleSigningKey,
+    dict: &Dictionary,
+) -> String {
+    let signature = signer.sign(data);
+    let mut blob = Vec::with_capacity(SIGNED_TRIPLE_PREFIX + data.len() + signature.len());
+    blob.extend_from_slice(&SIGNED_TRIPLE_MAGIC);
+    blob.push(SIGNED_TRIPLE_VERSION);
+    blob.push(0u8); // flags
+    blob.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    blob.extend_from_slice(data);
+    blob.extend_from_slice(&signature);
+
+    let indices = codec::encode_base_n(&blob, dict.base());
+    dict.encode(&indices)
+        .expect("los índices del codec están en [0, base)")
+}
+
+/// Verifica un artefacto QSG3 contra la clave triple FIJADA y, sólo si valida,
+/// devuelve el mensaje. Un artefacto QSG1 aquí da `BadMagic` (sin downgrade).
+#[cfg(feature = "slh")]
+pub fn decode_verified_triple(
+    symbols: &str,
+    verifier: &pqsign::TripleVerifyingKey,
+    dict: &Dictionary,
+) -> Result<Vec<u8>, DecodeError> {
+    let indices = dict.decode(symbols).map_err(DecodeError::Symbol)?;
+    let blob = codec::decode_base_n(&indices, dict.base());
+
+    if blob.len() < SIGNED_TRIPLE_PREFIX + pqsign::TRIPLE_SIGNATURE_LEN {
+        return Err(DecodeError::Container(ContainerError::TooShort));
+    }
+    if blob[0..4] != SIGNED_TRIPLE_MAGIC {
+        return Err(DecodeError::Container(ContainerError::BadMagic));
+    }
+    if blob[4] != SIGNED_TRIPLE_VERSION {
+        return Err(DecodeError::Container(ContainerError::UnsupportedVersion(
+            blob[4],
+        )));
+    }
+    let msg_len = u32::from_be_bytes(blob[6..10].try_into().expect("4 bytes")) as usize;
+
+    // Aritmética verificada (misma defensa F4 que decode_verified).
+    let Some(msg_end) = SIGNED_TRIPLE_PREFIX.checked_add(msg_len) else {
+        return Err(DecodeError::Container(ContainerError::TooShort));
+    };
+    let Some(expected_len) = msg_end.checked_add(pqsign::TRIPLE_SIGNATURE_LEN) else {
+        return Err(DecodeError::Container(ContainerError::TooShort));
+    };
+    if blob.len() != expected_len {
+        return Err(DecodeError::Container(ContainerError::TooShort));
+    }
+    let message = &blob[SIGNED_TRIPLE_PREFIX..msg_end];
+    let signature = &blob[msg_end..];
+
+    if !verifier.verify(message, signature) {
+        return Err(DecodeError::BadSignature);
+    }
+    Ok(message.to_vec())
+}
+
 /// Firma `data` con la clave híbrida `signer` y lo representa con `dict`.
 ///
 /// El resultado es un artefacto AUTOSUFICIENTE, FIRMADO PERO EN CLARO: cualquiera
@@ -736,5 +810,64 @@ mod tests {
             let back = decode_verified(&symbols, &vk, &dict).unwrap();
             prop_assert_eq!(back, data);
         }
+    }
+
+    #[cfg(feature = "slh")]
+    #[test]
+    fn triple_signed_round_trips() {
+        let dict = ascii_dict();
+        let (vk, sk) = pqsign::generate_triple_keypair();
+        let data = b"artefacto de altisimo valor";
+        let symbols = encode_signed_triple(data, &sk, &dict);
+        assert_eq!(decode_verified_triple(&symbols, &vk, &dict).unwrap(), data);
+    }
+
+    #[cfg(feature = "slh")]
+    #[test]
+    fn triple_wrong_key_rejected() {
+        let dict = ascii_dict();
+        let (_vk, sk) = pqsign::generate_triple_keypair();
+        let (vk2, _sk2) = pqsign::generate_triple_keypair();
+        let symbols = encode_signed_triple(b"datos", &sk, &dict);
+        assert!(matches!(
+            decode_verified_triple(&symbols, &vk2, &dict),
+            Err(DecodeError::BadSignature)
+        ));
+    }
+
+    #[cfg(feature = "slh")]
+    #[test]
+    fn triple_region_tamper_rejected() {
+        let dict = ascii_dict();
+        let (vk, sk) = pqsign::generate_triple_keypair();
+        let symbols = encode_signed_triple(b"transferir 100", &sk, &dict);
+        let mut chars: Vec<char> = symbols.chars().collect();
+        chars[SIGNED_TRIPLE_PREFIX] = if chars[SIGNED_TRIPLE_PREFIX] == 'A' { 'B' } else { 'A' };
+        let tampered: String = chars.into_iter().collect();
+        assert!(decode_verified_triple(&tampered, &vk, &dict).is_err());
+    }
+
+    #[cfg(feature = "slh")]
+    #[test]
+    fn triple_empty_message_round_trips() {
+        let dict = ascii_dict();
+        let (vk, sk) = pqsign::generate_triple_keypair();
+        let symbols = encode_signed_triple(b"", &sk, &dict);
+        assert_eq!(decode_verified_triple(&symbols, &vk, &dict).unwrap(), b"");
+    }
+
+    #[cfg(feature = "slh")]
+    #[test]
+    fn triple_rejects_overflowing_msg_len_without_panic() {
+        let dict = ascii_dict();
+        let (vk, _sk) = pqsign::generate_triple_keypair();
+        let mut blob = Vec::new();
+        blob.extend_from_slice(b"QSG3");
+        blob.push(1); // version
+        blob.push(0); // flags
+        blob.extend_from_slice(&u32::MAX.to_be_bytes()); // msg_len enorme
+        let indices = codec::encode_base_n(&blob, dict.base());
+        let symbols = dict.encode(&indices).unwrap();
+        assert!(decode_verified_triple(&symbols, &vk, &dict).is_err());
     }
 }
