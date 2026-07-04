@@ -1,0 +1,280 @@
+//! Cifrado por STREAMING para datos en reposo grandes (construcción STREAM).
+//!
+//! Procesa un `Read` → `Write` por chunks de tamaño fijo con memoria acotada
+//! (independiente del tamaño del archivo). Cada chunk se cifra con
+//! XChaCha20-Poly1305 bajo un nonce `prefix ‖ counter ‖ final_flag`; la cabecera
+//! `QST1` se liga como AAD. Da resistencia a truncación (flag final),
+//! reordenamiento (counter en el nonce), splice entre archivos (clave por archivo)
+//! y manipulación (AAD).
+//!
+//! No inventa primitivas: compone `cipher` (XChaCha20-Poly1305) + `kdf`
+//! (Argon2id + HKDF), ya vetados. Inspirado en Google Tink `StreamingAEAD`.
+
+use std::io::{Read, Write};
+
+use zeroize::Zeroizing;
+
+use crate::cipher::{self, KEY_LEN, NONCE_LEN};
+use crate::kdf::{self, KdfParams, SALT_LEN};
+
+const MAGIC: [u8; 4] = *b"QST1";
+const VERSION: u8 = 1;
+const NONCE_PREFIX_LEN: usize = 19;
+const TAG_LEN: usize = 16;
+/// Cabecera QST1: magic+version+flags + KdfParams(3×u32) + salt + prefix + chunk_size.
+const HEADER_LEN: usize = 4 + 1 + 1 + (4 * 3) + SALT_LEN + NONCE_PREFIX_LEN + 4; // 57
+const STREAM_INFO_PREFIX: &[u8] = b"quipu/stream/v1";
+
+/// Tamaño de chunk por defecto (256 KiB).
+pub const DEFAULT_CHUNK_SIZE: usize = 262_144;
+const MIN_CHUNK_SIZE: usize = 4096;
+const MAX_CHUNK_SIZE: usize = 16 * 1024 * 1024;
+
+/// Opciones de cifrado por streaming.
+pub struct StreamOptions<'a> {
+    pub pepper: &'a [u8],
+    pub kdf_params: KdfParams,
+    pub chunk_size: usize,
+}
+
+impl Default for StreamOptions<'_> {
+    fn default() -> Self {
+        StreamOptions {
+            pepper: b"",
+            kdf_params: KdfParams {
+                mem_kib: 65_536, // 64 MiB, interactivo
+                iterations: 3,
+                parallelism: 1,
+            },
+            chunk_size: DEFAULT_CHUNK_SIZE,
+        }
+    }
+}
+
+/// Errores del subsistema de streaming.
+#[derive(Debug)]
+pub enum StreamError {
+    Io(std::io::Error),
+    Header,
+    UnsupportedVersion(u8),
+    BadChunkSize,
+    InsaneKdf,
+    Decrypt,
+    Truncated,
+}
+
+impl std::fmt::Display for StreamError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StreamError::Io(e) => write!(f, "io: {e}"),
+            StreamError::Header => write!(f, "cabecera QST1 inválida"),
+            StreamError::UnsupportedVersion(v) => write!(f, "versión no soportada: {v}"),
+            StreamError::BadChunkSize => write!(f, "chunk_size fuera de rango"),
+            StreamError::InsaneKdf => write!(f, "parámetros KDF fuera de límites"),
+            StreamError::Decrypt => write!(f, "fallo de descifrado/autenticación"),
+            StreamError::Truncated => write!(f, "flujo truncado o incompleto"),
+        }
+    }
+}
+
+impl std::error::Error for StreamError {}
+
+impl From<std::io::Error> for StreamError {
+    fn from(e: std::io::Error) -> Self {
+        StreamError::Io(e)
+    }
+}
+
+/// Cabecera QST1 (se liga como AAD en cada chunk).
+struct StreamHeader {
+    kdf_params: KdfParams,
+    salt: [u8; SALT_LEN],
+    nonce_prefix: [u8; NONCE_PREFIX_LEN],
+    chunk_size: u32,
+}
+
+impl StreamHeader {
+    fn to_bytes(&self) -> [u8; HEADER_LEN] {
+        let mut b = [0u8; HEADER_LEN];
+        let mut i = 0;
+        b[i..i + 4].copy_from_slice(&MAGIC);
+        i += 4;
+        b[i] = VERSION;
+        i += 1;
+        b[i] = 0u8; // flags
+        i += 1;
+        b[i..i + 4].copy_from_slice(&self.kdf_params.mem_kib.to_be_bytes());
+        i += 4;
+        b[i..i + 4].copy_from_slice(&self.kdf_params.iterations.to_be_bytes());
+        i += 4;
+        b[i..i + 4].copy_from_slice(&self.kdf_params.parallelism.to_be_bytes());
+        i += 4;
+        b[i..i + SALT_LEN].copy_from_slice(&self.salt);
+        i += SALT_LEN;
+        b[i..i + NONCE_PREFIX_LEN].copy_from_slice(&self.nonce_prefix);
+        i += NONCE_PREFIX_LEN;
+        b[i..i + 4].copy_from_slice(&self.chunk_size.to_be_bytes());
+        b
+    }
+
+    fn from_bytes(b: &[u8]) -> Result<Self, StreamError> {
+        if b.len() < HEADER_LEN {
+            return Err(StreamError::Header);
+        }
+        if b[0..4] != MAGIC {
+            return Err(StreamError::Header);
+        }
+        if b[4] != VERSION {
+            return Err(StreamError::UnsupportedVersion(b[4]));
+        }
+        let rd = |o: usize| u32::from_be_bytes(b[o..o + 4].try_into().expect("4 bytes"));
+        let kdf_params = KdfParams {
+            mem_kib: rd(6),
+            iterations: rd(10),
+            parallelism: rd(14),
+        };
+        if !kdf_params.is_sane() {
+            return Err(StreamError::InsaneKdf);
+        }
+        let mut salt = [0u8; SALT_LEN];
+        salt.copy_from_slice(&b[18..18 + SALT_LEN]); // 18..34
+        let mut nonce_prefix = [0u8; NONCE_PREFIX_LEN];
+        nonce_prefix.copy_from_slice(&b[34..34 + NONCE_PREFIX_LEN]); // 34..53
+        let chunk_size = rd(53); // 53..57
+        if (chunk_size as usize) < MIN_CHUNK_SIZE || (chunk_size as usize) > MAX_CHUNK_SIZE {
+            return Err(StreamError::BadChunkSize);
+        }
+        Ok(StreamHeader {
+            kdf_params,
+            salt,
+            nonce_prefix,
+            chunk_size,
+        })
+    }
+}
+
+/// Nonce de 24 B para el chunk `counter`. `final_flag` = último chunk.
+fn chunk_nonce(prefix: &[u8; NONCE_PREFIX_LEN], counter: u32, final_flag: bool) -> [u8; NONCE_LEN] {
+    let mut n = [0u8; NONCE_LEN];
+    n[..NONCE_PREFIX_LEN].copy_from_slice(prefix);
+    n[NONCE_PREFIX_LEN..NONCE_PREFIX_LEN + 4].copy_from_slice(&counter.to_be_bytes());
+    n[NONCE_PREFIX_LEN + 4] = final_flag as u8;
+    n
+}
+
+/// Deriva la clave de streaming por archivo: Argon2id + HKDF(info ‖ prefix).
+fn derive_stream_key(
+    passphrase: &str,
+    pepper: &[u8],
+    params: &KdfParams,
+    salt: &[u8; SALT_LEN],
+    prefix: &[u8; NONCE_PREFIX_LEN],
+) -> Zeroizing<[u8; KEY_LEN]> {
+    let master = Zeroizing::new(kdf::derive_master_key(passphrase, salt, pepper, params));
+    let mut info = Vec::with_capacity(STREAM_INFO_PREFIX.len() + NONCE_PREFIX_LEN);
+    info.extend_from_slice(STREAM_INFO_PREFIX);
+    info.extend_from_slice(prefix);
+    Zeroizing::new(kdf::derive_subkey(&master, &info))
+}
+
+/// Lee hasta llenar `buf` o EOF; devuelve cuántos bytes se leyeron.
+fn read_chunk<R: Read>(reader: &mut R, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(filled)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_header() -> StreamHeader {
+        StreamHeader {
+            kdf_params: KdfParams {
+                mem_kib: 64,
+                iterations: 1,
+                parallelism: 1,
+            },
+            salt: [3u8; SALT_LEN],
+            nonce_prefix: [7u8; NONCE_PREFIX_LEN],
+            chunk_size: DEFAULT_CHUNK_SIZE as u32,
+        }
+    }
+
+    #[test]
+    fn header_len_is_57() {
+        assert_eq!(HEADER_LEN, 57);
+        assert_eq!(sample_header().to_bytes().len(), 57);
+    }
+
+    #[test]
+    fn header_round_trips() {
+        let h = sample_header();
+        let bytes = h.to_bytes();
+        let back = StreamHeader::from_bytes(&bytes).unwrap();
+        assert_eq!(back.kdf_params.mem_kib, 64);
+        assert_eq!(back.salt, [3u8; SALT_LEN]);
+        assert_eq!(back.nonce_prefix, [7u8; NONCE_PREFIX_LEN]);
+        assert_eq!(back.chunk_size, DEFAULT_CHUNK_SIZE as u32);
+    }
+
+    #[test]
+    fn header_rejects_bad_magic() {
+        let mut bytes = sample_header().to_bytes();
+        bytes[0] = b'X';
+        assert!(matches!(
+            StreamHeader::from_bytes(&bytes),
+            Err(StreamError::Header)
+        ));
+    }
+
+    #[test]
+    fn header_rejects_bad_version() {
+        let mut bytes = sample_header().to_bytes();
+        bytes[4] = 2;
+        assert!(matches!(
+            StreamHeader::from_bytes(&bytes),
+            Err(StreamError::UnsupportedVersion(2))
+        ));
+    }
+
+    #[test]
+    fn header_rejects_insane_kdf() {
+        let mut h = sample_header();
+        h.kdf_params.mem_kib = KdfParams::MAX_MEM_KIB + 1;
+        let bytes = h.to_bytes();
+        assert!(matches!(
+            StreamHeader::from_bytes(&bytes),
+            Err(StreamError::InsaneKdf)
+        ));
+    }
+
+    #[test]
+    fn header_rejects_out_of_range_chunk_size() {
+        let mut h = sample_header();
+        h.chunk_size = 100; // < MIN_CHUNK_SIZE
+        let bytes = h.to_bytes();
+        assert!(matches!(
+            StreamHeader::from_bytes(&bytes),
+            Err(StreamError::BadChunkSize)
+        ));
+    }
+
+    #[test]
+    fn nonce_layout_is_prefix_counter_final() {
+        let prefix = [9u8; NONCE_PREFIX_LEN];
+        let n = chunk_nonce(&prefix, 0x01020304, true);
+        assert_eq!(&n[..NONCE_PREFIX_LEN], &prefix);
+        assert_eq!(&n[NONCE_PREFIX_LEN..NONCE_PREFIX_LEN + 4], &[1, 2, 3, 4]);
+        assert_eq!(n[23], 1);
+        let n0 = chunk_nonce(&prefix, 0, false);
+        assert_eq!(n0[23], 0);
+    }
+}
