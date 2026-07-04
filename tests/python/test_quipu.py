@@ -81,6 +81,69 @@ def test_signature_tampered_raises():
         pass
 
 
+def test_stream_round_trip():
+    data = b"datos grandes en streaming " * 1000
+    blob = quipu.encrypt_stream(data, "clave-stream")
+    assert isinstance(blob, bytes)
+    assert quipu.decrypt_stream(blob, "clave-stream") == data
+
+
+def test_stream_small_chunk_round_trip():
+    data = b"varios trozos" * 2000  # > un par de chunks de 4 KiB
+    blob = quipu.encrypt_stream(data, "clave", chunk_size=4096)  # mínimo permitido
+    # chunk_size se lee de la cabecera; descifrar no lo necesita
+    assert quipu.decrypt_stream(blob, "clave") == data
+
+
+def test_stream_pepper_round_trip():
+    data = b"con pepper en streaming"
+    blob = quipu.encrypt_stream(data, "clave", b"pepper-app")
+    assert quipu.decrypt_stream(blob, "clave", b"pepper-app") == data
+    try:
+        quipu.decrypt_stream(blob, "clave", b"pepper-malo")
+        assert False, "debería haber lanzado ValueError"
+    except ValueError:
+        pass
+
+
+def test_stream_wrong_passphrase_raises():
+    blob = quipu.encrypt_stream(b"datos", "correcta")
+    try:
+        quipu.decrypt_stream(blob, "incorrecta")
+        assert False, "debería haber lanzado ValueError"
+    except ValueError:
+        pass
+
+
+def test_stream_tampered_raises():
+    blob = bytearray(quipu.encrypt_stream(b"orden importante en streaming", "clave"))
+    blob[-1] ^= 0x01  # corromper el último byte del cuerpo cifrado
+    try:
+        quipu.decrypt_stream(bytes(blob), "clave")
+        assert False, "debería haber lanzado ValueError"
+    except ValueError:
+        pass
+
+
+def test_stream_truncation_raises():
+    blob = quipu.encrypt_stream(b"x" * 20000, "clave", chunk_size=4096)
+    try:
+        quipu.decrypt_stream(blob[: len(blob) // 2], "clave")
+        assert False, "debería haber lanzado ValueError"
+    except ValueError:
+        pass
+
+
+def test_stream_bad_chunk_size_raises():
+    # Fuera de rango [4 KiB, 16 MiB] -> ValueError, no pánico del intérprete.
+    for bad in (0, 64, 32 * 1024 * 1024):
+        try:
+            quipu.encrypt_stream(b"datos", "clave", chunk_size=bad)
+            assert False, f"chunk_size={bad} debería haber lanzado ValueError"
+        except ValueError:
+            pass
+
+
 if __name__ == "__main__":
     test_round_trip()
     test_wrong_passphrase_raises()
@@ -90,4 +153,11 @@ if __name__ == "__main__":
     test_signature_round_trip()
     test_signature_wrong_key_raises()
     test_signature_tampered_raises()
+    test_stream_round_trip()
+    test_stream_small_chunk_round_trip()
+    test_stream_pepper_round_trip()
+    test_stream_wrong_passphrase_raises()
+    test_stream_tampered_raises()
+    test_stream_truncation_raises()
+    test_stream_bad_chunk_size_raises()
     print("OK: todos los tests de Python pasaron")

@@ -19,6 +19,10 @@ use crate::api::{
 use crate::dictionary::Dictionary;
 use crate::glyphopt;
 use crate::kdf::KdfParams;
+use crate::stream::{
+    decrypt_stream_bytes as core_decrypt_stream, encrypt_stream as core_encrypt_stream,
+    StreamOptions,
+};
 use crate::{pqhybrid, pqsign};
 
 /// Diccionario por defecto: 94 símbolos ASCII imprimibles.
@@ -127,6 +131,57 @@ fn decode_verified<'py>(
     }
 }
 
+/// Cifra `data` en el formato de streaming AEAD (construcción STREAM, cabecera
+/// `QST1`) y devuelve el contenedor completo como bytes. Memoria acotada:
+/// procesa por trozos de `chunk_size` bytes (por defecto el del formato; debe
+/// estar entre 4 KiB y 16 MiB, si no lanza `ValueError`). El resultado resiste
+/// truncado, reordenado, duplicado, splicing entre ficheros y manipulación. A
+/// diferencia de `encode`, la salida son bytes binarios, no símbolos.
+#[pyfunction]
+#[pyo3(signature = (data, passphrase, pepper = None, chunk_size = None))]
+fn encrypt_stream<'py>(
+    py: Python<'py>,
+    data: &[u8],
+    passphrase: &str,
+    pepper: Option<&[u8]>,
+    chunk_size: Option<usize>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let mut opts = StreamOptions::default();
+    if let Some(p) = pepper {
+        opts.pepper = p;
+    }
+    if let Some(cs) = chunk_size {
+        opts.chunk_size = cs;
+    }
+    // `encrypt_stream` valida `chunk_size` (y los KdfParams) y devuelve un
+    // error en vez de entrar en pánico, así un `chunk_size` fuera de rango
+    // desde Python se convierte en `ValueError`, no en un cierre del intérprete.
+    let mut blob = Vec::new();
+    core_encrypt_stream(data, &mut blob, passphrase, &opts)
+        .map_err(|e| PyValueError::new_err(format!("encrypt failed: {e}")))?;
+    Ok(PyBytes::new(py, &blob))
+}
+
+/// Descifra un contenedor de streaming AEAD producido por `encrypt_stream` (con
+/// el mismo `pepper`). El `chunk_size` se lee de la cabecera, no hace falta
+/// indicarlo. Lanza `ValueError` si la autenticación falla, incluido truncado,
+/// reordenado o manipulación.
+#[pyfunction]
+#[pyo3(signature = (blob, passphrase, pepper = None))]
+fn decrypt_stream<'py>(
+    py: Python<'py>,
+    blob: &[u8],
+    passphrase: &str,
+    pepper: Option<&[u8]>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    match core_decrypt_stream(blob, passphrase, pepper.unwrap_or(b"")) {
+        Ok(bytes) => Ok(PyBytes::new(py, &bytes)),
+        Err(_) => Err(PyValueError::new_err(
+            "decrypt failed: autenticación inválida",
+        )),
+    }
+}
+
 /// Distancia mínima entre cualquier par de huellas (métrica de separabilidad).
 #[pyfunction]
 fn glyph_min_distance(fingerprints: Vec<Vec<u8>>) -> u32 {
@@ -150,6 +205,8 @@ fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate_signing_keypair, m)?)?;
     m.add_function(wrap_pyfunction!(encode_signed, m)?)?;
     m.add_function(wrap_pyfunction!(decode_verified, m)?)?;
+    m.add_function(wrap_pyfunction!(encrypt_stream, m)?)?;
+    m.add_function(wrap_pyfunction!(decrypt_stream, m)?)?;
     m.add_function(wrap_pyfunction!(glyph_min_distance, m)?)?;
     m.add_function(wrap_pyfunction!(select_separable, m)?)?;
     Ok(())
