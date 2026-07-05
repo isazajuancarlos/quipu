@@ -26,8 +26,8 @@ export function decode(symbols, passphrase, pepper) {
   return callBytes(native.decodeFn, [symbols, passphrase, ...pepperArgs(pepper)]);
 }
 
-export async function generateKeypair() {
-  const [publicKey, secretKey] = await callKeypair(native.generateKeypairFn);
+export function generateKeypair() {
+  const [publicKey, secretKey] = callKeypair(native.generateKeypairFn);
   return { publicKey, secretKey };
 }
 
@@ -39,8 +39,8 @@ export function decryptAsRecipient(symbols, secretKey) {
   return callBytes(native.decryptAsRecipientFn, [symbols, secretKey, secretKey.length]);
 }
 
-export async function generateSigningKeypair() {
-  const [verifyingKey, signingKey] = await callKeypair(native.generateSigningKeypairFn);
+export function generateSigningKeypair() {
+  const [verifyingKey, signingKey] = callKeypair(native.generateSigningKeypairFn);
   return { verifyingKey, signingKey };
 }
 
