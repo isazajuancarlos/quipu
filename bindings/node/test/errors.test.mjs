@@ -25,3 +25,10 @@ test('decode with wrong passphrase -> AUTH', async () => {
     return true;
   });
 });
+
+test('wrong-length recipient key -> KEY', async () => {
+  await assert.rejects(quipu.encryptToRecipient(Buffer.from('x'), Buffer.alloc(10)), (e) => {
+    assert.equal(e.code, 'KEY');
+    return true;
+  });
+});

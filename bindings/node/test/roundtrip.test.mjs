@@ -28,3 +28,12 @@ test('symmetric codec roundtrip (string symbols)', async () => {
   assert.ok(sym.length >= 115);
   assert.deepEqual(await quipu.decode(sym, 'pw'), msg);
 });
+
+test('post-quantum recipient roundtrip', async () => {
+  const { publicKey, secretKey } = await quipu.generateKeypair();
+  assert.equal(publicKey.length, 1600);
+  assert.equal(secretKey.length, 3200);
+  const msg = Buffer.from('for your eyes only');
+  const sym = await quipu.encryptToRecipient(msg, publicKey);
+  assert.deepEqual(await quipu.decryptAsRecipient(sym, secretKey), msg);
+});
