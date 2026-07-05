@@ -6,6 +6,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security Lab
+- **Coverage-guided fuzzing wired into CI**: the `fuzz/` libFuzzer harness gains a
+  `honey_decrypt` target (the newest untrusted parser) and a nightly `fuzz (smoke)`
+  CI job that runs every target (`honey_decrypt`, `parse_container`, `unpad`,
+  `codec_roundtrip`) on each push. Local verification found no crashes across
+  ~53M executions.
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - Written specification with machine-readable interoperability test vectors.

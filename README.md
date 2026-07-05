@@ -145,10 +145,12 @@ cargo run --example v2demo      # post-cuántico + OPRF + imagen
 cargo run --example hackerbot   # red-team
 cargo run --example testplatform --release   # batería completa
 cargo run --example securitylab --features lab   # laboratorio de seguridad (red-team adaptativo)
+cargo run --example redteam --features "lab slh honey" --release   # red-team consolidado (todas las superficies)
 bash lab/run.sh   # banco offline aislado (timing + guessing) — Etapa B
 
-# Fuzzing (nightly)
-cargo +nightly fuzz run parse_container
+# Fuzzing coverage-guided (libFuzzer, nightly). Targets: parse_container,
+# honey_decrypt, unpad, codec_roundtrip.
+cargo +nightly fuzz run honey_decrypt
 
 # Bindings Python
 source venv/bin/activate
