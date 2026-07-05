@@ -114,3 +114,21 @@ jobs:
         run: cargo install cargo-vet --locked
       - name: Vet dependencies
         run: cargo vet --locked
+
+  fuzz:
+    name: fuzz (smoke, nightly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      # Smoke corto por target: garantiza que el harness compila y que ninguna
+      # entrada del corpus/seed provoca crash. El fuzzing largo va por cron/local.
+      - name: Smoke every fuzz target
+        run: |
+          for t in honey_decrypt parse_container unpad codec_roundtrip; do
+            echo "== fuzz $t =="
+            cargo fuzz run "$t" -- -max_total_time=20
+          done

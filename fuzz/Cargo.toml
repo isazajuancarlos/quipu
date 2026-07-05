@@ -12,10 +12,18 @@ libfuzzer-sys = "0.4"
 
 [dependencies.quipu]
 path = ".."
+features = ["honey"]
 
 [[bin]]
 name = "parse_container"
 path = "fuzz_targets/parse_container.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "honey_decrypt"
+path = "fuzz_targets/honey_decrypt.rs"
 test = false
 doc = false
 bench = false
