@@ -41,3 +41,46 @@ func goStringFree(ptr *C.char) string {
 	C.quipu_string_free(ptr)
 	return s
 }
+
+// StreamOptions configures streaming encryption. A zero ChunkSize uses the
+// format default; a nil Pepper means none.
+type StreamOptions struct {
+	Pepper    []byte
+	ChunkSize int
+}
+
+// EncryptStream encrypts data into the streaming AEAD container (QST1).
+func EncryptStream(data []byte, passphrase string, opts StreamOptions) ([]byte, error) {
+	dp, dn, dfree := cbytes(data)
+	defer dfree()
+	pp, pn, pfree := cbytes(opts.Pepper)
+	defer pfree()
+	cpass := C.CString(passphrase)
+	defer C.free(unsafe.Pointer(cpass))
+
+	var out *C.uint8_t
+	var outLen C.size_t
+	rc := C.quipu_encrypt_stream((*C.uint8_t)(dp), dn, cpass, (*C.uint8_t)(pp), pn, C.size_t(opts.ChunkSize), &out, &outLen)
+	if err := errorFor(int32(rc)); err != nil {
+		return nil, err
+	}
+	return goBytesFree(out, outLen), nil
+}
+
+// DecryptStream decrypts a QST1 container produced by EncryptStream.
+func DecryptStream(blob []byte, passphrase string, pepper []byte) ([]byte, error) {
+	bp, bn, bfree := cbytes(blob)
+	defer bfree()
+	pp, pn, pfree := cbytes(pepper)
+	defer pfree()
+	cpass := C.CString(passphrase)
+	defer C.free(unsafe.Pointer(cpass))
+
+	var out *C.uint8_t
+	var outLen C.size_t
+	rc := C.quipu_decrypt_stream((*C.uint8_t)(bp), bn, cpass, (*C.uint8_t)(pp), pn, &out, &outLen)
+	if err := errorFor(int32(rc)); err != nil {
+		return nil, err
+	}
+	return goBytesFree(out, outLen), nil
+}
