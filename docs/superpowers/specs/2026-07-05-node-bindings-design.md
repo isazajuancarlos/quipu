@@ -8,15 +8,22 @@ Promise-based TypeScript API. Builds on the C ABI shipped in PR #20.
 
 ## 1 · Goal & non-goals
 
-**Goal.** Let Node.js applications use Quipu's data-at-rest crypto through an
-idiomatic, type-safe, non-blocking API — implemented as a thin binding *over the
-C ABI* (not by re-linking the Rust core, not by reimplementing crypto). The
-binding must be:
+> **Implementation update (2026-07-05):** the async/`Promise` goal below could not
+> ship in v1. koffi's `.async` runs the native call on a libuv threadpool worker
+> whose stack is far smaller than the main thread's; the Rust core's **ML-DSA-87**
+> operations overflow it and **SIGSEGV** (ML-KEM fit, ML-DSA did not). v1 therefore
+> ships a **synchronous** API — proven safe for every function — and non-blocking
+> use via `worker_threads` is a follow-up. The rest of this spec stands; read
+> "Promise-based / non-blocking" as "synchronous" for v1.
 
-- **Idiomatic** — `Buffer` in / `Buffer` out, `Promise`-based, errors thrown
-  (not returned codes), `camelCase`, shipped `.d.ts` types.
-- **Non-blocking** — every operation runs Argon2id (~tens of ms at 64 MiB), so
-  calls execute off the main event loop.
+**Goal.** Let Node.js applications use Quipu's data-at-rest crypto through an
+idiomatic, type-safe API — implemented as a thin binding *over the C ABI* (not by
+re-linking the Rust core, not by reimplementing crypto). The binding must be:
+
+- **Idiomatic** — `Buffer` in / `Buffer` out, errors thrown (not returned codes),
+  `camelCase`, shipped `.d.ts` types.
+- **Correct on this platform** — synchronous in v1 (see the implementation update
+  above); non-blocking via `worker_threads` is a follow-up.
 - **Thin & auditable** — the only new "unsafe" surface is one small pointer/free
   helper; everything else is declarative FFI signatures + a typed wrapper.
 - **Interoperable** — proven to decrypt a container produced by the Rust core,
