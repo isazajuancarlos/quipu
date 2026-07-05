@@ -20,3 +20,11 @@ test('streaming with pepper roundtrip', async () => {
   const blob = await quipu.encryptStream(msg, 'pw', { pepper });
   assert.deepEqual(await quipu.decryptStream(blob, 'pw', { pepper }), msg);
 });
+
+test('symmetric codec roundtrip (string symbols)', async () => {
+  const msg = Buffer.from('hello glyphs');
+  const sym = await quipu.encode(msg, 'pw');
+  assert.equal(typeof sym, 'string');
+  assert.ok(sym.length >= 115);
+  assert.deepEqual(await quipu.decode(sym, 'pw'), msg);
+});
