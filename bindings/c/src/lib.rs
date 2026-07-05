@@ -7,12 +7,14 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
 
 use quipu::api::{
-    decode as core_decode, decode_as_recipient as core_decode_pq, encode as core_encode,
-    encode_to_recipient as core_encode_pq, DecodeError, Options,
+    decode as core_decode, decode_as_recipient as core_decode_pq,
+    decode_verified as core_decode_verified, encode as core_encode,
+    encode_signed as core_encode_signed, encode_to_recipient as core_encode_pq, DecodeError,
+    Options,
 };
 use quipu::dictionary::Dictionary;
 use quipu::kdf::KdfParams;
-use quipu::pqhybrid;
+use quipu::{pqhybrid, pqsign};
 use quipu::stream::{
     decrypt_stream_bytes as core_decrypt_stream, encrypt_stream as core_encrypt_stream,
     StreamError, StreamOptions,
@@ -429,6 +431,105 @@ pub unsafe extern "C" fn quipu_decrypt_as_recipient(
     })
 }
 
+/// Generates a hybrid signing keypair (Ed25519 + ML-DSA-87). Writes the
+/// verifying key (2624 B) and the sensitive signing key (64 B).
+///
+/// # Safety
+/// All four out-pointers must be valid, writable pointers.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_generate_signing_keypair(
+    vk: *mut *mut u8,
+    vk_len: *mut usize,
+    sk: *mut *mut u8,
+    sk_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        if vk.is_null() || vk_len.is_null() || sk.is_null() || sk_len.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let (verifying, signing) = pqsign::generate_keypair();
+        unsafe {
+            write_bytes(verifying.to_bytes(), vk, vk_len);
+            write_bytes(signing.to_bytes().to_vec(), sk, sk_len);
+        }
+        QUIPU_OK as i32
+    })
+}
+
+/// Signs `data` with the hybrid signing key (`sk`, 64 B). The output is a
+/// self-contained, SIGNED-BUT-CLEARTEXT artifact (authenticity, not secrecy).
+/// On success writes glyph symbols to `*out`.
+///
+/// # Safety
+/// Pointers must satisfy the documented borrow/out-pointer contracts.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_sign(
+    data: *const u8,
+    data_len: usize,
+    sk: *const u8,
+    sk_len: usize,
+    out: *mut *mut c_char,
+) -> i32 {
+    guard(|| {
+        if out.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let data = match unsafe { as_slice(data, data_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let sk_bytes = match unsafe { as_slice(sk, sk_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let signing = match pqsign::SigningKey::from_bytes(sk_bytes) {
+            Some(k) => k,
+            None => return QUIPU_ERR_KEY as i32,
+        };
+        let s = core_encode_signed(data, &signing, &default_dict());
+        unsafe { write_string(s, out) }
+    })
+}
+
+/// Verifies a signed artifact against the PINNED verifying key (`vk`, 2624 B)
+/// and, only if it validates, writes the message to `*out`/`*out_len`.
+///
+/// # Safety
+/// Pointers must satisfy the documented borrow/out-pointer contracts.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_verify(
+    symbols: *const c_char,
+    vk: *const u8,
+    vk_len: usize,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        if out.is_null() || out_len.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let symbols = match unsafe { as_str(symbols) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let vk_bytes = match unsafe { as_slice(vk, vk_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let verifying = match pqsign::VerifyingKey::from_bytes(vk_bytes) {
+            Some(k) => k,
+            None => return QUIPU_ERR_KEY as i32,
+        };
+        match core_decode_verified(symbols, &verifying, &default_dict()) {
+            Ok(bytes) => {
+                unsafe { write_bytes(bytes, out, out_len) };
+                QUIPU_OK as i32
+            }
+            Err(e) => map_decode_err(e),
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -653,6 +754,47 @@ mod tests {
             quipu_bytes_free(out, out_len);
             quipu_bytes_free(pk, pk_len);
             quipu_bytes_free(sk, sk_len);
+        }
+    }
+
+    #[test]
+    fn signature_roundtrip_and_tamper() {
+        let (mut vk, mut vk_len) = (std::ptr::null_mut(), 0usize);
+        let (mut sk, mut sk_len) = (std::ptr::null_mut(), 0usize);
+        let rc =
+            unsafe { quipu_generate_signing_keypair(&mut vk, &mut vk_len, &mut sk, &mut sk_len) };
+        assert_eq!(rc, QUIPU_OK as i32);
+        assert_eq!(vk_len, 2624);
+        assert_eq!(sk_len, 64);
+
+        let msg = b"signed statement";
+        let mut sym: *mut c_char = std::ptr::null_mut();
+        let rc = unsafe { quipu_sign(msg.as_ptr(), msg.len(), sk, sk_len, &mut sym) };
+        assert_eq!(rc, QUIPU_OK as i32);
+
+        let (mut out, mut out_len) = (std::ptr::null_mut(), 0usize);
+        let rc = unsafe { quipu_verify(sym, vk, vk_len, &mut out, &mut out_len) };
+        assert_eq!(rc, QUIPU_OK as i32);
+        let got = unsafe { std::slice::from_raw_parts(out, out_len) };
+        assert_eq!(got, msg);
+
+        // Verify against a different key -> AUTH error.
+        let (mut vk2, mut vk2_len) = (std::ptr::null_mut(), 0usize);
+        let (mut sk2, mut sk2_len) = (std::ptr::null_mut(), 0usize);
+        unsafe {
+            quipu_generate_signing_keypair(&mut vk2, &mut vk2_len, &mut sk2, &mut sk2_len);
+        }
+        let (mut out2, mut out2_len) = (std::ptr::null_mut(), 0usize);
+        let rc = unsafe { quipu_verify(sym, vk2, vk2_len, &mut out2, &mut out2_len) };
+        assert_eq!(rc, QUIPU_ERR_AUTH as i32);
+
+        unsafe {
+            quipu_string_free(sym);
+            quipu_bytes_free(out, out_len);
+            quipu_bytes_free(vk, vk_len);
+            quipu_bytes_free(sk, sk_len);
+            quipu_bytes_free(vk2, vk2_len);
+            quipu_bytes_free(sk2, sk2_len);
         }
     }
 }
