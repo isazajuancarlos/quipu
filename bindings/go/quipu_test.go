@@ -64,3 +64,32 @@ func TestStreamBadChunkSize(t *testing.T) {
 		t.Fatalf("want ErrChunk, got %v", err)
 	}
 }
+
+func TestCodecRoundtrip(t *testing.T) {
+	msg := []byte("hello glyphs")
+	sym, err := Encode(msg, "pw", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sym) < 115 {
+		t.Fatalf("unexpectedly short symbols: %d", len(sym))
+	}
+	back, err := Decode(sym, "pw", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(back, msg) {
+		t.Fatal("codec roundtrip mismatch")
+	}
+}
+
+func TestDecodeWrongPassphrase(t *testing.T) {
+	sym, err := Encode([]byte("data"), "right", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Decode(sym, "wrong", nil)
+	if !errors.Is(err, ErrAuth) {
+		t.Fatalf("want ErrAuth, got %v", err)
+	}
+}

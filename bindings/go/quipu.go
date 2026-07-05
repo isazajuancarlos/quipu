@@ -84,3 +84,38 @@ func DecryptStream(blob []byte, passphrase string, pepper []byte) ([]byte, error
 	}
 	return goBytesFree(out, outLen), nil
 }
+
+// Encode encrypts data under a passphrase and returns glyph symbols.
+func Encode(data []byte, passphrase string, pepper []byte) (string, error) {
+	dp, dn, dfree := cbytes(data)
+	defer dfree()
+	pp, pn, pfree := cbytes(pepper)
+	defer pfree()
+	cpass := C.CString(passphrase)
+	defer C.free(unsafe.Pointer(cpass))
+
+	var out *C.char
+	rc := C.quipu_encode((*C.uint8_t)(dp), dn, cpass, (*C.uint8_t)(pp), pn, &out)
+	if err := errorFor(int32(rc)); err != nil {
+		return "", err
+	}
+	return goStringFree(out), nil
+}
+
+// Decode decrypts glyph symbols under a passphrase.
+func Decode(symbols string, passphrase string, pepper []byte) ([]byte, error) {
+	csym := C.CString(symbols)
+	defer C.free(unsafe.Pointer(csym))
+	cpass := C.CString(passphrase)
+	defer C.free(unsafe.Pointer(cpass))
+	pp, pn, pfree := cbytes(pepper)
+	defer pfree()
+
+	var out *C.uint8_t
+	var outLen C.size_t
+	rc := C.quipu_decode(csym, cpass, (*C.uint8_t)(pp), pn, &out, &outLen)
+	if err := errorFor(int32(rc)); err != nil {
+		return nil, err
+	}
+	return goBytesFree(out, outLen), nil
+}
