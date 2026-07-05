@@ -829,6 +829,7 @@ name = "quipu-capi"
 version = "0.6.0"
 dependencies = [
  "quipu",
+ "zeroize",
 ]
 
 [[package]]

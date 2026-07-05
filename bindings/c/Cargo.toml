@@ -13,3 +13,6 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 quipu = { path = "../.." }
+# Wipe every output buffer on free: a C ABI cannot know which buffers hold
+# secret keys or plaintext, so we zero them all (harmless for public data).
+zeroize = "1"

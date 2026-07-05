@@ -6,6 +6,8 @@ use std::ffi::{c_char, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
 
+use zeroize::Zeroize;
+
 use quipu::api::{
     decode as core_decode, decode_as_recipient as core_decode_pq,
     decode_verified as core_decode_verified, encode as core_encode,
@@ -132,7 +134,9 @@ fn map_decode_err(e: DecodeError) -> i32 {
 
 // --- exports ---
 
-/// Frees a byte buffer returned by any `quipu_*` function. No-op on NULL.
+/// Frees a byte buffer returned by any `quipu_*` function. The buffer is wiped
+/// before release, so secret keys and decrypted plaintext leave no residue. No-op
+/// on NULL.
 ///
 /// # Safety
 /// `ptr`/`len` must come unmodified from a Quipu byte output, freed once.
@@ -143,6 +147,7 @@ pub unsafe extern "C" fn quipu_bytes_free(ptr: *mut u8, len: usize) {
     }
     unsafe {
         let s = slice::from_raw_parts_mut(ptr, len);
+        s.zeroize();
         drop(Box::from_raw(s as *mut [u8]));
     }
 }
