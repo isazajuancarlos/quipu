@@ -63,6 +63,9 @@ fips205 = { version = "0.4.1", optional = true, default-features = false, featur
 [dev-dependencies]
 proptest = "1"
 wycheproof = "0.6"
+# Solo para leer/generar los vectores de interoperabilidad (tests/vectors/).
+# Ya está en el árbol vía wycheproof y exento en cargo-vet.
+serde_json = "1"
 
 [[example]]
 name = "securitylab"
@@ -75,3 +78,7 @@ required-features = ["lab-offline"]
 [[example]]
 name = "redteam"
 required-features = ["lab"]
+
+[[example]]
+name = "gen_vectors"
+required-features = ["honey"]

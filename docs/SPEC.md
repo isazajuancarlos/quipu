@@ -1,11 +1,15 @@
 # Quipu — Technical Specification
 
-**Applies to v0.1.0 · 2026-07-01**
+**Covers the container formats through v0.6.0 · updated 2026-07-04**
 
 > ⚠️ This spec is **descriptive of the current implementation**, not a frozen wire
 > standard. Formats may change before v1.0. It is intended for auditors and for
 > anyone reimplementing or interoperating with Quipu. Where this document and the
 > source disagree, the source is authoritative — please file an issue.
+>
+> **Machine-readable known-answer vectors:** [`tests/vectors/quipu_vectors.json`](../tests/vectors/quipu_vectors.json)
+> (regenerate with `cargo run --example gen_vectors --features honey`; checked by
+> [`tests/vectors.rs`](../tests/vectors.rs)). See §14.
 
 All multi-byte integers are **big-endian** unless stated otherwise.
 
@@ -302,7 +306,82 @@ blob = "QSG1"(4) ‖ version=1 (1) ‖ flags=0 (1) ‖ msg_len(u32 BE, 4)
 is returned **only** if the signature verifies against the caller-pinned verifying
 key.
 
-## 10. Domain-separation labels
+### 9.4 Triple-hybrid variant (`QSG3`, opt-in feature `slh`)
+
+A high-assurance variant adds a third family: **SLH-DSA-SHA2-256s** (FIPS-205,
+stateless hash-based) with an **AND 3-of-3** combiner — the signature verifies
+only if Ed25519 **and** ML-DSA-87 **and** SLH-DSA all verify, so it stays
+unforgeable as long as ≥1 of {elliptic-curve, lattice, hash} survives. The
+container magic is `"QSG3"`. SLH-DSA signatures are large (~29 KB), so the mode
+is opt-in; the double-hybrid `QSG1` artifacts are unchanged.
+
+## 10. Streaming AEAD (`QST1`)
+
+STREAM construction (Tink-inspired) for large data-at-rest in bounded memory. A
+57-byte header, then a sequence of AEAD chunks:
+
+| Offset | Size | Field |
+|-------:|-----:|-------|
+| 0  | 4  | magic = `"QST1"` (0x51 0x53 0x54 0x31) |
+| 4  | 1  | version = `1` |
+| 5  | 1  | flags (`0`) |
+| 6  | 4  | kdf_mem_kib |
+| 10 | 4  | kdf_iterations |
+| 14 | 4  | kdf_parallelism |
+| 18 | 16 | salt |
+| 34 | 19 | nonce_prefix |
+| 53 | 4  | chunk_size (4 KiB … 16 MiB) |
+| 57 | …  | chunks |
+
+The per-file key is derived like the symmetric mode (`Argon2id` → the file key is
+used directly per chunk). Each chunk is `XChaCha20Poly1305_Seal(key, nonce_i,
+aad = header(57), chunk_plaintext)` followed by its 16-byte tag. The 24-byte
+nonce of chunk *i* is:
+
+```
+nonce_i = nonce_prefix(19) ‖ be_u32(counter) ‖ final_flag(1)
+```
+
+`final_flag = 1` only on the last chunk. This gives resistance to **truncation**
+(missing final chunk), **reordering / duplication** (counter in the nonce) and
+**cross-file splicing** (per-file salt ⇒ per-file key).
+
+## 11. Honey Encryption (`QHNY`, opt-in feature `honey`)
+
+Decoy mode for low-entropy secrets modelled as a uniform sequence of `L` tokens
+from an alphabet of size `A` (a PIN: `A=10`; a mnemonic: `A=`wordlist size). A
+39-byte header, then the encrypted tokens:
+
+| Offset | Size | Field |
+|-------:|-----:|-------|
+| 0  | 4  | magic = `"QHNY"` (0x51 0x48 0x4e 0x59) |
+| 4  | 1  | version = `1` |
+| 5  | 16 | salt |
+| 21 | 4  | kdf_mem_kib |
+| 25 | 4  | kdf_iterations |
+| 29 | 4  | kdf_parallelism |
+| 33 | 2  | alphabet A (≥ 2) |
+| 35 | 4  | length L (≤ 1000) |
+| 39 | 2·L | encrypted tokens `c_i` (each big-endian u16) |
+
+A base-`A` one-time-pad keyed by the KDF:
+
+```
+master = Argon2id(NFKC(pw) ‖ pepper, salt, params)
+buf    = HKDF-SHA256-Expand(master, info = "quipu-honey-v1/pad", 8·L)   # 8 bytes/token
+k_i    = be_u64(buf[8i .. 8i+8])  mod A
+c_i    = (t_i + k_i)  mod A        # encrypt
+t_i    = (c_i - k_i)  mod A        # decrypt
+```
+
+**No authentication tag, by design** — a tag would be a success oracle. Every
+passphrase decrypts to a valid token sequence, so a wrong guess yields a
+plausible *decoy* and an offline brute-forcer gets no "correct-key" signal. Only
+sound for uniform, fixed-alphabet secrets; it does **not** detect tampering and
+is a specialised companion to, never a replacement for, the authenticated AEAD
+core.
+
+## 12. Domain-separation labels
 
 Every key derivation / hash uses a unique label:
 
@@ -313,19 +392,42 @@ Every key derivation / hash uses a unique label:
 | `quipu/v2/voprf` | VOPRF hash-to-curve and final output |
 | `quipu/v2/voprf-dleq` | DLEQ challenge |
 | `quipu/v2/voprf-server-key` | Deterministic VOPRF server key from seed |
-| `quipu/v3/sign` | Hybrid signature preimage (Ed25519 + ML-DSA) |
+| `quipu/v3/sign` | Hybrid signature preimage (Ed25519 + ML-DSA [+ SLH-DSA for QSG3]) |
+| `quipu-honey-v1/pad` | HKDF: honey per-token keystream (§11) |
 | `quipu/v2/oprf`, `quipu/v2/oprf-server-key` | Legacy non-verifiable OPRF (building block; unused by the online mode) |
 
-## 11. Constants
+## 13. Constants
 
 | Name | Value |
 |------|-------|
 | Symmetric magic / version | `"QUIP"` / `1` |
 | Symmetric header size | 68 bytes |
 | Hybrid magic / version | `"QPQ1"` / `1` |
-| Signed magic / version | `"QSG1"` / `1` |
+| Signed magic / version | `"QSG1"` (double) · `"QSG3"` (triple) / `1` |
+| Streaming magic / version / header | `"QST1"` / `1` / 57 bytes |
+| Streaming nonce prefix / chunk size range | 19 bytes / 4 KiB – 16 MiB |
+| Honey magic / version / header | `"QHNY"` / `1` / 39 bytes |
+| Honey alphabet / max length | u16 (≥ 2) / 1000 tokens |
 | AEAD key / nonce / tag | 32 / 24 / 16 bytes |
 | salt | 16 bytes |
 | DLEQ proof | 64 bytes |
 | VOPRF verified response | 97 bytes |
 | Hybrid verifying key / signing key / signature | 1984 / 64 / 3373 bytes |
+
+## 14. Interoperability test vectors
+
+[`tests/vectors/quipu_vectors.json`](../tests/vectors/quipu_vectors.json) holds
+known-answer vectors in two classes:
+
+- **`deterministic.*`** — with fixed salt/nonce the output is byte-for-byte
+  reproducible (KDF master key, HKDF subkey, XChaCha20-Poly1305, Padmé, the
+  `QUIP` symmetric container, the `QHNY` honey container). These **freeze the
+  format**: any accidental change breaks the test.
+- **`frozen.*`** — modes with internal randomness (streaming, hybrid PQ, hybrid
+  signature) pin a captured artifact and verify the **decode / verify** direction.
+
+The Argon2id cost in the vectors is intentionally cheap so tests run fast; a KAT
+pins the algorithm, not the cost. [`tests/vectors.rs`](../tests/vectors.rs)
+recomputes the deterministic vectors and checks the frozen ones on every
+`cargo test`. Regenerate after an intentional format change with
+`cargo run --example gen_vectors --features honey`.
