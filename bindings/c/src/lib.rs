@@ -2,10 +2,13 @@
 //! caller-frees-output. See docs/superpowers/specs/2026-07-05-c-abi-bindings-design.md.
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use std::ffi::{c_char, CStr};
+use std::ffi::{c_char, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
 
+use quipu::api::{decode as core_decode, encode as core_encode, DecodeError, Options};
+use quipu::dictionary::Dictionary;
+use quipu::kdf::KdfParams;
 use quipu::stream::{
     decrypt_stream_bytes as core_decrypt_stream, encrypt_stream as core_encrypt_stream,
     StreamError, StreamOptions,
@@ -86,6 +89,37 @@ fn map_stream_err(e: StreamError) -> i32 {
             QUIPU_ERR_KEY
         }
         StreamError::Io(_) => QUIPU_ERR_INTERNAL,
+    };
+    s as i32
+}
+
+/// The default 94-symbol printable-ASCII dictionary (matches the Python layer).
+fn default_dict() -> Dictionary {
+    Dictionary::new((0x21u8..=0x7e).map(|b| b as char).collect())
+        .expect("el alfabeto ASCII por defecto es válido")
+}
+
+/// Hands ownership of a glyph string to the caller as a NUL-terminated C string.
+///
+/// SAFETY: `out` must be a valid, writable pointer.
+unsafe fn write_string(s: String, out: *mut *mut c_char) -> i32 {
+    match CString::new(s) {
+        Ok(cs) => {
+            unsafe { *out = cs.into_raw() };
+            QUIPU_OK as i32
+        }
+        // Glyph symbols are 0x21..=0x7e, so an interior NUL is impossible; keep
+        // the arm defensive rather than panicking.
+        Err(_) => QUIPU_ERR_INTERNAL as i32,
+    }
+}
+
+fn map_decode_err(e: DecodeError) -> i32 {
+    let s = match e {
+        DecodeError::Decrypt | DecodeError::BadSignature => QUIPU_ERR_AUTH,
+        DecodeError::Symbol(_) | DecodeError::Container(_) | DecodeError::CodebookMismatch => {
+            QUIPU_ERR_KEY
+        }
     };
     s as i32
 }
@@ -197,6 +231,98 @@ pub unsafe extern "C" fn quipu_decrypt_stream(
                 QUIPU_OK as i32
             }
             Err(e) => map_stream_err(e),
+        }
+    })
+}
+
+/// Frees a string returned by any `quipu_*` function. No-op on NULL.
+///
+/// # Safety
+/// `ptr` must come unmodified from a Quipu string output, freed once.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_string_free(ptr: *mut c_char) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe { drop(CString::from_raw(ptr)) };
+}
+
+/// Encodes `data` protected by `passphrase` into glyph symbols. `pepper` may be
+/// `(NULL, 0)`. On success writes a NUL-terminated string to `*out`.
+///
+/// # Safety
+/// Pointers must satisfy the documented borrow/out-pointer contracts.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_encode(
+    data: *const u8,
+    data_len: usize,
+    passphrase: *const c_char,
+    pepper: *const u8,
+    pepper_len: usize,
+    out: *mut *mut c_char,
+) -> i32 {
+    guard(|| {
+        if out.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let data = match unsafe { as_slice(data, data_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let pepper = match unsafe { as_slice(pepper, pepper_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let passphrase = match unsafe { as_str(passphrase) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let opts = Options {
+            pepper,
+            kdf_params: KdfParams::default(),
+            codebook_id: 0,
+        };
+        let s = core_encode(data, passphrase, &default_dict(), &opts);
+        unsafe { write_string(s, out) }
+    })
+}
+
+/// Decodes glyph `symbols` with `passphrase` (and optional `pepper`). On success
+/// writes plaintext bytes to `*out`/`*out_len`.
+///
+/// # Safety
+/// Pointers must satisfy the documented borrow/out-pointer contracts.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_decode(
+    symbols: *const c_char,
+    passphrase: *const c_char,
+    pepper: *const u8,
+    pepper_len: usize,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        if out.is_null() || out_len.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let symbols = match unsafe { as_str(symbols) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let passphrase = match unsafe { as_str(passphrase) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let pepper = match unsafe { as_slice(pepper, pepper_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        match core_decode(symbols, passphrase, &default_dict(), pepper) {
+            Ok(bytes) => {
+                unsafe { write_bytes(bytes, out, out_len) };
+                QUIPU_OK as i32
+            }
+            Err(e) => map_decode_err(e),
         }
     })
 }
@@ -334,5 +460,60 @@ mod tests {
             )
         };
         assert_eq!(rc, QUIPU_ERR_NULL_ARG as i32);
+    }
+
+    #[test]
+    fn codec_roundtrip() {
+        let msg = b"hello glyphs";
+        let mut sym: *mut c_char = std::ptr::null_mut();
+        let rc = unsafe {
+            quipu_encode(
+                msg.as_ptr(),
+                msg.len(),
+                c"pw".as_ptr(),
+                std::ptr::null(),
+                0,
+                &mut sym,
+            )
+        };
+        assert_eq!(rc, QUIPU_OK as i32);
+        assert!(!sym.is_null());
+
+        let (mut out, mut out_len) = (std::ptr::null_mut(), 0usize);
+        let rc =
+            unsafe { quipu_decode(sym, c"pw".as_ptr(), std::ptr::null(), 0, &mut out, &mut out_len) };
+        assert_eq!(rc, QUIPU_OK as i32);
+        let got = unsafe { std::slice::from_raw_parts(out, out_len) };
+        assert_eq!(got, msg);
+
+        unsafe {
+            quipu_string_free(sym);
+            quipu_string_free(std::ptr::null_mut()); // no-op
+            quipu_bytes_free(out, out_len);
+        }
+    }
+
+    #[test]
+    fn codec_wrong_passphrase_is_auth_error() {
+        let msg = b"data";
+        let mut sym: *mut c_char = std::ptr::null_mut();
+        unsafe {
+            quipu_encode(
+                msg.as_ptr(),
+                msg.len(),
+                c"right".as_ptr(),
+                std::ptr::null(),
+                0,
+                &mut sym,
+            );
+        }
+        let (mut out, mut out_len) = (std::ptr::null_mut(), 0usize);
+        let rc = unsafe {
+            quipu_decode(sym, c"wrong".as_ptr(), std::ptr::null(), 0, &mut out, &mut out_len)
+        };
+        assert_eq!(rc, QUIPU_ERR_AUTH as i32);
+        unsafe {
+            quipu_string_free(sym);
+        }
     }
 }
