@@ -7,6 +7,9 @@ version = "0.10"
 [policy.quipu]
 audit-as-crates-io = true
 
+[policy.quipu-capi]
+audit-as-crates-io = false
+
 [[exemptions.adler2]]
 version = "2.0.1"
 criteria = "safe-to-deploy"

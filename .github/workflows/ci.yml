@@ -132,3 +132,27 @@ jobs:
             echo "== fuzz $t =="
             cargo fuzz run "$t" -- -max_total_time=20
           done
+
+  capi:
+    name: C ABI (bindings/c)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cbindgen
+        run: cargo install cbindgen --locked
+      - name: Build cdylib + staticlib
+        run: cargo build -p quipu-capi
+      - name: Verify quipu.h is up to date
+        run: |
+          cd bindings/c
+          cbindgen --config cbindgen.toml --crate quipu-capi --output /tmp/quipu.gen.h
+          diff -u include/quipu.h /tmp/quipu.gen.h
+      - name: Rust ABI unit tests
+        run: cargo test -p quipu-capi
+      - name: Compile and run the C integration test
+        run: |
+          cc -I bindings/c/include bindings/c/tests/roundtrip.c \
+             -L target/debug -lquipu_capi -o /tmp/capi_roundtrip
+          LD_LIBRARY_PATH=target/debug /tmp/capi_roundtrip

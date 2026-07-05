@@ -126,6 +126,23 @@ blob = quipu.encrypt_stream(b"...datos grandes...", "passphrase")
 assert quipu.decrypt_stream(blob, "passphrase") == b"...datos grandes..."
 ```
 
+## Uso (C / otros lenguajes)
+
+Un ABI de C estable vive en [`bindings/c`](bindings/c) (crate `quipu-capi`).
+Compila una librería compartida/estática y un header `quipu.h` generado con
+cbindgen, de modo que cualquier lenguaje con FFI de C (Node.js, Go, Ruby, …)
+puede consumir Quipu. La superficie es paritaria con los bindings de Python.
+Ver [`bindings/c/README.md`](bindings/c/README.md).
+
+```c
+#include "quipu.h"
+uint8_t *blob = NULL; size_t n = 0;
+if (quipu_encrypt_stream(data, len, "passphrase", NULL, 0, 0, &blob, &n) == QUIPU_OK) {
+    /* ... usar blob ... */
+    quipu_bytes_free(blob, n);   /* se limpia al liberar: sin residuo de secretos */
+}
+```
+
 ## Ejemplos funcionales
 
 Round-trip de todos los modos, listo para correr:
