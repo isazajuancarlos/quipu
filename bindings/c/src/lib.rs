@@ -6,9 +6,13 @@ use std::ffi::{c_char, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
 
-use quipu::api::{decode as core_decode, encode as core_encode, DecodeError, Options};
+use quipu::api::{
+    decode as core_decode, decode_as_recipient as core_decode_pq, encode as core_encode,
+    encode_to_recipient as core_encode_pq, DecodeError, Options,
+};
 use quipu::dictionary::Dictionary;
 use quipu::kdf::KdfParams;
+use quipu::pqhybrid;
 use quipu::stream::{
     decrypt_stream_bytes as core_decrypt_stream, encrypt_stream as core_encrypt_stream,
     StreamError, StreamOptions,
@@ -327,6 +331,104 @@ pub unsafe extern "C" fn quipu_decode(
     })
 }
 
+/// Generates a hybrid post-quantum keypair (X25519 + ML-KEM-1024). Writes the
+/// public key (1600 B) and secret key (3200 B) as freshly allocated buffers.
+///
+/// # Safety
+/// All four out-pointers must be valid, writable pointers.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_generate_keypair(
+    pk: *mut *mut u8,
+    pk_len: *mut usize,
+    sk: *mut *mut u8,
+    sk_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        if pk.is_null() || pk_len.is_null() || sk.is_null() || sk_len.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let (public, secret) = pqhybrid::generate_keypair();
+        unsafe {
+            write_bytes(public.to_bytes(), pk, pk_len);
+            write_bytes(secret.to_bytes(), sk, sk_len);
+        }
+        QUIPU_OK as i32
+    })
+}
+
+/// Encrypts `data` to a recipient's hybrid public key (`pk`, 1600 B). On success
+/// writes glyph symbols to `*out`.
+///
+/// # Safety
+/// Pointers must satisfy the documented borrow/out-pointer contracts.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_encrypt_to_recipient(
+    data: *const u8,
+    data_len: usize,
+    pk: *const u8,
+    pk_len: usize,
+    out: *mut *mut c_char,
+) -> i32 {
+    guard(|| {
+        if out.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let data = match unsafe { as_slice(data, data_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let pk_bytes = match unsafe { as_slice(pk, pk_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let public = match pqhybrid::PublicKey::from_bytes(pk_bytes) {
+            Some(k) => k,
+            None => return QUIPU_ERR_KEY as i32,
+        };
+        let s = core_encode_pq(data, &public, &default_dict());
+        unsafe { write_string(s, out) }
+    })
+}
+
+/// Decrypts recipient symbols with the hybrid secret key (`sk`, 3200 B). On
+/// success writes plaintext to `*out`/`*out_len`.
+///
+/// # Safety
+/// Pointers must satisfy the documented borrow/out-pointer contracts.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_decrypt_as_recipient(
+    symbols: *const c_char,
+    sk: *const u8,
+    sk_len: usize,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        if out.is_null() || out_len.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let symbols = match unsafe { as_str(symbols) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let sk_bytes = match unsafe { as_slice(sk, sk_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let secret = match pqhybrid::SecretKey::from_bytes(sk_bytes) {
+            Some(k) => k,
+            None => return QUIPU_ERR_KEY as i32,
+        };
+        match core_decode_pq(symbols, &secret, &default_dict()) {
+            Ok(bytes) => {
+                unsafe { write_bytes(bytes, out, out_len) };
+                QUIPU_OK as i32
+            }
+            Err(e) => map_decode_err(e),
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,6 +616,43 @@ mod tests {
         assert_eq!(rc, QUIPU_ERR_AUTH as i32);
         unsafe {
             quipu_string_free(sym);
+        }
+    }
+
+    #[test]
+    fn recipient_roundtrip_and_bad_key() {
+        let (mut pk, mut pk_len) = (std::ptr::null_mut(), 0usize);
+        let (mut sk, mut sk_len) = (std::ptr::null_mut(), 0usize);
+        let rc = unsafe { quipu_generate_keypair(&mut pk, &mut pk_len, &mut sk, &mut sk_len) };
+        assert_eq!(rc, QUIPU_OK as i32);
+        assert_eq!(pk_len, 1600);
+        assert_eq!(sk_len, 3200);
+
+        let msg = b"for your eyes only";
+        let mut sym: *mut c_char = std::ptr::null_mut();
+        let rc =
+            unsafe { quipu_encrypt_to_recipient(msg.as_ptr(), msg.len(), pk, pk_len, &mut sym) };
+        assert_eq!(rc, QUIPU_OK as i32);
+
+        let (mut out, mut out_len) = (std::ptr::null_mut(), 0usize);
+        let rc = unsafe { quipu_decrypt_as_recipient(sym, sk, sk_len, &mut out, &mut out_len) };
+        assert_eq!(rc, QUIPU_OK as i32);
+        let got = unsafe { std::slice::from_raw_parts(out, out_len) };
+        assert_eq!(got, msg);
+
+        // Wrong-length public key -> KEY error.
+        let short = [0u8; 10];
+        let mut sym2: *mut c_char = std::ptr::null_mut();
+        let rc = unsafe {
+            quipu_encrypt_to_recipient(msg.as_ptr(), msg.len(), short.as_ptr(), short.len(), &mut sym2)
+        };
+        assert_eq!(rc, QUIPU_ERR_KEY as i32);
+
+        unsafe {
+            quipu_string_free(sym);
+            quipu_bytes_free(out, out_len);
+            quipu_bytes_free(pk, pk_len);
+            quipu_bytes_free(sk, sk_len);
         }
     }
 }
