@@ -4,6 +4,11 @@ version = "0.0.0"
 publish = false
 edition = "2024"
 
+# Standalone workspace: cargo-fuzz builds this crate on nightly with sanitizer
+# flags, separate from the parent workspace. Without this, the parent's
+# [workspace] table (added for the C ABI binding) would try to adopt it.
+[workspace]
+
 [package.metadata]
 cargo-fuzz = true
 
