@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "bindings/c"]
+resolver = "2"
+
 [package]
 name = "quipu"
 version = "0.6.0"

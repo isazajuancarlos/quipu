@@ -1,0 +1,18 @@
+[package]
+name = "quipu-capi"
+version = "0.6.0"
+edition = "2021"
+description = "C ABI (extern \"C\") bindings for the Quipu post-quantum crypto core."
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/isazajuancarlos/quipu"
+publish = false
+
+[lib]
+name = "quipu_capi"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+quipu = { path = "../.." }
+# Wipe every output buffer on free: a C ABI cannot know which buffers hold
+# secret keys or plaintext, so we zero them all (harmless for public data).
+zeroize = "1"

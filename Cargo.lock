@@ -825,6 +825,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "quipu-capi"
+version = "0.6.0"
+dependencies = [
+ "quipu",
+ "zeroize",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
