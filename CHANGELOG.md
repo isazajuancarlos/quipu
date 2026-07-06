@@ -24,6 +24,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wired into CI (build + header-drift gate + Rust ABI tests + linked C test).
   Output buffers are wiped on free, so no secret-key or plaintext residue
   remains. Foundation for future Node.js/Go bindings.
+- **Go bindings** (`bindings/go`, module `github.com/isazajuancarlos/quipu/bindings/go`):
+  an idiomatic `(result, error)` API over the C ABI via cgo, static-linking
+  `libquipu_capi.a` — symmetric codec, streaming AEAD, post-quantum recipient, and
+  hybrid signature. Errors are `*quipu.Error` sentinels (`errors.Is`-matchable). A
+  `testing` suite includes a **cross-language interop** test that decrypts
+  Rust-produced QST1 vectors. Unlike the Node bindings, no async workaround is
+  needed: cgo runs on the goroutine system stack, so ML-DSA-87 has room and calls
+  are concurrency-safe. New `go` CI job.
 
 ### Security Lab
 - **Coverage-guided fuzzing wired into CI**: the `fuzz/` libFuzzer harness gains a
@@ -34,7 +42,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Planned
 - Independent security audit and public remediation of findings.
-- Higher-language bindings over the now-shipped C ABI (Node.js / Go).
+- Node.js bindings over the now-shipped C ABI; publishing the Go module and
+  macOS/Windows prebuilds + CI matrix.
 - Reference deployment of the online VOPRF hardening server.
 
 ## [0.6.0] — 2026-07-04

@@ -156,3 +156,19 @@ jobs:
           cc -I bindings/c/include bindings/c/tests/roundtrip.c \
              -L target/debug -lquipu_capi -o /tmp/capi_roundtrip
           LD_LIBRARY_PATH=target/debug /tmp/capi_roundtrip
+
+  go:
+    name: Go bindings (bindings/go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Build native staticlib
+        run: cargo build -p quipu-capi --release
+      - name: Test
+        working-directory: bindings/go
+        run: CGO_ENABLED=1 go test -v ./...
