@@ -24,6 +24,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wired into CI (build + header-drift gate + Rust ABI tests + linked C test).
   Output buffers are wiped on free, so no secret-key or plaintext residue
   remains. Foundation for future Node.js/Go bindings.
+- **Node.js bindings** (`bindings/node`, npm package `quipu-crypto`): an idiomatic
+  `Buffer`-in/out API over the C ABI via Koffi runtime FFI — symmetric codec,
+  streaming AEAD, post-quantum recipient, and hybrid signature — with thrown
+  `QuipuError`s, hand-written TypeScript types, and a `node:test` suite including
+  a **cross-language interop** test that decrypts Rust-produced QST1 vectors. New
+  `node` CI job. The API is synchronous in v1: koffi's async path runs on a libuv
+  worker whose stack is too small for the core's ML-DSA-87 operations; a
+  non-blocking `worker_threads` wrapper is a planned follow-up.
 
 ### Security Lab
 - **Coverage-guided fuzzing wired into CI**: the `fuzz/` libFuzzer harness gains a
@@ -34,7 +42,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Planned
 - Independent security audit and public remediation of findings.
-- Higher-language bindings over the now-shipped C ABI (Node.js / Go).
+- Go (cgo) binding over the C ABI; a non-blocking `worker_threads` wrapper for the
+  Node.js bindings; publishing `quipu-crypto` to npm.
 - Reference deployment of the online VOPRF hardening server.
 
 ## [0.6.0] — 2026-07-04

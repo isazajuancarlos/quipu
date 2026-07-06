@@ -1,0 +1,16 @@
+{
+  "name": "quipu-crypto",
+  "version": "0.6.0",
+  "description": "Node.js bindings for Quipu — hybrid post-quantum crypto for data at rest (over the C ABI).",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "index.d.ts",
+  "license": "AGPL-3.0-or-later",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "node scripts/build-native.mjs",
+    "test": "node --test"
+  },
+  "dependencies": { "koffi": "^3.1.0" },
+  "files": ["src/", "index.d.ts", "prebuilds/", "README.md"]
+}
