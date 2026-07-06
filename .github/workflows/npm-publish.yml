@@ -3,7 +3,7 @@ name: npm-publish
 # Publishes the Node.js bindings (`quipu-crypto`) to npm on a `v*` tag. The
 # package ships prebuilt native libraries (libquipu_capi) per platform under
 # bindings/node/prebuilds/<platform>-<arch>/, so end users need no Rust toolchain.
-# Requires an `NPM_TOKEN` automation token in the repo's `npm` environment.
+# Auth is npm Trusted Publishing (OIDC) — no token; configured on npmjs.com.
 on:
   push:
     tags: ["v*"]
@@ -44,20 +44,27 @@ jobs:
     name: publish to npm
     needs: [prebuild]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    # The publish token lives in a protected `npm` environment (add required
-    # reviewers / branch restrictions in repo settings) so only vetted runs can
-    # publish. GitHub creates the environment on first reference; until an
-    # NPM_TOKEN secret is added there the publish step below skips gracefully.
+    # Run on a `v*` tag push OR a manual dispatch. NOTE: on workflow_dispatch
+    # github.ref is `refs/heads/main`, so it must be matched explicitly here or
+    # the job is skipped entirely.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # Auth is npm Trusted Publishing (OIDC) — no NPM_TOKEN. The trust is
+    # configured on npmjs.com (package `quipu-crypto` → trusted publisher: this
+    # repo, workflow file `npm-publish.yml`, environment `npm`). The `npm`
+    # environment is the gate: restrict who/what can publish in repo settings.
     environment: npm
     permissions:
-      id-token: write   # npm provenance (OIDC)
+      id-token: write   # OIDC token for trusted publishing + provenance
+      contents: read    # actions/checkout
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
+      # Trusted publishing needs npm >= 11.5.1; the runner's bundled npm is older.
+      - name: Upgrade npm (trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@latest
       # Collect every platform's prebuild into bindings/node/prebuilds/.
       - uses: actions/download-artifact@v4
         with:
@@ -67,16 +74,8 @@ jobs:
       - name: List bundled prebuilds
         working-directory: bindings/node
         run: find prebuilds -type f
-      # Publishes only if an NPM_TOKEN secret is configured; otherwise skips with a
-      # warning so a first release (before the token exists) stays green. Re-run
-      # this workflow (workflow_dispatch) once the secret is added to publish.
-      - name: Publish (public, with provenance)
+      # OIDC handles auth; provenance is attested automatically under trusted
+      # publishing (kept explicit for clarity). No token env needed.
+      - name: Publish (OIDC trusted publishing, public, with provenance)
         working-directory: bindings/node
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::warning::NPM_TOKEN not set — skipping npm publish. Add an NPM_TOKEN secret and re-run this workflow to publish quipu-crypto."
-            exit 0
-          fi
-          npm publish --provenance --access public
+        run: npm publish --provenance --access public
