@@ -45,6 +45,11 @@ jobs:
     needs: [prebuild]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    # The publish token lives in a protected `npm` environment (add required
+    # reviewers / branch restrictions in repo settings) so only vetted runs can
+    # publish. GitHub creates the environment on first reference; until an
+    # NPM_TOKEN secret is added there the publish step below skips gracefully.
+    environment: npm
     permissions:
       id-token: write   # npm provenance (OIDC)
     steps:
