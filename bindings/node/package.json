@@ -6,6 +6,13 @@
   "main": "src/index.js",
   "types": "index.d.ts",
   "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/isazajuancarlos/quipu.git",
+    "directory": "bindings/node"
+  },
+  "homepage": "https://github.com/isazajuancarlos/quipu/tree/main/bindings/node#readme",
+  "bugs": { "url": "https://github.com/isazajuancarlos/quipu/issues" },
   "engines": { "node": ">=18" },
   "scripts": {
     "build": "node scripts/build-native.mjs",
