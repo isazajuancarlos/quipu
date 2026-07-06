@@ -119,3 +119,45 @@ func Decode(symbols string, passphrase string, pepper []byte) ([]byte, error) {
 	}
 	return goBytesFree(out, outLen), nil
 }
+
+// GenerateKeypair produces a hybrid X25519+ML-KEM-1024 recipient keypair.
+func GenerateKeypair() (publicKey, secretKey []byte, err error) {
+	var pk, sk *C.uint8_t
+	var pkl, skl C.size_t
+	rc := C.quipu_generate_keypair(&pk, &pkl, &sk, &skl)
+	if e := errorFor(int32(rc)); e != nil {
+		return nil, nil, e
+	}
+	return goBytesFree(pk, pkl), goBytesFree(sk, skl), nil
+}
+
+// EncryptToRecipient encrypts data to a recipient public key, returning glyph symbols.
+func EncryptToRecipient(data []byte, publicKey []byte) (string, error) {
+	dp, dn, dfree := cbytes(data)
+	defer dfree()
+	kp, kn, kfree := cbytes(publicKey)
+	defer kfree()
+
+	var out *C.char
+	rc := C.quipu_encrypt_to_recipient((*C.uint8_t)(dp), dn, (*C.uint8_t)(kp), kn, &out)
+	if err := errorFor(int32(rc)); err != nil {
+		return "", err
+	}
+	return goStringFree(out), nil
+}
+
+// DecryptAsRecipient decrypts glyph symbols using the recipient secret key.
+func DecryptAsRecipient(symbols string, secretKey []byte) ([]byte, error) {
+	csym := C.CString(symbols)
+	defer C.free(unsafe.Pointer(csym))
+	kp, kn, kfree := cbytes(secretKey)
+	defer kfree()
+
+	var out *C.uint8_t
+	var outLen C.size_t
+	rc := C.quipu_decrypt_as_recipient(csym, (*C.uint8_t)(kp), kn, &out, &outLen)
+	if err := errorFor(int32(rc)); err != nil {
+		return nil, err
+	}
+	return goBytesFree(out, outLen), nil
+}

@@ -93,3 +93,36 @@ func TestDecodeWrongPassphrase(t *testing.T) {
 		t.Fatalf("want ErrAuth, got %v", err)
 	}
 }
+
+func TestRecipientRoundtrip(t *testing.T) {
+	pk, sk, err := GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pk) != 1600 {
+		t.Fatalf("public key size = %d, want 1600", len(pk))
+	}
+	if len(sk) != 3200 {
+		t.Fatalf("secret key size = %d, want 3200", len(sk))
+	}
+
+	msg := []byte("to the recipient")
+	sym, err := EncryptToRecipient(msg, pk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := DecryptAsRecipient(sym, sk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(back, msg) {
+		t.Fatal("recipient roundtrip mismatch")
+	}
+}
+
+func TestRecipientBadKey(t *testing.T) {
+	_, err := EncryptToRecipient([]byte("x"), []byte("too short"))
+	if !errors.Is(err, ErrKey) {
+		t.Fatalf("want ErrKey, got %v", err)
+	}
+}
