@@ -126,3 +126,38 @@ func TestRecipientBadKey(t *testing.T) {
 		t.Fatalf("want ErrKey, got %v", err)
 	}
 }
+
+func TestSignatureRoundtrip(t *testing.T) {
+	vk, sk, err := GenerateSigningKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vk) != 2624 || len(sk) != 64 {
+		t.Fatalf("key sizes: %d/%d want 2624/64", len(vk), len(sk))
+	}
+	msg := []byte("acta oficial")
+	signed, err := Sign(msg, sk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := Verify(signed, vk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(back, msg) {
+		t.Fatal("signature roundtrip mismatch")
+	}
+}
+
+func TestVerifyWrongKey(t *testing.T) {
+	_, sk, _ := GenerateSigningKeypair()
+	vk2, _, _ := GenerateSigningKeypair()
+	signed, err := Sign([]byte("m"), sk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Verify(signed, vk2)
+	if !errors.Is(err, ErrAuth) {
+		t.Fatalf("want ErrAuth, got %v", err)
+	}
+}

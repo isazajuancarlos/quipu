@@ -161,3 +161,46 @@ func DecryptAsRecipient(symbols string, secretKey []byte) ([]byte, error) {
 	}
 	return goBytesFree(out, outLen), nil
 }
+
+// GenerateSigningKeypair generates a hybrid signing keypair (Ed25519 + ML-DSA-87).
+func GenerateSigningKeypair() (verifyingKey, signingKey []byte, err error) {
+	var vk, sk *C.uint8_t
+	var vkl, skl C.size_t
+	rc := C.quipu_generate_signing_keypair(&vk, &vkl, &sk, &skl)
+	if e := errorFor(int32(rc)); e != nil {
+		return nil, nil, e
+	}
+	return goBytesFree(vk, vkl), goBytesFree(sk, skl), nil
+}
+
+// Sign signs data with the hybrid signing key; returns a signed glyph artifact.
+func Sign(data []byte, signingKey []byte) (string, error) {
+	dp, dn, dfree := cbytes(data)
+	defer dfree()
+	kp, kn, kfree := cbytes(signingKey)
+	defer kfree()
+
+	var out *C.char
+	rc := C.quipu_sign((*C.uint8_t)(dp), dn, (*C.uint8_t)(kp), kn, &out)
+	if err := errorFor(int32(rc)); err != nil {
+		return "", err
+	}
+	return goStringFree(out), nil
+}
+
+// Verify checks a signed artifact against the pinned verifying key and, only if
+// it validates, returns the message.
+func Verify(symbols string, verifyingKey []byte) ([]byte, error) {
+	csym := C.CString(symbols)
+	defer C.free(unsafe.Pointer(csym))
+	kp, kn, kfree := cbytes(verifyingKey)
+	defer kfree()
+
+	var out *C.uint8_t
+	var outLen C.size_t
+	rc := C.quipu_verify(csym, (*C.uint8_t)(kp), kn, &out, &outLen)
+	if err := errorFor(int32(rc)); err != nil {
+		return nil, err
+	}
+	return goBytesFree(out, outLen), nil
+}
