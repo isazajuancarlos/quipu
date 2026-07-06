@@ -6,7 +6,21 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Planned
+- Independent security audit and public remediation of findings.
+- A non-blocking `worker_threads` wrapper for the Node.js bindings.
+- Reference deployment of the online VOPRF hardening server.
+
+## [0.7.0] — 2026-07-06
+
 ### Added
+- **Multi-language bindings over a stable C ABI.** Quipu's post-quantum core is
+  now reachable from C, Node.js and Go, all through one `extern "C"` surface,
+  each with a cross-language interop test that decrypts Rust-produced `QST1`
+  vectors. Distribution: the Python package (`quipu-crypto`) and signed source
+  ship to PyPI + the GitHub Release on tag; the Go module is consumable at
+  `github.com/isazajuancarlos/quipu/bindings/go@v0.7.0`; the npm package
+  (`quipu-crypto`) publishes via a prebuild matrix (Linux/macOS/Windows).
 - **Written specification + machine-readable interoperability test vectors.**
   `docs/SPEC.md` now documents every container format byte-by-byte through v0.6.0
   (adds the streaming `QST1`, honey `QHNY`, and triple-signature `QSG3` formats to
@@ -47,13 +61,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   CI job that runs every target (`honey_decrypt`, `parse_container`, `unpad`,
   `codec_roundtrip`) on each push. Local verification found no crashes across
   ~53M executions.
-
-### Planned
-- Independent security audit and public remediation of findings.
-- Publishing the language bindings: `quipu-crypto` to npm and the Go module; a
-  non-blocking `worker_threads` wrapper for the Node.js bindings; macOS/Windows
-  prebuilds + a CI matrix.
-- Reference deployment of the online VOPRF hardening server.
 
 ## [0.6.0] — 2026-07-04
 
@@ -234,7 +241,10 @@ First public release. Published to crates.io (`quipu`) and PyPI
   (no crashes) on the pure-logic and parsing modules; `cargo-audit` in CI.
 - **Not yet independently audited** — see [`SECURITY.md`](SECURITY.md).
 
-[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/isazajuancarlos/quipu/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/isazajuancarlos/quipu/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/isazajuancarlos/quipu/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/isazajuancarlos/quipu/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/isazajuancarlos/quipu/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/isazajuancarlos/quipu/compare/v0.2.0...v0.3.0
