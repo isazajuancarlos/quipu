@@ -797,7 +797,7 @@ checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quipu"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -826,7 +826,7 @@ dependencies = [
 
 [[package]]
 name = "quipu-capi"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "quipu",
  "zeroize",
