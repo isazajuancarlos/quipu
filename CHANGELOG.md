@@ -32,6 +32,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `node` CI job. The API is synchronous in v1: koffi's async path runs on a libuv
   worker whose stack is too small for the core's ML-DSA-87 operations; a
   non-blocking `worker_threads` wrapper is a planned follow-up.
+- **Go bindings** (`bindings/go`, module `github.com/isazajuancarlos/quipu/bindings/go`):
+  an idiomatic `(result, error)` API over the C ABI via cgo, static-linking
+  `libquipu_capi.a` — symmetric codec, streaming AEAD, post-quantum recipient, and
+  hybrid signature. Errors are `*quipu.Error` sentinels (`errors.Is`-matchable). A
+  `testing` suite includes a **cross-language interop** test that decrypts
+  Rust-produced QST1 vectors. Unlike the Node bindings, no async workaround is
+  needed: cgo runs on the goroutine system stack, so ML-DSA-87 has room and calls
+  are concurrency-safe. New `go` CI job.
 
 ### Security Lab
 - **Coverage-guided fuzzing wired into CI**: the `fuzz/` libFuzzer harness gains a
@@ -42,8 +50,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Planned
 - Independent security audit and public remediation of findings.
-- Go (cgo) binding over the C ABI; a non-blocking `worker_threads` wrapper for the
-  Node.js bindings; publishing `quipu-crypto` to npm.
+- Publishing the language bindings: `quipu-crypto` to npm and the Go module; a
+  non-blocking `worker_threads` wrapper for the Node.js bindings; macOS/Windows
+  prebuilds + a CI matrix.
 - Reference deployment of the online VOPRF hardening server.
 
 ## [0.6.0] — 2026-07-04
