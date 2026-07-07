@@ -4,7 +4,18 @@ Node.js bindings for [Quipu](../../README.md) — hybrid post-quantum crypto for
 data at rest — implemented over the stable [C ABI](../c) via [Koffi](https://koffi.dev)
 runtime FFI.
 
-## Build
+## Install
+
+```sh
+npm install quipu-crypto
+```
+
+Prebuilt native libraries ship for **linux-x64, darwin-x64, darwin-arm64 and
+win32-x64**, so no Rust toolchain is needed at install time.
+
+## Build from source (contributors)
+
+If you're hacking on the bindings or your platform has no prebuild:
 
 ```sh
 cd bindings/node

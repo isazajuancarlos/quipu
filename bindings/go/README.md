@@ -4,6 +4,20 @@ Go bindings for [Quipu](../../README.md) — hybrid post-quantum crypto for data
 rest — over the stable [C ABI](../c) via cgo. Statically links `libquipu_capi.a`,
 so a built binary needs no runtime shared library.
 
+## Install
+
+The module is versioned and go-gettable at:
+
+```sh
+go get github.com/isazajuancarlos/quipu/bindings/go@v0.7.0
+```
+
+> **Note:** linking currently requires a repo checkout. The cgo directives link
+> `${SRCDIR}/../../target/release/libquipu_capi.a` and include `../c/include`,
+> which live outside the Go module, so a stand-alone `go build` won't link yet —
+> you must build the static lib from the repo first (see below). A self-contained
+> module with vendored/prebuilt libs is a planned follow-up.
+
 ## Build
 
 ```sh
