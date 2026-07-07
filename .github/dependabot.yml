@@ -1,0 +1,42 @@
+# Automated dependency + GitHub Actions updates.
+# Security library hygiene: keep the supply chain current and let RustSec/npm
+# advisories surface as PRs. Minor/patch bumps are grouped to cut PR noise;
+# majors come as individual PRs so breaking changes get their own review.
+version: 2
+updates:
+  # GitHub Actions used across ci.yml / release.yml / npm-publish.yml.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # Rust workspace (core crate + quipu-capi + Python bindings via pyo3).
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      cargo-minor:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # Node.js bindings (quipu-crypto).
+  - package-ecosystem: npm
+    directory: /bindings/node
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # Go bindings.
+  - package-ecosystem: gomod
+    directory: /bindings/go
+    schedule:
+      interval: weekly
