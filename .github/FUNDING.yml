@@ -1,10 +1,13 @@
 # How GitHub renders the "Sponsor" button for Quipu.
-# - github:          GitHub Sponsors profile(s). Requires enrolling at
-#                    https://github.com/sponsors (identity + payout setup).
-# - open_collective: the collective slug -> https://opencollective.com/quipu
-#                    Create it with fiscal host "Open Source Collective" to
-#                    accept corporate/invoiced funding transparently.
-# Donations are a complement; the core revenue is the commercial license and
-# the VOPRF SaaS. Prefer org/sponsorship tiers over "tip" tiers.
+# - github:          GitHub Sponsors (0% fee, no fiscal host needed). Primary channel.
+# - buy_me_a_coffee: low-friction one-off tips.
+#
+# Open Collective was removed: Open Source Collective declined fiscal hosting at
+# this stage (project too early / not enough active contributors). Revisit once
+# there are multiple contributors or a corporate sponsor needs invoiced,
+# transparent funding — then a fiscal host earns its overhead.
+#
+# Donations are a complement; the core revenue is the commercial license and the
+# VOPRF SaaS. Prefer org/sponsorship tiers over "tip" tiers.
 github: [isazajuancarlos]
-open_collective: quipu
+buy_me_a_coffee: xiliux
