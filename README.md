@@ -126,6 +126,44 @@ blob = quipu.encrypt_stream(b"...datos grandes...", "passphrase")
 assert quipu.decrypt_stream(blob, "passphrase") == b"...datos grandes..."
 ```
 
+## Uso (Node.js)
+
+```bash
+npm install quipu-crypto   # binarios precompilados: linux-x64, darwin-x64, darwin-arm64, win32-x64 (sin toolchain de Rust)
+```
+
+```js
+import * as quipu from 'quipu-crypto';
+
+const blob = quipu.encryptStream(Buffer.from('...datos grandes...'), 'passphrase');
+quipu.decryptStream(blob, 'passphrase'); // -> Buffer
+
+const { publicKey, secretKey } = quipu.generateKeypair(); // post-cuántico
+const c = quipu.encryptToRecipient(Buffer.from('secreto'), publicKey);
+quipu.decryptAsRecipient(c, secretKey);
+```
+
+La API es **síncrona** (corre Argon2id; para servidores, invócala desde un
+`worker_thread`). Ver [`bindings/node/README.md`](bindings/node/README.md).
+
+## Uso (Go)
+
+```bash
+go get github.com/isazajuancarlos/quipu/bindings/go@v0.7.0   # cgo: requiere CGO_ENABLED=1 y un compilador de C
+```
+
+```go
+import quipu "github.com/isazajuancarlos/quipu/bindings/go"
+
+blob, err := quipu.EncryptStream([]byte("...datos grandes..."), "passphrase", quipu.StreamOptions{})
+plain, err := quipu.DecryptStream(blob, "passphrase", nil)
+```
+
+API idiomática `(result, error)`; errores centinela con `errors.Is`. Nota: hoy el
+enlazado requiere un checkout del repo (cgo enlaza `target/release/libquipu_capi.a`);
+compila el staticlib con `cargo build -p quipu-capi --release` primero. Ver
+[`bindings/go/README.md`](bindings/go/README.md).
+
 ## Uso (C / otros lenguajes)
 
 Un ABI de C estable vive en [`bindings/c`](bindings/c) (crate `quipu-capi`).
@@ -177,8 +215,11 @@ python tests/python/test_quipu.py
 
 ## Estado
 
-v1 + v1.1 + v2 + firmas implementados con TDD estricto. **106 tests Rust +
-Wycheproof + 8 Python** verdes, clippy limpio, fuzzing sin crashes, Miri sin UB.
+v1 + v1.1 + v2 + streaming AEAD (`QST1`) + honey (`QHNY`) + firmas (híbrida
+Ed25519+ML-DSA-87 y triple con SLH-DSA) implementados con TDD estricto.
+**207 tests Rust + Wycheproof + 15 Python** verdes, clippy limpio, fuzzing sin
+crashes, Miri sin UB. Bindings multi-lenguaje sobre la C ABI, cada uno con
+interop cross-language: **10 tests de ABI + integración C, 12 Node, 12 Go**.
 Parámetros post-cuánticos en **categoría de seguridad NIST 5 (CNSA 2.0)**:
 **ML-KEM-1024** y **ML-DSA-87**. Modo online con **VOPRF verificable** (prueba
 DLEQ), KEM híbrido con transcript ligado estilo X-Wing, **firma híbrida Ed25519 +
