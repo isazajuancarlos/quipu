@@ -51,7 +51,20 @@ quipu.DecryptAsRecipient(c, sec)
 vk, sk, _ := quipu.GenerateSigningKeypair()
 signed, _ := quipu.Sign([]byte("acta"), sk)
 if _, err := quipu.Verify(signed, vk); err != nil { /* tampered */ }
+
+// VOPRF online hardening (talks to a quipu-oprf-server)
+secret, err := quipu.OprfHarden(
+    "https://oprf.tudominio.com",
+    "quipu_live_...",
+    []byte("user password"),
+    nil, // pinned server public key (32 B); nil fetches it — PIN in production
+)
+// `secret` is a rate-limited, quantum-safe hardened key. errors.Is(err,
+// quipu.ErrAuth) means the server's DLEQ proof did not verify.
 ```
+
+`VoprfBlind` / `VoprfFinalize` expose the low-level primitives if you drive the
+HTTP yourself. See [the server](../../crates/quipu-oprf-server) for how to run one.
 
 ## Contract
 

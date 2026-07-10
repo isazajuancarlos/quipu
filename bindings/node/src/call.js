@@ -33,11 +33,17 @@ export function callString(fn, args) {
 
 // Keypair generator: (uint8_t** a, size_t* aLen, uint8_t** b, size_t* bLen).
 export function callKeypair(fn) {
+  return callTwoBytes(fn, []);
+}
+
+// Call with `args` inputs whose success writes two (uint8_t** out, size_t* len)
+// pairs. Generalizes callKeypair (which passes no inputs).
+export function callTwoBytes(fn, args) {
   const a = [null];
   const aLen = [0n];
   const b = [null];
   const bLen = [0n];
-  const rc = fn(a, aLen, b, bLen);
+  const rc = fn(...args, a, aLen, b, bLen);
   const e = errorFor(rc);
   if (e) throw e;
   const al = Number(aLen[0]);

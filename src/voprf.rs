@@ -122,6 +122,26 @@ pub fn finalize(
     Some(key)
 }
 
+impl BlindState {
+    /// Serializa el estado de cegado (`r_inv ‖ blinded`, 64 bytes) para poder
+    /// cruzar un límite FFI DENTRO del mismo proceso cliente (bindings Py/Node/Go).
+    /// Es un secreto efímero del cliente: NO persistir ni transmitir.
+    pub fn to_bytes(&self) -> [u8; 64] {
+        let mut out = [0u8; 64];
+        out[..32].copy_from_slice(&self.r_inv.to_bytes());
+        out[32..].copy_from_slice(&self.blinded);
+        out
+    }
+
+    /// Reconstruye el estado desde `to_bytes`. `None` si el escalar no es canónico.
+    pub fn from_bytes(bytes: &[u8; 64]) -> Option<Self> {
+        let r_inv = parse_scalar(&bytes[..32])?;
+        let mut blinded = [0u8; 32];
+        blinded.copy_from_slice(&bytes[32..]);
+        Some(Self { r_inv, blinded })
+    }
+}
+
 fn hash_to_curve(password: &[u8]) -> RistrettoPoint {
     let mut buf = OPRF_DOMAIN.to_vec();
     buf.extend_from_slice(password);
@@ -233,5 +253,22 @@ mod tests {
         let s1 = Server::from_seed(&seed);
         let s2 = Server::from_seed(&seed);
         assert_eq!(s1.public_key(), s2.public_key());
+    }
+
+    #[test]
+    fn blind_state_survives_serialization() {
+        // El estado serializado (para cruzar FFI) reproduce el mismo secreto.
+        let server = Server::new();
+        let pk = server.public_key();
+        let pw = b"passphrase";
+
+        let (st, b) = blind(pw);
+        let (z, proof) = server.evaluate(&b).unwrap();
+        let direct = finalize(pw, &st, &z, &proof, &pk).unwrap();
+
+        let st2 = BlindState::from_bytes(&st.to_bytes()).unwrap();
+        let via_bytes = finalize(pw, &st2, &z, &proof, &pk).unwrap();
+
+        assert_eq!(direct, via_bytes);
     }
 }

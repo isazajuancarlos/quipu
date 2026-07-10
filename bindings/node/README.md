@@ -52,7 +52,21 @@ quipu.decryptAsRecipient(c, secretKey);
 const { verifyingKey, signingKey } = quipu.generateSigningKeypair();
 const signed = quipu.sign(Buffer.from('acta'), signingKey);
 quipu.verify(signed, verifyingKey); // throws QuipuError if tampered
+
+// VOPRF online hardening (talks to a quipu-oprf-server)
+const secret = await quipu.oprfHarden({
+  baseUrl: 'https://oprf.tudominio.com',
+  apiKey: 'quipu_live_...',
+  password: Buffer.from('user password'),
+  // serverPublicKey: Buffer.from('<64hex>', 'hex'),  // PIN in production
+});
+// `secret` is a rate-limited, quantum-safe hardened key. Throws QuipuError('AUTH')
+// if the server's DLEQ proof does not verify (dishonest/impersonated server).
 ```
+
+See [`examples/oprf-client.mjs`](examples/oprf-client.mjs) for the full flow, and
+[the server](../../crates/quipu-oprf-server) for how to run one. `voprfBlind` /
+`voprfFinalize` expose the low-level primitives if you use your own HTTP client.
 
 ## Contract
 

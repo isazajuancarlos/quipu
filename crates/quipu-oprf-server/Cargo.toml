@@ -1,0 +1,31 @@
+# Servidor de producción del endurecimiento OPRF/VOPRF de Quipu.
+# Plano de datos: expone la primitiva `voprf::Server` como API autenticada y
+# medida. NO se publica en crates.io (es el servicio, no la librería).
+# Ver docs/quipu-oprf-server-plan.md.
+[package]
+name = "quipu-oprf-server"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "Servidor OPRF/VOPRF autenticado y medido para Quipu."
+repository = "https://github.com/isazajuancarlos/quipu"
+publish = false
+
+[dependencies]
+# El servidor comparte la MISMA primitiva que el cliente.
+quipu = { path = "../.." }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tiny_http = "0.12"
+sha2 = "0.10"
+subtle = "2"
+getrandom = "0.2"
+
+[dev-dependencies]
+# El test de integración construye una `voprf::Server` y verifica el resultado
+# de forma independiente. (quipu ya es dependencia normal; se repite aquí para
+# que el crate de test de integración lo tenga en su ámbito.)
+quipu = { path = "../.." }
+
+[[example]]
+name = "client"
+path = "examples/client.rs"

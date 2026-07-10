@@ -17,5 +17,18 @@ export declare function generateSigningKeypair(): SigningKeyPair;
 export declare function sign(data: Buffer, signingKey: Buffer): string;
 export declare function verify(symbols: string, verifyingKey: Buffer): Buffer;
 
+export interface BlindResult { state: Buffer; blinded: Buffer; }
+export declare function voprfBlind(password: Buffer): BlindResult;
+export declare function voprfFinalize(password: Buffer, state: Buffer, evaluated: Buffer, proof: Buffer, serverPublicKey: Buffer): Buffer;
+
+export interface OprfHardenOptions {
+  baseUrl: string;
+  apiKey: string;
+  password: Buffer;
+  /** Pinned server public key (32 bytes). Fetched from the server if omitted. */
+  serverPublicKey?: Buffer;
+}
+export declare function oprfHarden(opts: OprfHardenOptions): Promise<Buffer>;
+
 export type QuipuErrorCode = 'AUTH' | 'KEY' | 'CHUNK' | 'NULL_ARG' | 'INTERNAL';
 export declare class QuipuError extends Error { code: QuipuErrorCode; }

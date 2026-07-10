@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "bindings/c"]
+members = [".", "bindings/c", "crates/quipu-oprf-server"]
 resolver = "2"
 
 [package]
