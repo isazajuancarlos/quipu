@@ -108,6 +108,19 @@ Hace el flujo verificable completo: `blind` → POST `/v1/oprf/evaluate` →
 endurecido. En producción, **fija** la clave pública fuera de banda
 (`QUIPU_OPRF_PUBKEY`) en vez de pedirla al servidor.
 
+## Instancia pública (beta)
+
+```
+endpoint    https://oprf.xiliux.com
+clave pub   f84ef4132b8351921eda4f841ec2cf7aacb23fd3c93ac6118b48dfc4babaa16f
+```
+
+**Fija esa clave pública en tu cliente desde aquí, no desde `/v1/public-key`.**
+Pedírsela al servidor anula la garantía: la prueba DLEQ solo demuestra que el
+servidor usó la clave `k` correspondiente a la clave pública que TÚ fijaste. Un
+servidor comprometido que además elige la clave contra la que se le verifica
+puede responder lo que quiera sin ser detectado.
+
 ## Despliegue
 
 - `deploy/quipu-oprf-server.service` — unidad systemd endurecida (sandbox,
