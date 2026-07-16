@@ -45,3 +45,9 @@ dist/
 *.cdx.json
 bom.json
 bom.xml
+
+# Artefactos de empaquetado de las integraciones
+integrations/*/build/
+integrations/*/dist/
+integrations/*/*.egg-info/
+integrations/*/.pytest_cache/

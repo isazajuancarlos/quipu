@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quipu-oprf-django"
+version = "0.1.0"
+description = "Endurecimiento de contraseñas con VOPRF para Django: una base de datos robada no se puede crackear offline."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Juan Carlos Isaza", email = "isazajuancarlos@gmail.com" }]
+keywords = ["django", "password", "oprf", "voprf", "argon2", "authentication"]
+
+# OJO — LICENCIA SIN DECIDIR. El núcleo de Quipu es AGPL-3.0-or-later, y este
+# plugin importa `quipu`, así que hoy la AGPL se propagaría al SaaS que lo use:
+# eso bloquearía la adopción del servicio de pago, que es justo lo contrario de
+# lo que este paquete existe para hacer. El patrón habitual de open-core es
+# núcleo copyleft + SDK de cliente permisivo (Apache-2.0). Decidir ANTES de
+# publicar; ver README, sección "Licencia".
+license = "AGPL-3.0-or-later"
+
+dependencies = [
+  "django>=4.2",
+  "argon2-cffi>=21.3",
+  # Las funciones VOPRF (voprf_blind / voprf_finalize) NO están en 0.7.0:
+  # se añadieron en la rama feat/oprf-server y aún no se han publicado.
+  # Este paquete NO se puede publicar hasta que salga quipu-crypto 0.8.0.
+  "quipu-crypto>=0.8.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/isazajuancarlos/quipu"
+Servicio = "https://oprf.xiliux.com"
+
+[tool.setuptools]
+packages = ["quipu_oprf_django"]
