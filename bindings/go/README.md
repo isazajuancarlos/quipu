@@ -57,11 +57,29 @@ secret, err := quipu.OprfHarden(
     "https://oprf.tudominio.com",
     "quipu_live_...",
     []byte("user password"),
-    nil, // pinned server public key (32 B); nil fetches it — PIN in production
+    pub, // pinned server public key (32 B) — required
 )
-// `secret` is a rate-limited, quantum-safe hardened key. errors.Is(err,
-// quipu.ErrAuth) means the server's DLEQ proof did not verify.
+// `secret` is a rate-limited, quantum-safe hardened key.
 ```
+
+The pinned key is **required**, and is never fetched from the server: one that
+supplies the key it is checked against cannot be checked at all. Get it once
+with `curl <baseURL>/v1/public-key` and ship it as config.
+
+Two failures, opposite reactions — never collapse them (match with `errors.Is`):
+
+| Error | Means | Do |
+|---|---|---|
+| `ErrOprfUnavailable` | no answer, timeout, 5xx, or the API key was refused | retry, or fail closed |
+| `ErrOprfRejected` | the DLEQ proof failed against your pinned key | **investigate.** Never retry blindly |
+
+Neither ever falls back to the unhardened password: that would hide the loss of
+the guarantee at the exact moment it matters. Requests time out after
+`DefaultOprfTimeout` (5 s); use `OprfHardenTimeout` to change it. Note
+`http.DefaultClient` has no timeout at all, which is why this does not use it.
+
+See [`integrations/go`](../../integrations/go) to wire this into an app's
+signup/login.
 
 `VoprfBlind` / `VoprfFinalize` expose the low-level primitives if you drive the
 HTTP yourself. See [the server](../../crates/quipu-oprf-server) for how to run one.
