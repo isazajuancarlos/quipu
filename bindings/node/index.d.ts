@@ -25,10 +25,22 @@ export interface OprfHardenOptions {
   baseUrl: string;
   apiKey: string;
   password: Buffer;
-  /** Pinned server public key (32 bytes). Fetched from the server if omitted. */
-  serverPublicKey?: Buffer;
+  /**
+   * Pinned server public key (32 bytes). REQUIRED: obtain it once out of band
+   * and ship it as config. It is never fetched at call time -- a server that
+   * supplies the key it is checked against cannot be checked at all.
+   */
+  serverPublicKey: Buffer;
+  /** Request timeout in milliseconds. Default 5000. */
+  timeoutMs?: number;
 }
 export declare function oprfHarden(opts: OprfHardenOptions): Promise<Buffer>;
 
 export type QuipuErrorCode = 'AUTH' | 'KEY' | 'CHUNK' | 'NULL_ARG' | 'INTERNAL';
 export declare class QuipuError extends Error { code: QuipuErrorCode; }
+
+export declare class OprfError extends Error {}
+/** Service unreachable or API key refused. Recoverable: retry, or fail closed. */
+export declare class OprfUnavailable extends OprfError {}
+/** DLEQ proof failed against the pinned key. Not a network fault. Investigate. */
+export declare class OprfRejected extends OprfError {}

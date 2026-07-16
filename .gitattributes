@@ -1,0 +1,10 @@
+# El repo se edita desde Windows y Linux. Sin esto, un viaje por Windows
+# reescribe cada linea a CRLF y el siguiente commit arrastra el archivo entero
+# como "modificado" sin un solo cambio real. Paso en la sesion del 2026-07-16.
+* text=auto eol=lf
+
+# Binarios: que git no toque nada.
+*.png binary
+*.so binary
+*.dll binary
+*.dylib binary
