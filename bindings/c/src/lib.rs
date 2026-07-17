@@ -560,7 +560,11 @@ pub unsafe extern "C" fn quipu_voprf_blind(
             Some(s) => s,
             None => return QUIPU_ERR_NULL_ARG as i32,
         };
-        let (st, b) = quipu::voprf::blind(pw);
+        // RFC 9497 §3.3.2: `blind` falla si la entrada mapea a la identidad.
+        let (st, b) = match quipu::voprf::blind(pw) {
+            Some(v) => v,
+            None => return QUIPU_ERR_KEY as i32,
+        };
         unsafe {
             write_bytes(st.to_bytes().to_vec(), state, state_len);
             write_bytes(b.to_vec(), blinded, blinded_len);
@@ -570,8 +574,10 @@ pub unsafe extern "C" fn quipu_voprf_blind(
 }
 
 /// Client-side VOPRF finalize. VERIFIES the DLEQ `proof` (64 B) against the
-/// PINNED `server_pub` (32 B) and, only if it validates, writes the 32 B
+/// PINNED `server_pub` (32 B) and, only if it validates, writes the 64 B
 /// hardened secret to `*out`/`*out_len` (free with `quipu_bytes_free`).
+/// NOTE: 64 B, not 32 — RFC 9497's output is the full SHA-512 hash. This
+/// changed when the custom construction was replaced by the conformant one.
 /// `state` (64 B) is from `quipu_voprf_blind`; `evaluated` (32 B) and `proof`
 /// come from the server. Returns `QUIPU_ERR_AUTH` if the proof is invalid
 /// (dishonest server or wrong pinned key).

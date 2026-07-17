@@ -23,12 +23,32 @@ fn db_path() -> String {
     std::env::var("QUIPU_OPRF_DB").unwrap_or_else(|_| "quipu-oprf.db".to_string())
 }
 
+/// `info` de `DeriveKeyPair` (RFC 9497 §3.2). Fijo y versionado: entra en la
+/// derivación, así que cambiarlo cambia la clave para la misma semilla y
+/// invalida todos los secretos endurecidos. No se toca.
+const DERIVE_INFO: &[u8] = b"quipu-oprf-server-v1";
+
 /// Carga la clave VOPRF desde el seed persistente. Sin seed => clave EFÍMERA
 /// (solo dev): reiniciar rompería los secretos endurecidos de los clientes.
+///
+/// OJO: desde la migración a RFC 9497 la clave se deriva con `DeriveKeyPair`
+/// (§3.2), no con el hash propio de antes. La MISMA semilla da una clave pública
+/// DISTINTA de la que daba la versión anterior: cualquier clave fijada por un
+/// cliente y cualquier secreto ya endurecido quedan invalidados. Se hizo con
+/// cero clientes, que era la única ventana.
 fn load_server_key() -> voprf::Server {
     if let Ok(hex) = std::env::var("QUIPU_OPRF_SEED") {
         match from_hex_32(hex.trim()) {
-            Some(seed) => return voprf::Server::from_seed(&seed),
+            Some(seed) => match voprf::Server::from_seed(&seed, DERIVE_INFO) {
+                Some(s) => return s,
+                // DeriveKeyPairError: 256 intentos dando escalar cero. No pasa
+                // en la práctica, pero arrancar con clave efímera en silencio
+                // sería peor que morir aquí.
+                None => {
+                    eprintln!("error: DeriveKeyPair falló con ese seed (¿seed degenerado?)");
+                    std::process::exit(1);
+                }
+            },
             None => eprintln!("⚠️  QUIPU_OPRF_SEED inválido (esperaba 64 hex); ignorado."),
         }
     }
@@ -36,7 +56,9 @@ fn load_server_key() -> voprf::Server {
         "⚠️  Sin QUIPU_OPRF_SEED: clave EFÍMERA. Reiniciar romperá los secretos \
          endurecidos. Genera uno con: openssl rand -hex 32"
     );
-    voprf::Server::new()
+    let mut seed = [0u8; 32];
+    getrandom::getrandom(&mut seed).expect("RNG del sistema");
+    voprf::Server::from_seed(&seed, DERIVE_INFO).expect("DeriveKeyPair con seed aleatorio")
 }
 
 fn usage() {

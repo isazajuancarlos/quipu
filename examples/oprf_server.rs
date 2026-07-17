@@ -82,7 +82,11 @@ fn main() {
         .unwrap_or_else(|| "oprf_seed.bin".to_string());
 
     let seed = load_or_create_seed(&seed_path);
-    let server = Arc::new(Server::from_seed(&seed)); // VOPRF; rate-limit real va por IP
+    // `info` de DeriveKeyPair (RFC 9497 §3.2): entra en la derivación, así que
+    // cambiarlo cambia la clave. El servidor real usa "quipu-oprf-server-v1".
+    let server = Arc::new(
+        Server::from_seed(&seed, b"quipu-oprf-example").expect("DeriveKeyPair"),
+    ); // VOPRF; rate-limit real va por IP
     let limiter = Arc::new(Mutex::new(RateLimiter::new(
         MAX_PER_WINDOW,
         WINDOW,

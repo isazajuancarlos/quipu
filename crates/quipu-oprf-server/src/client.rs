@@ -19,8 +19,9 @@ pub fn harden(
     api_key: &str,
     password: &[u8],
     server_pub: &[u8; 32],
-) -> Result<[u8; 32], String> {
-    let (state, blinded) = voprf::blind(password);
+) -> Result<[u8; voprf::OUTPUT_LEN], String> {
+    // RFC 9497 §3.3.2: `blind` falla si la entrada mapea a la identidad.
+    let (state, blinded) = voprf::blind(password).ok_or("entrada inválida para VOPRF")?;
     let auth = format!("Bearer {api_key}");
     let (status, body) = request(
         addr,

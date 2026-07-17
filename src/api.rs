@@ -179,8 +179,17 @@ pub enum OnlineError {
 
 /// Endurece la passphrase vía el servidor VOPRF, VERIFICANDO la prueba contra la
 /// clave pública fijada (`server_pub`). Cierra el hallazgo F1.
-fn harden(passphrase: &str, server_addr: &str, server_pub: &[u8; 32]) -> Result<[u8; 32], OnlineError> {
-    let (state, blinded) = voprf::blind(passphrase.as_bytes());
+///
+/// Devuelve 64 B: es la salida de RFC 9497 (`Hash` = SHA-512). Antes eran 32,
+/// con la construcción propia; truncarla haría fallar los vectores oficiales.
+fn harden(
+    passphrase: &str,
+    server_addr: &str,
+    server_pub: &[u8; 32],
+) -> Result<[u8; voprf::OUTPUT_LEN], OnlineError> {
+    // `blind` puede fallar si la entrada mapea a la identidad (RFC §3.3.2:
+    // InvalidInputError). Es astronómicamente improbable, pero no se ignora.
+    let (state, blinded) = voprf::blind(passphrase.as_bytes()).ok_or(OnlineError::Verification)?;
     let resp = oprf_net::evaluate_remote_verified(server_addr, &blinded)
         .map_err(|_| OnlineError::Network)?;
     let (z, proof) = resp.ok_or(OnlineError::Denied)?;

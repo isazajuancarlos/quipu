@@ -33,7 +33,7 @@ fn wait_ready(addr: &str) {
 #[test]
 fn end_to_end_hardening() {
     let seed = [7u8; 32];
-    let server_key = voprf::Server::from_seed(&seed);
+    let server_key = voprf::Server::from_seed(&seed, b"quipu-oprf-server-v1").unwrap();
     let server_pub = server_key.public_key();
 
     // Emite la key ANTES de mover el store al hilo del servidor.
@@ -63,9 +63,9 @@ fn end_to_end_hardening() {
     let hardened = client::harden(&addr, &api_key, pw, &server_pub).expect("harden");
 
     // Verificación independiente: mismo (password, k) => mismo output.
-    let reference = voprf::Server::from_seed(&seed);
-    let (st, blinded) = voprf::blind(pw);
-    let (z, proof) = reference.evaluate(&blinded).unwrap();
+    let reference = voprf::Server::from_seed(&seed, b"quipu-oprf-server-v1").unwrap();
+    let (st, blinded) = voprf::blind(pw).unwrap();
+    let (z, proof) = reference.blind_evaluate(&blinded).unwrap();
     let expected = voprf::finalize(pw, &st, &z, &proof, &server_pub).unwrap();
     assert_eq!(hardened, expected, "el secreto por HTTP debe igualar al directo");
 
@@ -74,7 +74,7 @@ fn end_to_end_hardening() {
     assert_eq!(hardened, again);
 
     // Clave pública fijada incorrecta (servidor "suplantado") => rechazo.
-    let wrong_pub = voprf::Server::from_seed(&[9u8; 32]).public_key();
+    let wrong_pub = voprf::Server::from_seed(&[9u8; 32], b"quipu-oprf-server-v1").unwrap().public_key();
     assert!(
         client::harden(&addr, &api_key, pw, &wrong_pub).is_err(),
         "una clave pública fijada incorrecta debe rechazar la prueba DLEQ"
@@ -84,7 +84,7 @@ fn end_to_end_hardening() {
 #[test]
 fn rejects_unknown_api_key() {
     let seed = [3u8; 32];
-    let server_key = voprf::Server::from_seed(&seed);
+    let server_key = voprf::Server::from_seed(&seed, b"quipu-oprf-server-v1").unwrap();
     let server_pub = server_key.public_key();
     let store = Store::open_in_memory().unwrap(); // sin keys emitidas
 

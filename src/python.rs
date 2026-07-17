@@ -203,7 +203,8 @@ fn voprf_blind<'py>(
     py: Python<'py>,
     password: &[u8],
 ) -> (Bound<'py, PyBytes>, Bound<'py, PyBytes>) {
-    let (st, b) = voprf::blind(password);
+    // RFC 9497 §3.3.2: falla si la entrada mapea a la identidad del grupo.
+    let (st, b) = voprf::blind(password).expect("entrada inválida para VOPRF");
     (PyBytes::new(py, &st.to_bytes()), PyBytes::new(py, &b))
 }
 

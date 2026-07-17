@@ -113,7 +113,7 @@ fn evaluate(
             if !limiter.allow(&key_id) {
                 return text(429, "rate limit de ráfaga");
             }
-            match server_key.evaluate(&blinded) {
+            match server_key.blind_evaluate(&blinded) {
                 Some((eval, proof)) => {
                     let _ = store.record_usage(&key_id);
                     json(

@@ -55,21 +55,34 @@ let secret = finalize(b"contraseña", &state, &evaluated, &proof, &public_key)
 `finalize` devuelve `None` si la prueba no valida. No lo ignores: significa que
 el servidor no es el que fijaste, o que rotó su clave.
 
-## AVISO: no es RFC 9497 (todavía)
+## Conforme a RFC 9497
 
-La construcción está **inspirada** en RFC 9497, no conforme a ella:
+Ciphersuite `ristretto255-SHA512`, modo VOPRF (`contextString =
+"OPRFV1-\x01-ristretto255-SHA512"`). Verificado contra los **vectores oficiales
+del Apéndice A.1.2**: `cargo test -p quipu-voprf`.
 
-- Separación de dominio propia (`quipu/v2/voprf`), no la ciphersuite
-  `OPRFV1-\x01-ristretto255-SHA512`.
-- `hash_to_curve` usa `RistrettoPoint::hash_from_bytes::<Sha512>` con prefijo,
-  no `hash_to_ristretto255` con `expand_message_xmd` y su DST.
-- La transcripción de la DLEQ es propia, no la de `GenerateProof`/`ComputeComposites`.
+Los tests cubren `DeriveKeyPair`, `Blind`, `BlindEvaluate` + `GenerateProof` y
+`Finalize` contra los vectores 1 y 2 (lote 1). El vector 3 es de lote 2 y este
+API no expone lotes: queda fuera de alcance, y se dice en vez de fingir
+cobertura.
 
-Consecuencias, sin adornos: **no interopera** con ninguna otra implementación de
-VOPRF, y **no hereda el análisis de seguridad de la RFC**. La construcción
-Chaum-Pedersen subyacente es estándar, pero el enmarcado es nuestro.
+Interoperable con cualquier otra implementación de RFC 9497.
 
-Migrar a RFC 9497 es una ruptura del formato en cable: el dominio está horneado
-en cada secreto endurecido, así que cambiarlo invalida todos los secretos ya
-almacenados — y, a diferencia de las API keys, `k` y el enmarcado no rotan
-nunca. Con cero clientes es gratis; con uno, es imposible. Ver `docs/SPEC.md`.
+### Ruptura respecto de 0.1.0
+
+La versión anterior usaba una construcción propia (`quipu/v2/voprf`), inspirada
+en la RFC pero no conforme: dominio propio, `hash_to_curve` sin
+`expand_message_xmd` y transcripción DLEQ propia. No interoperaba con nadie ni
+heredaba el análisis de seguridad de la RFC. Se **eliminó**, no se deprecó:
+dejarla solo invitaba a usarla por error.
+
+Lo que cambia, y no es reversible:
+
+- La **salida pasa de 32 a 64 bytes** (`Hash` es SHA-512; truncarla haría fallar
+  los vectores).
+- La **clave pública del servidor cambia para la misma semilla**: ahora se deriva
+  con `DeriveKeyPair` (§3.2), con `info = "quipu-oprf-server-v1"`.
+- Todo secreto endurecido con la versión anterior queda invalidado.
+
+Se hizo con cero clientes, que era la única ventana: el dominio está horneado en
+cada secreto y, como `k`, no rota nunca.
