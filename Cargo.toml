@@ -57,7 +57,7 @@ subtle = "2"
 ml-kem = "0.2"
 ml-dsa = "0.1.1"
 ed25519-dalek = "3"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 curve25519-dalek = { version = "5", features = ["digest"] }
 # Primitivas VOPRF, en su propio crate Apache-2.0: es lo unico que un cliente
