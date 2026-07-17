@@ -112,8 +112,15 @@ endurecido. En producción, **fija** la clave pública fuera de banda
 
 ```
 endpoint    https://oprf.xiliux.com
-clave pub   f84ef4132b8351921eda4f841ec2cf7aacb23fd3c93ac6118b48dfc4babaa16f
+clave pub   88b623ccc00c9eac39f8e02a0f41851535dc2e196ed9836cad00f77644af214b
 ```
+
+> **Cambió el 2026-07-17.** Antes era `f84ef413…`. La instancia migró a RFC 9497
+> y la clave se deriva ahora con `DeriveKeyPair` (§3.2): la MISMA semilla da otra
+> clave. Todo secreto endurecido contra la anterior quedó invalidado. Se hizo con
+> cero clientes (la única key emitida era de pruebas y estaba revocada), que era
+> la única ventana: el dominio está horneado en cada secreto y, como `k`, no rota
+> nunca. La salida también pasó de 32 a 64 bytes.
 
 **Fija esa clave pública en tu cliente desde aquí, no desde `/v1/public-key`.**
 Pedírsela al servidor anula la garantía: la prueba DLEQ solo demuestra que el

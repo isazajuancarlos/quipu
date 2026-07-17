@@ -60,8 +60,13 @@ Instancia beta:
 
 ```
 BASE_URL    https://oprf.xiliux.com
-PUBLIC_KEY  f84ef4132b8351921eda4f841ec2cf7aacb23fd3c93ac6118b48dfc4babaa16f
+PUBLIC_KEY  88b623ccc00c9eac39f8e02a0f41851535dc2e196ed9836cad00f77644af214b
 ```
+
+> **La clave cambió el 2026-07-17** (antes `f84ef413…`): la instancia migró a
+> RFC 9497 y deriva la clave con `DeriveKeyPair`. Si fijaste la anterior, tu
+> `PUBLIC_KEY` ya no valida y verás `OprfRejected` — que es exactamente lo que
+> debe pasar cuando la clave fijada no cuadra. Actualízala.
 
 ## Falla cerrado, a propósito
 
