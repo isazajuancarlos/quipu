@@ -1,6 +1,6 @@
 module github.com/isazajuancarlos/quipu/integrations/go
 
-go 1.21
+go 1.25.0
 
 // Depende de bindings/go, que enlaza el C ABI con las 12 funciones del núcleo
 // AGPL. Mientras siga así, este SDK arrastraría copyleft de red al SaaS del
@@ -11,7 +11,7 @@ replace github.com/isazajuancarlos/quipu/bindings/go => ../../bindings/go
 
 require (
 	github.com/isazajuancarlos/quipu/bindings/go v0.0.0-00010101000000-000000000000
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.52.0
 )
 
-require golang.org/x/sys v0.28.0 // indirect
+require golang.org/x/sys v0.45.0 // indirect
