@@ -1,13 +1,23 @@
-# How GitHub renders the "Sponsor" button for Quipu.
-# - github:          GitHub Sponsors (0% fee, no fiscal host needed). Primary channel.
-# - buy_me_a_coffee: low-friction one-off tips.
+# Cómo GitHub dibuja el botón "Sponsor" de Quipu.
 #
-# Open Collective was removed: Open Source Collective declined fiscal hosting at
-# this stage (project too early / not enough active contributors). Revisit once
-# there are multiple contributors or a corporate sponsor needs invoiced,
-# transparent funding — then a fiscal host earns its overhead.
+# github: GitHub Sponsors. Vivo en https://github.com/sponsors/isazajuancarlos
+#   La diligencia (identidad, pago, fiscal) es POR CUENTA, no por proyecto: ya
+#   está hecha. Cualquier otro repo solo necesita un FUNDING.yml apuntando aquí.
+#   Una organización sí sería una entidad patrocinable distinta, con su propia
+#   inscripción.
 #
-# Donations are a complement; the core revenue is the commercial license and the
-# VOPRF SaaS. Prefer org/sponsorship tiers over "tip" tiers.
+# Open Collective: descartado. Open Source Collective rechazó el fiscal host
+#   (proyecto demasiado temprano, sin suficientes colaboradores). Revisar si
+#   algún día hay varios colaboradores o un patrocinador corporativo necesita
+#   financiación facturada y transparente: ahí un fiscal host se gana su
+#   sobrecoste.
+#
+# Buy Me a Coffee: retirado a propósito (estaba en #44). Un botón de propinas
+#   junto a una biblioteca de criptografía post-cuántica que vende licencia
+#   comercial y un SaaS dice "proyecto de fin de semana, un tipo solo", y socava
+#   la seriedad que hace creíble cobrar la licencia. El comprador es una empresa;
+#   la propina de tres euros no compensa la duda que planta en quien evalúa.
+#
+# Las donaciones son un complemento: el ingreso es la licencia comercial y el
+# SaaS VOPRF. Se prefieren tiers de organización sobre tiers de propina.
 github: [isazajuancarlos]
-buy_me_a_coffee: xiliux
