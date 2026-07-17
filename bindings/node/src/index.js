@@ -63,8 +63,11 @@ export function voprfBlind(password) {
 }
 
 // Low-level: verify the DLEQ proof against the pinned `serverPublicKey` and, if
-// valid, return the 32-byte hardened secret (Buffer). Throws QuipuError('AUTH')
+// valid, return the 64-byte hardened secret (Buffer). Throws QuipuError('AUTH')
 // if the proof is invalid. All args are Buffers.
+//
+// 64 bytes, not 32: RFC 9497's output is the full SHA-512 hash. It was 32 with
+// the pre-conformance construction, which no longer exists.
 export function voprfFinalize(password, state, evaluated, proof, serverPublicKey) {
   return callBytes(native.voprfFinalizeFn, [
     password, password.length,

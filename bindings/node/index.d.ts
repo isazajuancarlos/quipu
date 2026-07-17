@@ -19,6 +19,10 @@ export declare function verify(symbols: string, verifyingKey: Buffer): Buffer;
 
 export interface BlindResult { state: Buffer; blinded: Buffer; }
 export declare function voprfBlind(password: Buffer): BlindResult;
+/**
+ * Verifies the DLEQ proof against the pinned key and returns the 64-byte
+ * hardened secret (RFC 9497 output = full SHA-512). Throws on an invalid proof.
+ */
 export declare function voprfFinalize(password: Buffer, state: Buffer, evaluated: Buffer, proof: Buffer, serverPublicKey: Buffer): Buffer;
 
 export interface OprfHardenOptions {

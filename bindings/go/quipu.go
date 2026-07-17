@@ -222,7 +222,8 @@ func VoprfBlind(password []byte) (state, blinded []byte, err error) {
 }
 
 // VoprfFinalize verifies the DLEQ proof against the pinned serverPub (32 B) and,
-// only if valid, returns the 32-byte hardened secret. Returns ErrAuth if the
+// only if valid, returns the 64-byte hardened secret (RFC 9497's output is the
+// full SHA-512; it was 32 B before conformance). Returns ErrAuth if the
 // proof is invalid (dishonest server or wrong pinned key). state (64 B) is from
 // VoprfBlind; evaluated (32 B) and proof (64 B) come from the server.
 func VoprfFinalize(password, state, evaluated, proof, serverPub []byte) ([]byte, error) {

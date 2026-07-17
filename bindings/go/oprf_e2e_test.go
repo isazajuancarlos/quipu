@@ -51,8 +51,10 @@ func TestOprfHardenEsDeterminista(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(a) != 32 {
-		t.Fatalf("secreto = %d B, want 32", len(a))
+	// 64 B: la salida de RFC 9497 es el SHA-512 entero. Antes de la conformidad
+	// eran 32; si alguien vuelve a truncar, este test lo caza.
+	if len(a) != 64 {
+		t.Fatalf("secreto = %d B, want 64 (RFC 9497: Hash = SHA-512)", len(a))
 	}
 	b, err := OprfHarden(base, key, []byte("contraseña"), pub)
 	if err != nil {
