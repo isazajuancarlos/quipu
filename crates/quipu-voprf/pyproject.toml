@@ -1,0 +1,32 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "quipu-voprf"
+version = "0.1.0"
+description = "VOPRF sobre ristretto255 con pruebas DLEQ: cliente del servicio Quipu OPRF"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Juan Carlos Isaza", email = "isazajuancarlos@gmail.com" }]
+keywords = ["voprf", "oprf", "ristretto255", "dleq", "password", "cryptography"]
+classifiers = [
+  "Programming Language :: Rust",
+  "License :: OSI Approved :: Apache Software License",
+  "Topic :: Security :: Cryptography",
+]
+
+# Apache-2.0, NO la AGPL de `quipu-crypto`. Este paquete es lo unico que un
+# cliente del servicio OPRF instala dentro de su servidor de autenticacion: con
+# AGPL, el copyleft de red alcanzaria su SaaS y nadie lo instalaria. Ver
+# LICENSING.md §0 en la raiz del repo.
+license = "Apache-2.0"
+
+[project.urls]
+Repository = "https://github.com/isazajuancarlos/quipu"
+
+[tool.maturin]
+# Solo las primitivas VOPRF. El nucleo AGPL no entra en esta rueda -- ese es el
+# punto entero de que este crate exista por separado.
+features = ["python"]
+module-name = "quipu_voprf"

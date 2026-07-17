@@ -9,7 +9,7 @@
   "files": ["src/", "index.d.ts", "README.md"],
   "scripts": { "test": "node --test test/*.test.mjs" },
   "engines": { "node": ">=18" },
-  "//license": "OJO -- LICENCIA SIN DECIDIR, igual que integrations/django. Este paquete importa `quipu-crypto`, que es AGPL-3.0-or-later, asi que hoy la AGPL se propagaria a cualquier SaaS que lo instale. Eso mata la adopcion del servicio de pago: nadie enchufa un copyleft de red a su servidor de auth. El nucleo puede seguir AGPL; los SDK de cliente probablemente deban ser permisivos (patron MongoDB: SSPL en el core, Apache en los drivers). Sin resolver esto, no se publica.",
+  "//license": "AGPL TODAVIA, y es una deuda conocida. Django ya esta resuelto: depende de `quipu-voprf` (Apache-2.0, crates/quipu-voprf) y no enlaza el nucleo. Express no puede aun porque `quipu-crypto` de npm empaqueta libquipu_capi con las 12 funciones del nucleo AGPL: hace falta un C ABI solo-VOPRF y un paquete npm `quipu-voprf` aparte. Hasta entonces esto arrastraria AGPL al SaaS del cliente y NO se publica. Ver LICENSING.md §0.",
   "license": "AGPL-3.0-or-later",
   "//dependencies": "quipu-crypto 0.8.0 NO esta publicado todavia: el 0.7.0 de npm no expone voprfBlind/voprfFinalize (viven en el repo, sin release). Este paquete no puede publicarse antes que el binding. Mismo bloqueo que integrations/django.",
   "dependencies": {

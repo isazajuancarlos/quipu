@@ -912,6 +912,7 @@ dependencies = [
  "num-traits",
  "proptest",
  "pyo3",
+ "quipu-voprf",
  "rand_core 0.6.4",
  "reed-solomon",
  "serde_json",
@@ -941,6 +942,17 @@ dependencies = [
  "sha2",
  "subtle",
  "tiny_http",
+]
+
+[[package]]
+name = "quipu-voprf"
+version = "0.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "getrandom 0.2.17",
+ "pyo3",
+ "sha2",
+ "subtle",
 ]
 
 [[package]]

@@ -2,6 +2,32 @@
 
 Quipu se distribuye bajo un modelo **de licencia dual** (open-core).
 
+## 0. Qué licencia cubre qué
+
+No todo el repositorio es AGPL. La regla es sencilla: **lo que un cliente del
+servicio OPRF debe enlazar dentro de su propio servidor es permisivo; el resto
+es copyleft.**
+
+| Componente | Licencia | Por qué |
+|---|---|---|
+| `quipu` (núcleo) y sus bindings | `AGPL-3.0-or-later` | El activo: cripto post-cuántica, cifrado en reposo. El copyleft de red no estorba a quien lo usa dentro de su producto. |
+| `crates/quipu-voprf` | **`Apache-2.0`** | Lo único que el cliente enlaza en su auth. Con AGPL, el copyleft de red alcanzaría su SaaS y nadie compraría el servicio. |
+| `integrations/{django,express,go}` | **`Apache-2.0`** | SDK de cliente. Dependen solo de `quipu-voprf`. |
+| `crates/quipu-oprf-server` | `AGPL-3.0-or-later` / comercial | Es SaaS: el cliente nunca recibe el binario. |
+
+Dos precisiones que suelen confundirse:
+
+1. **Poner Apache al SDK no basta por sí solo.** La licencia de un envoltorio no
+   relicencia su dependencia: si el SDK importara el núcleo AGPL, la obra
+   combinada seguiría disparando el §13 sobre el SaaS del cliente. Por eso las
+   primitivas VOPRF viven en un crate **separado**, no solo con otra etiqueta.
+2. **La dirección importa.** Apache-2.0 es compatible hacia GPL/AGPL-3.0, no al
+   revés. Por eso el núcleo AGPL puede depender de `quipu-voprf` sin fricción,
+   y un cliente que solo enlaza `quipu-voprf` no se contagia.
+
+Lo que se cede en `quipu-voprf` son ~270 líneas de matemática de curva estándar.
+El foso siguen siendo el servidor, la clave `k` y la biblioteca completa.
+
 ## 1. Licencia abierta — AGPL-3.0-or-later
 
 El núcleo de Quipu es software libre bajo la

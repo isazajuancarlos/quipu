@@ -70,9 +70,13 @@ class OprfClient:
             OprfUnavailable: el servicio no respondió o rechazó la key.
             OprfRejected:    la prueba DLEQ no valida (respuesta no confiable).
         """
-        import quipu  # perezoso: no obliga a tenerlo instalado para importar el módulo
+        # `quipu_voprf` (Apache-2.0), NO `quipu` (AGPL). Este código corre dentro
+        # del servidor de auth del cliente: enlazar el núcleo copyleft ahí le
+        # arrastraría la AGPL a su SaaS. Importación perezosa: no obliga a
+        # tenerlo instalado para importar el módulo.
+        import quipu_voprf
 
-        state, blinded = quipu.voprf_blind(password)
+        state, blinded = quipu_voprf.voprf_blind(password)
 
         req = urllib.request.Request(
             f"{self.base_url}/v1/oprf/evaluate",
@@ -102,7 +106,7 @@ class OprfClient:
         # Aquí se cierra el hallazgo F1: si la prueba no valida contra la clave
         # fijada, el resultado NO se usa.
         try:
-            return quipu.voprf_finalize(password, state, evaluated, proof, self.public_key)
+            return quipu_voprf.voprf_finalize(password, state, evaluated, proof, self.public_key)
         except Exception as e:  # noqa: BLE001
             raise OprfRejected(
                 "la prueba DLEQ no valida contra la clave pública fijada: la "

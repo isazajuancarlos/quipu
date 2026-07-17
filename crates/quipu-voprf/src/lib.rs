@@ -272,3 +272,72 @@ mod tests {
         assert_eq!(direct, via_bytes);
     }
 }
+
+// --- Modulo de Python (feature `python`) -------------------------------------
+//
+// Se publica en PyPI como `quipu-voprf`, APARTE de `quipu-crypto`. Ese es el
+// punto: un cliente del servicio OPRF instala solo esto (Apache-2.0) y nunca
+// enlaza el nucleo AGPL en su servidor de autenticacion.
+#[cfg(feature = "python")]
+mod python {
+    use pyo3::exceptions::PyValueError;
+    use pyo3::prelude::*;
+    use pyo3::types::PyBytes;
+
+    /// Cegado VOPRF del lado cliente. Devuelve `(state, blinded)`: `state` (64 B)
+    /// se guarda para `voprf_finalize`; `blinded` (32 B) se envia al servidor.
+    /// El servidor NUNCA ve la contrasena.
+    #[pyfunction]
+    fn voprf_blind<'py>(
+        py: Python<'py>,
+        password: &[u8],
+    ) -> (Bound<'py, PyBytes>, Bound<'py, PyBytes>) {
+        let (st, b) = super::blind(password);
+        (PyBytes::new(py, &st.to_bytes()), PyBytes::new(py, &b))
+    }
+
+    /// Finaliza VOPRF: VERIFICA la prueba DLEQ contra `server_pub` (fijada) y,
+    /// solo si valida, devuelve el secreto endurecido (32 B). Lanza `ValueError`
+    /// si la prueba es invalida (servidor deshonesto o clave incorrecta).
+    #[pyfunction]
+    fn voprf_finalize<'py>(
+        py: Python<'py>,
+        password: &[u8],
+        state: &[u8],
+        evaluated: &[u8],
+        proof: &[u8],
+        server_pub: &[u8],
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let st: [u8; 64] = state
+            .try_into()
+            .map_err(|_| PyValueError::new_err("state debe ser de 64 bytes"))?;
+        let ev: [u8; 32] = evaluated
+            .try_into()
+            .map_err(|_| PyValueError::new_err("evaluated debe ser de 32 bytes"))?;
+        let pf: [u8; super::PROOF_LEN] = proof
+            .try_into()
+            .map_err(|_| PyValueError::new_err("proof debe ser de 64 bytes"))?;
+        let pk: [u8; 32] = server_pub
+            .try_into()
+            .map_err(|_| PyValueError::new_err("server_pub debe ser de 32 bytes"))?;
+        let st = super::BlindState::from_bytes(&st)
+            .ok_or_else(|| PyValueError::new_err("state invalido"))?;
+        // None = la prueba no valida. Nunca se devuelve un secreto sin verificar.
+        super::finalize(password, &st, &ev, &pf, &pk)
+            .map(|s| PyBytes::new(py, &s))
+            .ok_or_else(|| {
+                PyValueError::new_err(
+                    "la prueba DLEQ no valida contra la clave publica fijada: \
+                     el servidor no es el que fijaste, o roto su clave",
+                )
+            })
+    }
+
+    #[pymodule]
+    fn quipu_voprf(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        m.add_function(wrap_pyfunction!(voprf_blind, m)?)?;
+        m.add_function(wrap_pyfunction!(voprf_finalize, m)?)?;
+        m.add("__doc__", "VOPRF sobre ristretto255 con pruebas DLEQ (Apache-2.0).")?;
+        Ok(())
+    }
+}

@@ -36,7 +36,10 @@ pub mod pqsign;
 pub mod prelayers;
 pub mod render;
 pub mod stream;
-pub mod voprf;
+// VOPRF vive ahora en su propio crate (Apache-2.0) para que los clientes del
+// servicio OPRF no arrastren esta AGPL. Se re-exporta para que `quipu::voprf::*`
+// siga funcionando igual: ningun consumidor tiene que cambiar nada.
+pub use quipu_voprf as voprf;
 
 #[cfg(feature = "lab")]
 pub mod lab;
