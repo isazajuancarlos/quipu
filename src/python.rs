@@ -23,7 +23,6 @@ use crate::stream::{
     decrypt_stream_bytes as core_decrypt_stream, encrypt_stream as core_encrypt_stream,
     StreamOptions,
 };
-use crate::voprf;
 use crate::{pqhybrid, pqsign};
 
 /// Diccionario por defecto: 94 símbolos ASCII imprimibles.
@@ -195,52 +194,20 @@ fn select_separable(fingerprints: Vec<Vec<u8>>, k: usize) -> Vec<usize> {
     glyphopt::select_separable_subset(&fingerprints, k)
 }
 
-/// Cegado VOPRF del lado cliente para hablar con un `quipu-oprf-server`. Devuelve
-/// `(state, blinded)`: `state` (64 B) se guarda para `voprf_finalize`; `blinded`
-/// (32 B) se envía al servidor. El servidor NUNCA ve la contraseña.
-#[pyfunction]
-fn voprf_blind<'py>(
-    py: Python<'py>,
-    password: &[u8],
-) -> (Bound<'py, PyBytes>, Bound<'py, PyBytes>) {
-    // RFC 9497 §3.3.2: falla si la entrada mapea a la identidad del grupo.
-    let (st, b) = voprf::blind(password).expect("entrada inválida para VOPRF");
-    (PyBytes::new(py, &st.to_bytes()), PyBytes::new(py, &b))
-}
-
-/// Finaliza VOPRF: VERIFICA la prueba DLEQ contra `server_pub` (fijada) y, solo
-/// si valida, devuelve el secreto endurecido (32 B). Lanza `ValueError` si la
-/// prueba es inválida (servidor deshonesto o clave incorrecta).
-#[pyfunction]
-fn voprf_finalize<'py>(
-    py: Python<'py>,
-    password: &[u8],
-    state: &[u8],
-    evaluated: &[u8],
-    proof: &[u8],
-    server_pub: &[u8],
-) -> PyResult<Bound<'py, PyBytes>> {
-    let st_arr: [u8; 64] = state
-        .try_into()
-        .map_err(|_| PyValueError::new_err("state debe ser de 64 bytes"))?;
-    let ev_arr: [u8; 32] = evaluated
-        .try_into()
-        .map_err(|_| PyValueError::new_err("evaluated debe ser de 32 bytes"))?;
-    let pf_arr: [u8; 64] = proof
-        .try_into()
-        .map_err(|_| PyValueError::new_err("proof debe ser de 64 bytes"))?;
-    let sp_arr: [u8; 32] = server_pub
-        .try_into()
-        .map_err(|_| PyValueError::new_err("server_pub debe ser de 32 bytes"))?;
-    let st = voprf::BlindState::from_bytes(&st_arr)
-        .ok_or_else(|| PyValueError::new_err("state inválido"))?;
-    match voprf::finalize(password, &st, &ev_arr, &pf_arr, &sp_arr) {
-        Some(key) => Ok(PyBytes::new(py, &key)),
-        None => Err(PyValueError::new_err(
-            "prueba DLEQ inválida: servidor deshonesto o clave incorrecta",
-        )),
-    }
-}
+// VOPRF NO se expone aquí, a propósito.
+//
+// Vive en el paquete `quipu-voprf` (PyPI, Apache-2.0). Exponerlo también desde
+// `quipu-crypto` daría dos formas de hacer lo mismo en Python, y la de aquí es
+// la equivocada: arrastra la AGPL de este núcleo al servidor de auth del
+// cliente — justo lo que la separación en `crates/quipu-voprf` existe para
+// impedir — y encima le cuelga ML-KEM, ML-DSA y todo lo demás, que no necesita.
+//
+// Un cliente del servicio OPRF instala `quipu-oprf-django` (o `quipu-voprf` a
+// secas) y nada de este crate. Para Rust no cambia nada: `quipu::voprf` sigue
+// re-exportado desde lib.rs.
+//
+// Se quitó antes de publicar 0.8.0: el 0.7.0 de PyPI nunca las expuso, así que
+// nadie las usa y borrarlas no rompe a nadie. Ver LICENSING.md §0.
 
 /// Módulo `quipu`.
 #[pymodule]
@@ -257,7 +224,5 @@ fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decrypt_stream, m)?)?;
     m.add_function(wrap_pyfunction!(glyph_min_distance, m)?)?;
     m.add_function(wrap_pyfunction!(select_separable, m)?)?;
-    m.add_function(wrap_pyfunction!(voprf_blind, m)?)?;
-    m.add_function(wrap_pyfunction!(voprf_finalize, m)?)?;
     Ok(())
 }
