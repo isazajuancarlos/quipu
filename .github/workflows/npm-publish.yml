@@ -1,12 +1,20 @@
 name: npm-publish
 
-# Publishes the Node.js bindings (`quipu-crypto`) to npm on a `v*` tag. The
+# Publishes the Node.js bindings (`quipu-crypto`) to npm on a `v*` tag.
+#
+# OJO con el glob: `v*` TAMBIEN casa con `voprf-v0.2.0`, porque empieza por "v".
+# El 2026-07-16 un tag de quipu-voprf disparo este workflow; solo se salvo porque
+# npm rechazo la version ya publicada. `voprf-v*` publica quipu-voprf en PyPI y
+# no tiene nada que ver con el binding de Node: se excluye explicitamente abajo.
+# Mismo cuidado en release.yml.
+#
+# The
 # package ships prebuilt native libraries (libquipu_capi) per platform under
 # bindings/node/prebuilds/<platform>-<arch>/, so end users need no Rust toolchain.
 # Auth is npm Trusted Publishing (OIDC) — no token; configured on npmjs.com.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "!voprf-v*"]
   workflow_dispatch:
 
 permissions:
@@ -53,7 +61,9 @@ jobs:
     # Run on a `v*` tag push OR a manual dispatch. NOTE: on workflow_dispatch
     # github.ref is `refs/heads/main`, so it must be matched explicitly here or
     # the job is skipped entirely.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # Cinturon y tirantes: el filtro de `on:` ya excluye voprf-v*, pero si alguien
+    # lanza esto a mano desde un tag de voprf, aqui se para.
+    if: (startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v')) || github.event_name == 'workflow_dispatch'
     # Auth is hybrid: prefer npm Trusted Publishing (OIDC, no token) once the
     # package exists; but npm OIDC CANNOT create a brand-new package (npm/cli
     # #8544), so the very first publish needs a one-shot `NPM_TOKEN` secret.
