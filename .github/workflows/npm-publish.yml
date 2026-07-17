@@ -35,7 +35,7 @@ jobs:
           - { os: macos-latest,   target: darwin-arm64 }
           - { os: windows-latest, target: win32-x64 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust_target }}
@@ -76,7 +76,7 @@ jobs:
       id-token: write   # OIDC token for trusted publishing + provenance
       contents: read    # actions/checkout
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Node 24: older Node/npm ship OIDC handshake support the registry rejects.
       - uses: actions/setup-node@v4
         with:
