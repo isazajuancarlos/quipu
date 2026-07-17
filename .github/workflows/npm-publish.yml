@@ -85,7 +85,7 @@ jobs:
       - name: Upgrade npm (trusted publishing needs >= 11.5.1)
         run: npm install -g npm@latest
       # Collect every platform's prebuild into bindings/node/prebuilds/.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: bindings/node/prebuilds
           pattern: prebuild-*

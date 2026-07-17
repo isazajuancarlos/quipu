@@ -79,7 +79,7 @@ jobs:
     permissions:
       id-token: write   # PyPI trusted publishing (OIDC), sin token en secretos
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -150,7 +150,7 @@ jobs:
     steps:
       # `pattern` y merge-multiple: solo los artefactos de voprf. Sin el patron
       # se colarian los del nucleo si algun dia coincidieran en la misma run.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: voprf-*
@@ -192,7 +192,7 @@ jobs:
     permissions:
       id-token: write   # PyPI trusted publishing (OIDC), sin token en secretos
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: django-*
@@ -215,7 +215,7 @@ jobs:
       id-token: write   # cosign keyless (OIDC), sin claves en secretos
       contents: write   # crear el GitHub Release y adjuntar artefactos + firmas
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
