@@ -38,5 +38,7 @@ export const decryptAsRecipientFn = lib.func('int32_t quipu_decrypt_as_recipient
 export const generateSigningKeypairFn = lib.func('int32_t quipu_generate_signing_keypair(_Out_ uint8_t **vk, _Out_ size_t *vk_len, _Out_ uint8_t **sk, _Out_ size_t *sk_len)');
 export const signFn = lib.func('int32_t quipu_sign(const uint8_t *data, size_t data_len, const uint8_t *sk, size_t sk_len, _Out_ uint8_t **out)');
 export const verifyFn = lib.func('int32_t quipu_verify(const char *symbols, const uint8_t *vk, size_t vk_len, _Out_ uint8_t **out, _Out_ size_t *out_len)');
+export const voprfBlindFn = lib.func('int32_t quipu_voprf_blind(const uint8_t *password, size_t password_len, _Out_ uint8_t **state, _Out_ size_t *state_len, _Out_ uint8_t **blinded, _Out_ size_t *blinded_len)');
+export const voprfFinalizeFn = lib.func('int32_t quipu_voprf_finalize(const uint8_t *password, size_t password_len, const uint8_t *state, size_t state_len, const uint8_t *evaluated, size_t evaluated_len, const uint8_t *proof, size_t proof_len, const uint8_t *server_pub, size_t server_pub_len, _Out_ uint8_t **out, _Out_ size_t *out_len)');
 export const bytesFreeFn = lib.func('void quipu_bytes_free(uint8_t *ptr, size_t len)');
 export const stringFreeFn = lib.func('void quipu_string_free(uint8_t *ptr)');

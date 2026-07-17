@@ -204,3 +204,52 @@ func Verify(symbols string, verifyingKey []byte) ([]byte, error) {
 	}
 	return goBytesFree(out, outLen), nil
 }
+
+// VoprfBlind blinds a password for a quipu-oprf-server. Returns the ephemeral
+// blind state (64 B, keep for VoprfFinalize) and the blinded point (32 B, send
+// to the server). The server never sees the password.
+func VoprfBlind(password []byte) (state, blinded []byte, err error) {
+	pp, pn, pfree := cbytes(password)
+	defer pfree()
+
+	var st, bl *C.uint8_t
+	var stl, bll C.size_t
+	rc := C.quipu_voprf_blind((*C.uint8_t)(pp), pn, &st, &stl, &bl, &bll)
+	if e := errorFor(int32(rc)); e != nil {
+		return nil, nil, e
+	}
+	return goBytesFree(st, stl), goBytesFree(bl, bll), nil
+}
+
+// VoprfFinalize verifies the DLEQ proof against the pinned serverPub (32 B) and,
+// only if valid, returns the 64-byte hardened secret (RFC 9497's output is the
+// full SHA-512; it was 32 B before conformance). Returns ErrAuth if the
+// proof is invalid (dishonest server or wrong pinned key). state (64 B) is from
+// VoprfBlind; evaluated (32 B) and proof (64 B) come from the server.
+func VoprfFinalize(password, state, evaluated, proof, serverPub []byte) ([]byte, error) {
+	pp, pn, pfree := cbytes(password)
+	defer pfree()
+	sp, sn, sfree := cbytes(state)
+	defer sfree()
+	ep, en, efree := cbytes(evaluated)
+	defer efree()
+	fp, fn, ffree := cbytes(proof)
+	defer ffree()
+	kp, kn, kfree := cbytes(serverPub)
+	defer kfree()
+
+	var out *C.uint8_t
+	var outLen C.size_t
+	rc := C.quipu_voprf_finalize(
+		(*C.uint8_t)(pp), pn,
+		(*C.uint8_t)(sp), sn,
+		(*C.uint8_t)(ep), en,
+		(*C.uint8_t)(fp), fn,
+		(*C.uint8_t)(kp), kn,
+		&out, &outLen,
+	)
+	if err := errorFor(int32(rc)); err != nil {
+		return nil, err
+	}
+	return goBytesFree(out, outLen), nil
+}

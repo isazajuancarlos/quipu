@@ -535,6 +535,126 @@ pub unsafe extern "C" fn quipu_verify(
     })
 }
 
+// --- VOPRF client hardening (talks to a quipu-oprf-server) ---
+
+/// Client-side VOPRF blinding. Writes the ephemeral blind state (64 B, KEEP for
+/// finalize) and the blinded point (32 B, SEND to the server). Both buffers are
+/// freshly allocated; free with `quipu_bytes_free`.
+///
+/// # Safety
+/// All four out-pointers must be valid, writable pointers.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_voprf_blind(
+    password: *const u8,
+    password_len: usize,
+    state: *mut *mut u8,
+    state_len: *mut usize,
+    blinded: *mut *mut u8,
+    blinded_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        if state.is_null() || state_len.is_null() || blinded.is_null() || blinded_len.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let pw = match unsafe { as_slice(password, password_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        // RFC 9497 §3.3.2: `blind` falla si la entrada mapea a la identidad.
+        let (st, b) = match quipu::voprf::blind(pw) {
+            Some(v) => v,
+            None => return QUIPU_ERR_KEY as i32,
+        };
+        unsafe {
+            write_bytes(st.to_bytes().to_vec(), state, state_len);
+            write_bytes(b.to_vec(), blinded, blinded_len);
+        }
+        QUIPU_OK as i32
+    })
+}
+
+/// Client-side VOPRF finalize. VERIFIES the DLEQ `proof` (64 B) against the
+/// PINNED `server_pub` (32 B) and, only if it validates, writes the 64 B
+/// hardened secret to `*out`/`*out_len` (free with `quipu_bytes_free`).
+/// NOTE: 64 B, not 32 — RFC 9497's output is the full SHA-512 hash. This
+/// changed when the custom construction was replaced by the conformant one.
+/// `state` (64 B) is from `quipu_voprf_blind`; `evaluated` (32 B) and `proof`
+/// come from the server. Returns `QUIPU_ERR_AUTH` if the proof is invalid
+/// (dishonest server or wrong pinned key).
+///
+/// # Safety
+/// Pointers must satisfy the documented borrow/out-pointer contracts.
+#[no_mangle]
+pub unsafe extern "C" fn quipu_voprf_finalize(
+    password: *const u8,
+    password_len: usize,
+    state: *const u8,
+    state_len: usize,
+    evaluated: *const u8,
+    evaluated_len: usize,
+    proof: *const u8,
+    proof_len: usize,
+    server_pub: *const u8,
+    server_pub_len: usize,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        if out.is_null() || out_len.is_null() {
+            return QUIPU_ERR_NULL_ARG as i32;
+        }
+        let pw = match unsafe { as_slice(password, password_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let st_bytes = match unsafe { as_slice(state, state_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let ev = match unsafe { as_slice(evaluated, evaluated_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let pf = match unsafe { as_slice(proof, proof_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+        let sp = match unsafe { as_slice(server_pub, server_pub_len) } {
+            Some(s) => s,
+            None => return QUIPU_ERR_NULL_ARG as i32,
+        };
+
+        let st_arr: [u8; 64] = match st_bytes.try_into() {
+            Ok(a) => a,
+            Err(_) => return QUIPU_ERR_KEY as i32,
+        };
+        let ev_arr: [u8; 32] = match ev.try_into() {
+            Ok(a) => a,
+            Err(_) => return QUIPU_ERR_KEY as i32,
+        };
+        let pf_arr: [u8; 64] = match pf.try_into() {
+            Ok(a) => a,
+            Err(_) => return QUIPU_ERR_KEY as i32,
+        };
+        let sp_arr: [u8; 32] = match sp.try_into() {
+            Ok(a) => a,
+            Err(_) => return QUIPU_ERR_KEY as i32,
+        };
+
+        let state = match quipu::voprf::BlindState::from_bytes(&st_arr) {
+            Some(s) => s,
+            None => return QUIPU_ERR_KEY as i32,
+        };
+        match quipu::voprf::finalize(pw, &state, &ev_arr, &pf_arr, &sp_arr) {
+            Some(key) => {
+                unsafe { write_bytes(key.to_vec(), out, out_len) };
+                QUIPU_OK as i32
+            }
+            None => QUIPU_ERR_AUTH as i32,
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

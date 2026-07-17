@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quipu-oprf-django"
+version = "0.1.0"
+description = "Endurecimiento de contraseñas con VOPRF para Django: una base de datos robada no se puede crackear offline."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Juan Carlos Isaza", email = "isazajuancarlos@gmail.com" }]
+keywords = ["django", "password", "oprf", "voprf", "argon2", "authentication"]
+
+# Apache-2.0, NO la AGPL del núcleo. Este plugin vive dentro del servidor de auth
+# del cliente: con AGPL, el copyleft de red alcanzaría su SaaS y nadie lo
+# instalaría — lo contrario de lo que existe para hacer. Solo depende de las
+# primitivas VOPRF (`crates/quipu-voprf`, Apache-2.0), nunca del núcleo AGPL:
+# etiquetar el envoltorio no habría bastado, porque la licencia de un envoltorio
+# no relicencia su dependencia. Ver LICENSING.md §0.
+license = "Apache-2.0"
+
+dependencies = [
+  "django>=4.2",
+  "argon2-cffi>=21.3",
+  # Solo las primitivas VOPRF (Apache-2.0). NUNCA `quipu-crypto`, que es el
+  # núcleo AGPL: este plugin vive dentro del servidor de auth del cliente y
+  # arrastrarle copyleft de red ahí es justo lo que impide venderle el servicio.
+  "quipu-voprf>=0.2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/isazajuancarlos/quipu"
+Servicio = "https://oprf.xiliux.com"
+
+[tool.setuptools]
+packages = ["quipu_oprf_django"]

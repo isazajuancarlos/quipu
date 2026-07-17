@@ -92,7 +92,7 @@ pub fn handle_connection_verified<S: Read + Write>(
     let mut blinded = [0u8; 32];
     stream.read_exact(&mut blinded)?;
 
-    let result = if allowed { server.evaluate(&blinded) } else { None };
+    let result = if allowed { server.blind_evaluate(&blinded) } else { None };
     match result {
         Some((z, proof)) => {
             stream.write_all(&[1u8])?;
@@ -127,7 +127,7 @@ mod tests {
         });
 
         let pw = b"passphrase";
-        let (state, blinded) = voprf::blind(pw);
+        let (state, blinded) = voprf::blind(pw).unwrap();
         let (z, proof) = evaluate_remote_verified(&addr, &blinded).unwrap().unwrap();
         // El cliente VERIFICA la prueba contra la clave pública fijada.
         let out = voprf::finalize(pw, &state, &z, &proof, &pubkey);

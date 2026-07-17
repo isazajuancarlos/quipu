@@ -163,6 +163,39 @@ int32_t quipu_verify(const char *symbols,
                      uint8_t **out,
                      uintptr_t *out_len);
 
+// Client-side VOPRF blinding. Writes the ephemeral blind state (64 B, KEEP for
+// finalize) and the blinded point (32 B, SEND to the server). Free both with
+// quipu_bytes_free.
+//
+// # Safety
+// All four out-pointers must be valid, writable pointers.
+int32_t quipu_voprf_blind(const uint8_t *password,
+                          uintptr_t password_len,
+                          uint8_t **state,
+                          uintptr_t *state_len,
+                          uint8_t **blinded,
+                          uintptr_t *blinded_len);
+
+// Client-side VOPRF finalize. VERIFIES the DLEQ proof (64 B) against the PINNED
+// server_pub (32 B) and, only if valid, writes the 32 B hardened secret. state
+// (64 B) is from quipu_voprf_blind; evaluated (32 B) and proof come from the
+// server. Returns QUIPU_ERR_AUTH (-2) if the proof is invalid.
+//
+// # Safety
+// Pointers must satisfy the documented borrow/out-pointer contracts.
+int32_t quipu_voprf_finalize(const uint8_t *password,
+                             uintptr_t password_len,
+                             const uint8_t *state,
+                             uintptr_t state_len,
+                             const uint8_t *evaluated,
+                             uintptr_t evaluated_len,
+                             const uint8_t *proof,
+                             uintptr_t proof_len,
+                             const uint8_t *server_pub,
+                             uintptr_t server_pub_len,
+                             uint8_t **out,
+                             uintptr_t *out_len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

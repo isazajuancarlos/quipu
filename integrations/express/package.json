@@ -1,0 +1,22 @@
+{
+  "name": "quipu-oprf-express",
+  "version": "0.1.0",
+  "description": "OPRF-hardened password hashing for Express / Node. Steal the database, get nothing.",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "index.d.ts",
+  "exports": { ".": { "types": "./index.d.ts", "default": "./src/index.js" } },
+  "files": ["src/", "index.d.ts", "README.md"],
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "engines": { "node": ">=18" },
+  "//license": "AGPL TODAVIA, y es una deuda conocida. Django ya esta resuelto: depende de `quipu-voprf` (Apache-2.0, crates/quipu-voprf) y no enlaza el nucleo. Express no puede aun porque `quipu-crypto` de npm empaqueta libquipu_capi con las 12 funciones del nucleo AGPL: hace falta un C ABI solo-VOPRF y un paquete npm `quipu-voprf` aparte. Hasta entonces esto arrastraria AGPL al SaaS del cliente y NO se publica. Ver LICENSING.md §0.",
+  "license": "AGPL-3.0-or-later",
+  "//dependencies": "quipu-crypto 0.8.0 NO esta publicado todavia: el 0.7.0 de npm no expone voprfBlind/voprfFinalize (viven en el repo, sin release). Este paquete no puede publicarse antes que el binding. Mismo bloqueo que integrations/django.",
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.0",
+    "quipu-crypto": "^0.8.0"
+  },
+  "peerDependencies": { "express": ">=4" },
+  "peerDependenciesMeta": { "express": { "optional": true } },
+  "repository": { "type": "git", "url": "https://github.com/isazajuancarlos/quipu" }
+}

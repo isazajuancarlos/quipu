@@ -1,0 +1,37 @@
+[Unit]
+Description=Quipu OPRF/VOPRF hardening server
+After=network.target
+
+[Service]
+Type=simple
+User=quipu
+Group=quipu
+WorkingDirectory=/var/lib/quipu
+Environment=QUIPU_OPRF_DB=/var/lib/quipu/oprf.db
+Environment=QUIPU_OPRF_ADDR=127.0.0.1:8787
+# Secretos (QUIPU_OPRF_SEED, QUIPU_OPRF_ADMIN_TOKEN) NUNCA en claro aquí.
+# Van en un fichero con chmod 600 propiedad de root:quipu:
+#   QUIPU_OPRF_SEED=<openssl rand -hex 32>
+#   QUIPU_OPRF_ADMIN_TOKEN=<openssl rand -hex 32>
+EnvironmentFile=/etc/quipu/oprf.env
+ExecStart=/usr/local/bin/quipu-oprf-server serve
+Restart=on-failure
+RestartSec=2
+
+# Endurecimiento del sandbox
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/quipu
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

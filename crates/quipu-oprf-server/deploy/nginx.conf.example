@@ -1,0 +1,39 @@
+# Terminación TLS para el servidor OPRF. El servicio escucha solo en
+# 127.0.0.1:8787; Nginx pone TLS y protege /admin.
+#
+# En el bloque http { } (p. ej. /etc/nginx/nginx.conf):
+#   limit_req_zone $binary_remote_addr zone=oprf:10m rate=10r/s;
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name oprf.tudominio.com;
+
+    ssl_certificate     /etc/letsencrypt/live/oprf.tudominio.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/oprf.tudominio.com/privkey.pem;
+
+    # /admin es la costura con la pasarela de pagos: NO exponer a Internet.
+    # Solo desde el backend del portafolio (ajusta la IP permitida).
+    location /admin/ {
+        allow 127.0.0.1;
+        # allow <IP-del-portafolio>;
+        deny all;
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host $host;
+    }
+
+    # API pública (evaluate, public-key, healthz).
+    location / {
+        limit_req zone=oprf burst=20 nodelay;
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+}
+
+# Redirección 80 -> 443
+server {
+    listen 80;
+    server_name oprf.tudominio.com;
+    return 301 https://$host$request_uri;
+}

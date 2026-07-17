@@ -1,10 +1,22 @@
 name: release-wheels
 
 # Construye ruedas Python (abi3, una por plataforma sirve para CPython 3.9+) y el
-# sdist. En un tag "v*" además publica en PyPI. También ejecutable a mano.
+# sdist. En un tag además publica en PyPI. También ejecutable a mano.
+#
+# DOS paquetes, DOS cadencias, DOS patrones de tag:
+#
+#   v*        -> quipu-crypto  (el núcleo, AGPL, pyproject.toml de la raíz)
+#   voprf-v*  -> quipu-voprf   (Apache-2.0, crates/quipu-voprf)
+#
+# Van por separado a propósito. `quipu-voprf` se versiona solo: publicar sus
+# primitivas no debe obligar a sacar una versión del núcleo, ni al revés. Además
+# un tag `v*` reconstruiría la versión que diga el pyproject de la raíz, que hoy
+# es una ya publicada — arrastrar eso solo para sacar otro paquete es pedir un
+# accidente. Los patrones son disjuntos: `refs/tags/voprf-v0.1.0` NO empieza por
+# `refs/tags/v`, así que cada tag dispara solo lo suyo.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "voprf-v*"]
   workflow_dispatch:
 
 permissions:
@@ -13,6 +25,7 @@ permissions:
 jobs:
   wheels:
     name: wheels-${{ matrix.os }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -37,6 +50,7 @@ jobs:
 
   sdist:
     name: sdist
+    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +69,11 @@ jobs:
     needs: [wheels, sdist]
     runs-on: ubuntu-latest
     # Solo publica al hacer un tag v*.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # OJO: 'refs/tags/voprf-v*' TAMBIEN empieza por 'refs/tags/v' ("voprf"
+    # empieza por "v"). Sin excluirlo, un tag de quipu-voprf dispararia el
+    # release del nucleo. Hoy se salvaria porque sus `needs` no corren, pero
+    # eso es suerte, no diseno.
+    if: startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v')
     environment: pypi
     permissions:
       id-token: write   # PyPI trusted publishing (OIDC), sin token en secretos
@@ -71,11 +89,85 @@ jobs:
         with:
           skip-existing: true
 
+  # --- quipu-voprf (Apache-2.0) -----------------------------------------------
+  # Paquete aparte, tag aparte (voprf-v*). Es lo UNICO que un cliente del
+  # servicio OPRF instala en su servidor de auth: no puede arrastrar la AGPL del
+  # nucleo, y por eso vive en su propio crate y su propia rueda. Ver LICENSING.md §0.
+
+  voprf-wheels:
+    name: voprf-wheels-${{ matrix.os }}
+    if: startsWith(github.ref, 'refs/tags/voprf-v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      # `manylinux: auto` construye en contenedor contra una glibc vieja. Sin
+      # esto, la rueda sale atada a la glibc del runner y deja fuera a medio
+      # mundo -- y en PyPI una version no se puede re-subir, solo retirar.
+      - name: Build wheels (maturin)
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --features python --out dist -m crates/quipu-voprf/Cargo.toml
+          sccache: "true"
+          manylinux: auto
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voprf-wheels-${{ matrix.os }}
+          path: dist
+
+  voprf-sdist:
+    name: voprf-sdist
+    if: startsWith(github.ref, 'refs/tags/voprf-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist -m crates/quipu-voprf/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voprf-sdist
+          path: dist
+
+  publish-voprf:
+    name: publish quipu-voprf to PyPI
+    needs: [voprf-wheels, voprf-sdist]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/voprf-v')
+    environment: pypi
+    permissions:
+      id-token: write   # PyPI trusted publishing (OIDC), sin token en secretos
+    steps:
+      # `pattern` y merge-multiple: solo los artefactos de voprf. Sin el patron
+      # se colarian los del nucleo si algun dia coincidieran en la misma run.
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: voprf-*
+          merge-multiple: true
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
   sign:
     name: sign artifacts (sigstore) + GitHub Release
     needs: [wheels, sdist]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    # OJO: 'refs/tags/voprf-v*' TAMBIEN empieza por 'refs/tags/v' ("voprf"
+    # empieza por "v"). Sin excluirlo, un tag de quipu-voprf dispararia el
+    # release del nucleo. Hoy se salvaria porque sus `needs` no corren, pero
+    # eso es suerte, no diseno.
+    if: startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v')
     permissions:
       id-token: write   # cosign keyless (OIDC), sin claves en secretos
       contents: write   # crear el GitHub Release y adjuntar artefactos + firmas

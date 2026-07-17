@@ -52,7 +52,36 @@ quipu.decryptAsRecipient(c, secretKey);
 const { verifyingKey, signingKey } = quipu.generateSigningKeypair();
 const signed = quipu.sign(Buffer.from('acta'), signingKey);
 quipu.verify(signed, verifyingKey); // throws QuipuError if tampered
+
+// VOPRF online hardening (talks to a quipu-oprf-server)
+const secret = await quipu.oprfHarden({
+  baseUrl: 'https://oprf.tudominio.com',
+  apiKey: 'quipu_live_...',
+  password: Buffer.from('user password'),
+  serverPublicKey: Buffer.from('<64hex>', 'hex'),  // required, pinned out of band
+});
+// `secret` is a rate-limited, quantum-safe hardened key.
 ```
+
+The pinned key is **required**, and is never fetched from the server: one that
+supplies the key it is checked against cannot be checked at all. Get it once
+with `curl <baseUrl>/v1/public-key` and ship it as config.
+
+Two failures, opposite reactions — never collapse them:
+
+| Throws | Means | Do |
+|---|---|---|
+| `OprfUnavailable` | no answer, timeout, 5xx, or the API key was refused | retry, or fail closed |
+| `OprfRejected` | the DLEQ proof failed against your pinned key | **investigate.** Never retry blindly |
+
+Neither ever falls back to the unhardened password: that would hide the loss of
+the guarantee at the exact moment it matters.
+
+See [`examples/oprf-client.mjs`](examples/oprf-client.mjs) for the full flow,
+[the server](../../crates/quipu-oprf-server) for how to run one, and
+[`integrations/express`](../../integrations/express) to wire this into an app's
+signup/login. `voprfBlind` / `voprfFinalize` expose the low-level primitives if
+you use your own HTTP client.
 
 ## Contract
 

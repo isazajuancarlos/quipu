@@ -1,2 +1,5 @@
 node_modules/
 prebuilds/
+
+# Transcripciones de conversaciones: llevan API keys y contexto privado dentro.
+conversaciones/
