@@ -11,8 +11,8 @@ Librería de codificación con **protección criptográfica** y **simbología pr
 > 🇬🇧 *Quipu is a free/libre (AGPL-3.0) library that encrypts and encodes data
 > using only vetted cryptographic primitives (XChaCha20-Poly1305, Argon2id,
 > HKDF), with a hybrid post-quantum mode (X25519 + ML-KEM-1024) and a verifiable
-> online hardening mode (VOPRF + DLEQ). It never invents primitives — security
-> lives in the keys, not in hiding the format.*
+> online hardening mode (RFC 9497 VOPRF + DLEQ). It never invents primitives —
+> security lives in the keys, not in hiding the format.*
 
 > Filosofía "rueda y oruga": donde existe buena criptografía, la **reutilizamos**
 > (XChaCha20-Poly1305, Argon2id, HKDF, ML-KEM, X25519); donde hay terreno nuevo
@@ -37,7 +37,7 @@ datos → KDF(passphrase+pepper) → AEAD → contenedor → codec base-N → di
 | Canal visual | `api::encode_to_image` / `decode_from_image` | Salida **PNG** lossless |
 | Canal robusto (impreso) | `api::encode_to_robust_image` / `decode_from_robust_image` | + **Reed-Solomon** (corrige errores de canal) |
 | Glifos nativos | `api::encode_to_glyph_image` / `decode_from_glyph_image` | Alfabeto de glifos propio, reconocible |
-| Online (endurecimiento) | `api::encode_online` / `decode_online` | **VOPRF verificable** (prueba DLEQ): el cliente detecta un servidor deshonesto |
+| Online (endurecimiento) | `api::encode_online` / `decode_online` | **VOPRF conforme a [RFC 9497](https://www.rfc-editor.org/rfc/rfc9497.html)** (ristretto255-SHA512, prueba DLEQ): el cliente detecta un servidor deshonesto |
 | Firmado (autenticidad) | `api::encode_signed` / `decode_verified` | Firma híbrida **Ed25519 + ML-DSA-87** (combinador AND). Autenticidad y no-repudio verificables; **no** confidencialidad |
 | Firmado triple (alta garantía, feature `slh`) | `api::encode_signed_triple` / `decode_verified_triple` | Firma triple-híbrida **Ed25519 + ML-DSA-87 + SLH-DSA-256s** (AND 3-de-3): infalsificable mientras sobreviva ≥1 de {curva, retículo, hash}. Opt-in; firma ~34 KB |
 | Streaming (archivos grandes) | `api::encrypt_stream` / `decrypt_stream` | Cifrado por chunks (memoria acotada) para datos en reposo grandes; resistente a truncación/reordenamiento/splice. Contenedor `QST1` |
@@ -221,8 +221,9 @@ Ed25519+ML-DSA-87 y triple con SLH-DSA) implementados con TDD estricto.
 crashes, Miri sin UB. Bindings multi-lenguaje sobre la C ABI, cada uno con
 interop cross-language: **10 tests de ABI + integración C, 12 Node, 12 Go**.
 Parámetros post-cuánticos en **categoría de seguridad NIST 5 (CNSA 2.0)**:
-**ML-KEM-1024** y **ML-DSA-87**. Modo online con **VOPRF verificable** (prueba
-DLEQ), KEM híbrido con transcript ligado estilo X-Wing, **firma híbrida Ed25519 +
+**ML-KEM-1024** y **ML-DSA-87**. Modo online con **VOPRF conforme a RFC 9497**
+(ristretto255-SHA512), verificado contra los **vectores oficiales del Apéndice
+A.1.2**, KEM híbrido con transcript ligado estilo X-Wing, **firma híbrida Ed25519 +
 ML-DSA-87** (combinador AND), y
 **pre-auditoría** propia (ver `INFORME_PREAUDITORIA.txt` y `MODELO_DE_AMENAZA.txt`).
 **Security Lab** (red-team adaptativo auto-hospedado): 14 ataques en CI
@@ -231,6 +232,32 @@ ML-DSA-87** (combinador AND), y
 > ⚠️ Proyecto en desarrollo. La pre-auditoría interna NO sustituye una auditoría
 > criptográfica **independiente**: no usar para proteger datos críticos reales
 > hasta ese sello externo.
+
+## Endurecimiento de contraseñas (servicio OPRF)
+
+```
+Argon2 solo:  robas la BD -> fuerza bruta offline, a la velocidad de tu GPU.
+Con VOPRF:    robas la BD -> no derivas nada sin la clave del servidor. Cada
+              intento exige una petición que el operador ve, limita y corta.
+```
+
+Hay una instancia gestionada en **`https://oprf.xiliux.com`** (beta). El cliente
+va aparte y es **Apache-2.0**: no arrastra la AGPL de este núcleo a tu servidor
+de autenticación.
+
+```bash
+pip install quipu-oprf-django   # Django: solo toca PASSWORD_HASHERS
+pip install quipu-voprf         # las primitivas, para cualquier otro stack
+```
+
+La contraseña sale **cegada** (el servidor nunca la ve) y el servidor no puede
+mentir: adjunta una prueba DLEQ que el cliente verifica contra una clave pública
+**fijada fuera de banda**. Falla cerrado: si el servicio no responde o la prueba
+no valida, no se degrada a "sin endurecer".
+
+- [`crates/quipu-voprf`](crates/quipu-voprf) — primitivas VOPRF (RFC 9497), Apache-2.0
+- [`crates/quipu-oprf-server`](crates/quipu-oprf-server) — el servidor, auto-hospedable
+- [`integrations/`](integrations) — Django (publicado), Express y Go (sin publicar)
 
 ## Documentación
 
@@ -255,10 +282,19 @@ ML-DSA-87** (combinador AND), y
 
 ## Licencia
 
-Modelo de **licencia dual** (open-core):
+Modelo de **licencia dual** (open-core). **No todo el repositorio es AGPL**: lo
+que un cliente del servicio OPRF enlaza dentro de su propio servidor es permisivo.
 
-- **AGPL-3.0-or-later** para uso abierto (ver `LICENSE`).
+| Componente | Licencia |
+|---|---|
+| `quipu` (núcleo) y sus bindings | `AGPL-3.0-or-later` (ver `LICENSE`) |
+| `crates/quipu-voprf` → [`quipu-voprf`](https://pypi.org/project/quipu-voprf/) | **`Apache-2.0`** |
+| `integrations/django` → [`quipu-oprf-django`](https://pypi.org/project/quipu-oprf-django/) | **`Apache-2.0`** |
+| `crates/quipu-oprf-server` | `AGPL-3.0-or-later` / comercial |
+
 - **Licencia comercial** para producto propietario cerrado o SaaS sin abrir código.
 - El **servidor OPRF** se ofrece además como **servicio gestionado** de pago.
 
-Detalles en [`LICENSING.md`](LICENSING.md). Contacto: isazajuancarlos@gmail.com
+Las primitivas VOPRF viven en un crate **separado** (no solo con otra etiqueta):
+la licencia de un envoltorio no relicencia su dependencia. Detalles y el porqué
+en [`LICENSING.md`](LICENSING.md) §0. Contacto: isazajuancarlos@gmail.com
