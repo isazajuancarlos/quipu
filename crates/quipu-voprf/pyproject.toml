@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "quipu-voprf"
-version = "0.2.0"
+version = "0.2.1"
 description = "VOPRF sobre ristretto255 con pruebas DLEQ: cliente del servicio Quipu OPRF"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -21,6 +21,11 @@ classifiers = [
 # AGPL, el copyleft de red alcanzaria su SaaS y nadie lo instalaria. Ver
 # LICENSING.md §0 en la raiz del repo.
 license = "Apache-2.0"
+# Ruta relativa a ESTE pyproject. Sin esto, maturin escribe `License-File: LICENSE`
+# (solo el nombre) en el PKG-INFO, pero al empaquetar un miembro de workspace deja
+# el archivo en crates/quipu-voprf/LICENSE. PyPI lo busca en la raiz del sdist, no
+# lo encuentra y rechaza con 400. Le paso a la 0.2.0.
+license-files = ["LICENSE"]
 
 [project.urls]
 Repository = "https://github.com/isazajuancarlos/quipu"
