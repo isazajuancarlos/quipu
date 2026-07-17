@@ -59,7 +59,7 @@ ml-dsa = "0.1.1"
 ed25519-dalek = "2"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
-curve25519-dalek = { version = "4", features = ["digest"] }
+curve25519-dalek = { version = "5", features = ["digest"] }
 # Primitivas VOPRF, en su propio crate Apache-2.0: es lo unico que un cliente
 # del servicio OPRF debe enlazar, y no puede arrastrar esta AGPL. Apache fluye
 # hacia AGPL, asi que el nucleo puede usarlo sin friccion.
