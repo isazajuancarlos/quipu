@@ -11,7 +11,7 @@
 //! oficiales del Apendice A.1.2 (`tests/rfc9497_vectors.rs`). Se re-exporta aqui
 //! para que `quipu_voprf::blind(..)` siga siendo el camino corto.
 //!
-//! ## Ruptura respecto de 0.1.0
+//! ## Nota: la construccion propia nunca se publico
 //!
 //! La version anterior usaba una construccion PROPIA (`quipu/v2/voprf`),
 //! inspirada en la RFC pero no conforme: dominio propio, `hash_to_curve` sin

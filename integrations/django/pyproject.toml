@@ -25,7 +25,7 @@ dependencies = [
   # Solo las primitivas VOPRF (Apache-2.0). NUNCA `quipu-crypto`, que es el
   # núcleo AGPL: este plugin vive dentro del servidor de auth del cliente y
   # arrastrarle copyleft de red ahí es justo lo que impide venderle el servicio.
-  "quipu-voprf>=0.1.0",
+  "quipu-voprf>=0.2.0",
 ]
 
 [project.optional-dependencies]

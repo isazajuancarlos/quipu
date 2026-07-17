@@ -68,10 +68,13 @@ cobertura.
 
 Interoperable con cualquier otra implementación de RFC 9497.
 
-### Ruptura respecto de 0.1.0
+### Nota: la construcción propia nunca se publicó
 
-La versión anterior usaba una construcción propia (`quipu/v2/voprf`), inspirada
-en la RFC pero no conforme: dominio propio, `hash_to_curve` sin
+Durante el desarrollo hubo una construcción propia (`quipu/v2/voprf`), inspirada
+en la RFC pero no conforme. **Nunca llegó a PyPI**: 0.2.0 es la primera versión
+publicada, y nace conforme. Se documenta aquí porque la instancia
+`oprf.xiliux.com` sí la sirvió hasta el 2026-07-17, y su clave pública cambió al
+migrar. La construcción vieja era: dominio propio, `hash_to_curve` sin
 `expand_message_xmd` y transcripción DLEQ propia. No interoperaba con nadie ni
 heredaba el análisis de seguridad de la RFC. Se **eliminó**, no se deprecó:
 dejarla solo invitaba a usarla por error.

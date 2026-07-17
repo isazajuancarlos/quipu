@@ -946,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "quipu-voprf"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "curve25519-dalek",
  "getrandom 0.2.17",
