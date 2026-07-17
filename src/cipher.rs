@@ -27,10 +27,10 @@ pub fn encrypt(
     plaintext: &[u8],
     aad: &[u8],
 ) -> Vec<u8> {
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    let cipher = XChaCha20Poly1305::new(&Key::from(*key));
     cipher
         .encrypt(
-            XNonce::from_slice(nonce),
+            &XNonce::from(*nonce),
             Payload {
                 msg: plaintext,
                 aad,
@@ -46,10 +46,10 @@ pub fn decrypt(
     ciphertext: &[u8],
     aad: &[u8],
 ) -> Result<Vec<u8>, CipherError> {
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    let cipher = XChaCha20Poly1305::new(&Key::from(*key));
     cipher
         .decrypt(
-            XNonce::from_slice(nonce),
+            &XNonce::from(*nonce),
             Payload {
                 msg: ciphertext,
                 aad,

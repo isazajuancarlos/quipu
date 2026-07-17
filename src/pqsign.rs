@@ -27,7 +27,7 @@
 use ed25519_dalek::{
     Signature as EdSignature, Signer as _, SigningKey as EdSigningKey, VerifyingKey as EdVerifyingKey,
 };
-use ml_dsa::signature::{Keypair as _, Signer as _, Verifier as _};
+use ml_dsa::signature::{Keypair as _, Verifier as _};
 use ml_dsa::{
     EncodedSignature, EncodedVerifyingKey, MlDsa87, Seed, Signature as MlSignature,
     SigningKey as MlSigningKey, VerifyingKey as MlVerifyingKey,
