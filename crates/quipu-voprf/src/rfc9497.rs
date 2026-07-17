@@ -164,6 +164,10 @@ impl Server {
 
     /// Servidor con clave EFIMERA (semilla aleatoria). Para tests y dev: al
     /// reiniciar, la clave cambia y todo secreto endurecido queda invalidado.
+    ///
+    /// Hay `Default` (lo pide clippy), pero preferir `new()` o, en produccion,
+    /// `from_seed`: una clave efimera no es un "por defecto" razonable para un
+    /// servicio que promete secretos estables.
     pub fn new() -> Self {
         let mut seed = [0u8; 32];
         getrandom::getrandom(&mut seed).expect("RNG del sistema");
@@ -221,6 +225,12 @@ impl Server {
         proof[..32].copy_from_slice(c.as_bytes());
         proof[32..].copy_from_slice(s.as_bytes());
         proof
+    }
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
