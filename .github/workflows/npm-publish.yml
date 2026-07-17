@@ -48,7 +48,7 @@ jobs:
         run: >-
           node scripts/build-native.mjs
           ${{ matrix.rust_target && format('--target {0} --arch {1}', matrix.rust_target, matrix.node_arch) || '' }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.target }}
           path: bindings/node/prebuilds/
