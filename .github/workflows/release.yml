@@ -5,8 +5,9 @@ name: release-wheels
 #
 # DOS paquetes, DOS cadencias, DOS patrones de tag:
 #
-#   v*        -> quipu-crypto  (el núcleo, AGPL, pyproject.toml de la raíz)
-#   voprf-v*  -> quipu-voprf   (Apache-2.0, crates/quipu-voprf)
+#   v*        -> quipu-crypto       (el núcleo, AGPL, pyproject.toml de la raíz)
+#   voprf-v*  -> quipu-voprf        (Apache-2.0, crates/quipu-voprf)
+#   django-v* -> quipu-oprf-django  (Apache-2.0, integrations/django)
 #
 # Van por separado a propósito. `quipu-voprf` se versiona solo: publicar sus
 # primitivas no debe obligar a sacar una versión del núcleo, ni al revés. Además
@@ -16,7 +17,7 @@ name: release-wheels
 # `refs/tags/v`, así que cada tag dispara solo lo suyo.
 on:
   push:
-    tags: ["v*", "voprf-v*"]
+    tags: ["v*", "voprf-v*", "django-v*"]
   workflow_dispatch:
 
 permissions:
@@ -25,7 +26,7 @@ permissions:
 jobs:
   wheels:
     name: wheels-${{ matrix.os }}
-    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/django-v') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -50,7 +51,7 @@ jobs:
 
   sdist:
     name: sdist
-    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/django-v') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +74,7 @@ jobs:
     # empieza por "v"). Sin excluirlo, un tag de quipu-voprf dispararia el
     # release del nucleo. Hoy se salvaria porque sus `needs` no corren, pero
     # eso es suerte, no diseno.
-    if: startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v')
+    if: startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/django-v')
     environment: pypi
     permissions:
       id-token: write   # PyPI trusted publishing (OIDC), sin token en secretos
@@ -159,6 +160,48 @@ jobs:
         with:
           skip-existing: true
 
+  # --- quipu-oprf-django (Apache-2.0) ------------------------------------------
+  # Python PURO (setuptools), no maturin: no hay Rust que compilar, asi que ni
+  # ruedas por plataforma ni matriz. Una rueda universal y el sdist.
+
+  django-dist:
+    name: django-dist
+    if: startsWith(github.ref, 'refs/tags/django-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Build wheel + sdist
+        working-directory: integrations/django
+        run: |
+          python -m pip install --upgrade build
+          python -m build --outdir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: django-dist
+          path: integrations/django/dist
+
+  publish-django:
+    name: publish quipu-oprf-django to PyPI
+    needs: [django-dist]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/django-v')
+    environment: pypi
+    permissions:
+      id-token: write   # PyPI trusted publishing (OIDC), sin token en secretos
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: django-*
+          merge-multiple: true
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
   sign:
     name: sign artifacts (sigstore) + GitHub Release
     needs: [wheels, sdist]
@@ -167,7 +210,7 @@ jobs:
     # empieza por "v"). Sin excluirlo, un tag de quipu-voprf dispararia el
     # release del nucleo. Hoy se salvaria porque sus `needs` no corren, pero
     # eso es suerte, no diseno.
-    if: startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v')
+    if: startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/django-v')
     permissions:
       id-token: write   # cosign keyless (OIDC), sin claves en secretos
       contents: write   # crear el GitHub Release y adjuntar artefactos + firmas
