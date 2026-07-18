@@ -64,8 +64,19 @@ entonces necesitas una licencia comercial. Contacto: **isazajuancarlos@gmail.com
 Los términos están en [`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL). En resumen: la
 licencia es anual y exime del copyleft de red; al vencer sin renovar, **conservas
 de forma perpetua el derecho a seguir distribuyendo las versiones recibidas**
-durante la vigencia, pero no las posteriores. La concesión AGPL es permanente y
-no se ve afectada por nada de esto.
+durante la vigencia, pero no las posteriores.
+
+**Lo que la licencia comercial NO hace es quitarte derechos.** Es una concesión
+*adicional y paralela* a la AGPL, no una sustitución. Con contrato o sin él
+conservas todo lo que la AGPL-3.0 concede a cualquiera: usar, estudiar,
+modificar, redistribuir, vender, bifurcar e incluso competir. Eso es público e
+irrevocable, y no está en nuestro poder retirarlo.
+
+Lo único que el contrato añade es la **exención del copyleft de red**, y lo único
+que sus límites delimitan es hasta dónde llega esa exención — no qué puedes
+hacer. Si quieres redistribuir Quipu como biblioteca independiente, puedes:
+bajo AGPL, publicando el código fuente correspondiente. Al terminar el contrato
+cesa la exención, no tus derechos.
 
 ## 3. El servicio gestionado (capa de pago)
 

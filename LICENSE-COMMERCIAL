@@ -75,18 +75,45 @@ EL LICENCIATARIO:
      las demás condiciones del Anexo A. Todo uso fuera de ese alcance requiere
      ampliación previa.
 
-2.4. LO QUE NO SE CONCEDE. Esta licencia NO faculta a EL LICENCIATARIO para:
+2.4. HASTA DÓNDE LLEGA LA EXENCIÓN. La exención del copyleft de la Cláusula 2.2
+     se concede para el Producto del Licenciatario y NO se extiende a:
 
-     a) Redistribuir el Software como biblioteca independiente, ni en código
-        fuente, ni bajo su propia marca;
-     b) Sublicenciar el Software separadamente del Producto;
-     c) Ofrecer un producto cuya funcionalidad principal sea sustancialmente la
-        del Software, en competencia con EL LICENCIANTE;
-     d) Usar el nombre o la marca «Quipu» más allá de lo previsto en
-        TRADEMARK.md.
+     a) Redistribuir el Software como biblioteca independiente —en fuente o en
+        objeto— exenta de copyleft;
+     b) Trasladar la exención a terceros, separadamente del Producto;
+     c) Ofrecer, exento de copyleft, un producto cuya funcionalidad principal
+        sea sustancialmente la del Software.
 
-2.5. USUARIOS FINALES. Los Usuarios Finales del Producto reciben el Software
-     únicamente como componente embebido, sin derechos independientes sobre él.
+     Cada una de esas actividades es LIBRE bajo la AGPL-3.0 cumpliendo sus
+     condiciones. Lo que esta cláusula delimita es el alcance de la exención,
+     no la libertad de hacerlas.
+
+     Aparte, y por naturaleza distinta: el uso del nombre y la marca «Quipu» se
+     rige por TRADEMARK.md. La AGPL-3.0 concede derechos sobre el CÓDIGO, no
+     sobre el nombre, así que esa sí es una restricción propia y no una
+     delimitación de la exención.
+
+2.5. LOS DERECHOS DE LA AGPL-3.0 PERMANECEN INTACTOS.
+
+     Este contrato es una concesión ADICIONAL Y PARALELA a la licencia pública
+     AGPL-3.0-or-later. No la sustituye, no la suspende y no exige renunciar a
+     ella.
+
+     EL LICENCIATARIO conserva en todo momento, con independencia de este
+     contrato, todos los derechos que la AGPL-3.0 concede a cualquier persona:
+     usar, estudiar, modificar, redistribuir e incluso vender el Software, y
+     también bifurcarlo y competir con EL LICENCIANTE. Esos derechos son
+     públicos e irrevocables y no están en poder del LICENCIANTE quitarlos.
+
+     Lo ÚNICO que este contrato añade es la exención del copyleft de red. En
+     consecuencia, la terminación de este contrato por cualquier causa NO afecta
+     los derechos AGPL-3.0 de EL LICENCIATARIO: solo cesa la exención, y a
+     partir de ahí rigen las condiciones de la licencia pública.
+
+2.6. USUARIOS FINALES. Los Usuarios Finales del Producto reciben el Software
+     únicamente como componente embebido, sin derechos independientes sobre él
+     derivados de ESTE contrato — sin perjuicio, de nuevo, de los que la
+     AGPL-3.0 les conceda por su cuenta.
 
 
 --------------------------------------------------------------------------------
@@ -96,19 +123,36 @@ EL LICENCIATARIO:
 3.1. El contrato tiene vigencia de UN (1) AÑO, renovable por períodos iguales.
 
 3.2. DERECHO PERPETUO SOBRE LO RECIBIDO. Terminada la vigencia sin renovación,
-     EL LICENCIATARIO CONSERVA DE MANERA PERPETUA el derecho de seguir
-     distribuyendo y explotando las versiones del Software recibidas durante la
-     vigencia, en los términos de la Cláusula 2, respecto del Producto ya
-     licenciado.
+     EL LICENCIATARIO CONSERVA DE MANERA PERPETUA, respecto de las versiones del
+     Software recibidas durante la vigencia y del Producto ya licenciado, el
+     derecho a:
 
-     NO tendrá derecho a versiones publicadas con posterioridad, ni a soporte.
+     a) USAR Y OPERAR el Software dentro del Producto, sin límite de tiempo;
+     b) MANTENER EN FUNCIONAMIENTO el Producto ofrecido como servicio en red;
+     c) DISTRIBUIR el Producto que lo incorpora, en los términos de la
+        Cláusula 2.
 
-3.3. Esta regla no aplica en caso de terminación por incumplimiento grave de EL
-     LICENCIATARIO de las Cláusulas 2.4 u 8, evento en el cual cesan todos los
-     derechos concedidos.
+     El orden importa: lo que no puede cesar al vencer el contrato es la
+     OPERACIÓN. Un sistema que deja de funcionar porque no se renovó una licencia
+     es exactamente el modo de fallo que este contrato existe para excluir.
 
-3.4. Nada impide que, terminada la vigencia, EL LICENCIATARIO continúe usando el
-     Software bajo AGPL-3.0, cumpliendo sus condiciones.
+     NO tendrá derecho a versiones publicadas con posterioridad, ni a soporte, ni
+     a las actualizaciones de la Cláusula 5.
+
+3.3. Este derecho perpetuo decae únicamente si EL LICENCIATARIO distribuye el
+     Software EXENTO DE COPYLEFT fuera del alcance de la Cláusula 2.4, o
+     incumple gravemente la Cláusula 8.
+
+     Se precisa, para evitar lecturas erróneas: actuar fuera del alcance de la
+     exención no es "incumplir una prohibición" — la Cláusula 2.4 delimita hasta
+     dónde llega la exención, no restringe libertades. Lo que sí constituye
+     infracción es ampararse en una exención que no cubre ese acto.
+
+3.4. EN TODO CASO, Y CON INDEPENDENCIA DE LO ANTERIOR, EL LICENCIATARIO conserva
+     los derechos que la AGPL-3.0 concede a cualquier persona (Cláusula 2.5).
+     Terminada la vigencia cesa la exención del copyleft, no el derecho a usar
+     el Software: a partir de ahí rigen las condiciones de la licencia pública,
+     que incluyen publicar el código fuente correspondiente.
 
 
 --------------------------------------------------------------------------------
