@@ -37,6 +37,14 @@ jobs:
         run: cargo test --features honey --all-targets
       - name: Clippy (honey feature, deny warnings)
         run: cargo clippy --features honey --all-targets -- -D warnings
+      # El camino de ERROR de las autopruebas es el único que nunca se ejecuta en
+      # un build normal, y es el que tiene que funcionar el día que haga falta.
+      - name: Tests (autopruebas — camino de fallo, inyección)
+        run: cargo test --features selftest-fault --lib selftest
+      # Simulación en volumen y concurrencia: 200 pasadas + 100 hebras + 1000
+      # llamadas repetidas. Un interbloqueo sale como fallo, no como cuelgue.
+      - name: Simulación de autopruebas (1300 operaciones)
+        run: cargo run --release --example selftest_soak
 
   audit:
     name: cargo-audit (RustSec)

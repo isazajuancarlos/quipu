@@ -46,8 +46,7 @@ use crate::{pqhybrid, pqsign};
 use hkdf::Hkdf;
 use rand_core::{OsRng, RngCore};
 use sha2::Sha256;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Once;
+use std::sync::OnceLock;
 
 /// Resultado de una prueba individual.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,10 +143,15 @@ const AEAD_CIPHER: &str = "dbfa22815adba089dfe8a52d8defc8b8a55301bb2fec13ee5284d
 
 /// HKDF-SHA256 contra el vector del RFC 5869. Conformidad con el estándar.
 fn check_hkdf_rfc5869() -> bool {
+    check_hkdf_rfc5869_contra(&h(RFC5869_OKM))
+}
+
+/// Igual, contra un vector dado, para probar que discrimina.
+fn check_hkdf_rfc5869_contra(esperado_in: &[u8]) -> bool {
+    let esperado = esperado_in.to_vec();
     let ikm = h(RFC5869_IKM);
     let salt = h(RFC5869_SALT);
     let info = h(RFC5869_INFO);
-    let esperado = h(RFC5869_OKM);
 
     let hk = Hkdf::<Sha256>::new(Some(&salt), &ikm);
     let mut okm = vec![0u8; esperado.len()];
@@ -178,10 +182,20 @@ fn check_derive_subkey() -> bool {
 
 /// XChaCha20-Poly1305: cifrado determinista contra el vector congelado.
 fn check_aead_encrypt() -> bool {
+    check_aead_encrypt_contra(&h(AEAD_CIPHER))
+}
+
+/// Igual, pero contra un vector dado. Existe para poder demostrar en pruebas que
+/// la comprobación DISCRIMINA: una que devolviera `true` siempre pasaría el
+/// autotest igual que una correcta, y sería decorativa.
+fn check_aead_encrypt_contra(esperado: &[u8]) -> bool {
+    if FALLO_INYECTADO {
+        return false;
+    }
     let key: [u8; 32] = h(AEAD_KEY).try_into().expect("clave de 32 bytes");
     let nonce: [u8; 24] = h(AEAD_NONCE).try_into().expect("nonce de 24 bytes");
     let ct = cipher::encrypt(&key, &nonce, &h(AEAD_PLAIN), &h(AEAD_AAD));
-    ct_eq(&ct, &h(AEAD_CIPHER))
+    ct_eq(&ct, esperado)
 }
 
 /// XChaCha20-Poly1305: el descifrado recupera el texto claro.
@@ -361,37 +375,99 @@ pub fn run() -> Report {
     Report { checks }
 }
 
-static UNA_VEZ: Once = Once::new();
-static ESTADO: AtomicBool = AtomicBool::new(false);
+/// Informe de la única ejecución de este proceso.
+static INFORME: OnceLock<Report> = OnceLock::new();
 
-/// Ejecuta las autopruebas **una sola vez por proceso** y entra en estado de
-/// error si alguna falla.
+/// Inyección de fallo: fuerza a que una comprobación falle, para poder EJERCITAR
+/// el camino de error de punta a punta (pánico en Rust, código de error en la C
+/// ABI, excepción en Python) en vez de suponer que funciona.
 ///
-/// Fail-closed a propósito: un módulo criptográfico que se sabe defectuoso debe
-/// negarse a operar, no seguir produciendo resultados que nadie puede creerse.
+/// Tras un feature no-default que nunca se activa en un build publicado, igual
+/// que el Security Lab. Sin esto, el camino de fallo sería el único del módulo
+/// que jamás se ejecuta — y es precisamente el que tiene que funcionar el día
+/// que haga falta.
+#[cfg(feature = "selftest-fault")]
+const FALLO_INYECTADO: bool = true;
+#[cfg(not(feature = "selftest-fault"))]
+const FALLO_INYECTADO: bool = false;
+
+/// Ejecuta las autopruebas una sola vez por proceso y devuelve el informe si
+/// alguna falló.
+///
+/// Es la variante para quien quiera **manejar** el fallo en vez de que aborte:
+/// los bindings la usan para lanzar una excepción legible en lugar de un pánico.
+pub fn try_ensure() -> Result<(), &'static Report> {
+    let informe = INFORME.get_or_init(run);
+    if informe.ok() {
+        Ok(())
+    } else {
+        Err(informe)
+    }
+}
+
+/// Redacta el fallo en lenguaje humano.
+///
+/// Un autotest fallido **casi nunca es culpa de quien usa la librería**: no
+/// tiene que ver con su contraseña, sus datos ni cómo la invocó. Significa que
+/// el binario, la máquina o la instalación no son de fiar. El mensaje tiene que
+/// decir eso, decir qué NO pasó —para que nadie tema por sus datos— y decir qué
+/// hacer. Un volcado técnico sin más genera desconfianza y no ayuda a nadie.
+pub fn explicar_fallo(informe: &Report) -> String {
+    format!(
+        "\n\
+         Quipu se detuvo y no realizó la operación.\n\
+         \n\
+         Las comprobaciones internas de la librería no dieron el resultado\n\
+         esperado, así que se negó a operar en lugar de producir un resultado en\n\
+         el que no se puede confiar.\n\
+         \n\
+         ESTO NO ES UN PROBLEMA DE TUS DATOS NI DE TU CONTRASEÑA.\n\
+         No se cifró, descifró ni guardó nada. Tus archivos están intactos.\n\
+         \n\
+         No superaron la comprobación: {fallidas}\n\
+         \n\
+         Causas posibles, de la más a la menos frecuente:\n\
+         \n\
+           1. La librería se compiló para un procesador distinto del que la está\n\
+              ejecutando. Reinstálala para esta máquina.\n\
+           2. El archivo de la librería está dañado o fue reemplazado.\n\
+              Reinstálala desde su origen oficial (PyPI, crates.io o npm).\n\
+           3. Memoria o procesador con fallos. Es poco común, pero ocurre.\n\
+         \n\
+         Si tras reinstalar vuelve a ocurrir, repórtalo en\n\
+         https://github.com/isazajuancarlos/quipu/issues e incluye el informe\n\
+         completo de abajo: es justo lo que hace falta para diagnosticarlo.\n\
+         \n\
+         {informe}",
+        fallidas = informe.failures().join(", "),
+        informe = informe
+    )
+}
+
+/// Ejecuta las autopruebas **una sola vez por proceso** y aborta si alguna falla.
+///
+/// Fail-closed a propósito, y no es una elección estética: si el AEAD o el KDF
+/// no producen el resultado conocido, seguir adelante significa emitir
+/// contenedores que nadie podrá descifrar o que no protegen lo que dicen
+/// proteger. Un módulo criptográfico que se sabe defectuoso debe detenerse, no
+/// avisar y continuar.
+///
+/// Para manejar el fallo en vez de abortar, ver [`try_ensure`].
 ///
 /// # Panics
 ///
-/// Si alguna autoprueba falla. No hay forma de desactivarlo: una válvula de
-/// escape aquí sería el primer sitio donde miraría un atacante.
+/// Si alguna autoprueba falla, con el mensaje de [`explicar_fallo`]. No hay
+/// forma de desactivarlo: una válvula de escape aquí sería el primer sitio donde
+/// miraría un atacante.
 pub fn ensure() {
-    UNA_VEZ.call_once(|| {
-        let informe = run();
-        if !informe.ok() {
-            // El estado queda en falso; el panic corta la operación aquí mismo.
-            panic!(
-                "quipu: AUTOPRUEBAS FALLIDAS, el módulo se niega a operar.\n{informe}\n\
-                 Fallaron: {:?}",
-                informe.failures()
-            );
-        }
-        ESTADO.store(true, Ordering::Release);
-    });
+    if let Err(informe) = try_ensure() {
+        panic!("{}", explicar_fallo(informe));
+    }
 }
 
 /// `true` si las autopruebas ya se ejecutaron con éxito en este proceso.
 pub fn ready() -> bool {
-    ESTADO.load(Ordering::Acquire)
+    INFORME.get().map(|r| r.ok()).unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -399,6 +475,9 @@ mod tests {
     use super::*;
 
     #[test]
+    // Sin sentido con `selftest-fault`: ahí el módulo debe fallar a
+    // propósito. La contraparte es `con_fallo_inyectado_el_modulo_se_niega`.
+    #[cfg(not(feature = "selftest-fault"))]
     fn todas_las_autopruebas_pasan() {
         let informe = run();
         assert!(informe.ok(), "{informe}");
@@ -440,13 +519,94 @@ mod tests {
     }
 
     #[test]
+    // Sin sentido con `selftest-fault`: ahí el módulo debe fallar a
+    // propósito. La contraparte es `con_fallo_inyectado_el_modulo_se_niega`.
+    #[cfg(not(feature = "selftest-fault"))]
     fn ensure_es_idempotente_y_deja_ready() {
         ensure();
         ensure();
         assert!(ready());
+        assert!(try_ensure().is_ok());
+    }
+
+    // --- ¿el autotest DETECTA de verdad? ---
+    //
+    // La pregunta que ninguna de las pruebas anteriores responde: si una
+    // primitiva estuviera rota, ¿lo veríamos? Una comprobación que devolviera
+    // `true` siempre pasaría el autotest exactamente igual que una correcta.
+
+    #[test]
+    fn la_comprobacion_del_aead_discrimina() {
+        let bueno = h(AEAD_CIPHER);
+        // Con el fallo inyectado la comprobación devuelve false siempre; sin él,
+        // el vector correcto debe pasar.
+        assert_eq!(check_aead_encrypt_contra(&bueno), !FALLO_INYECTADO);
+
+        // Un solo bit distinto tiene que hacerla fallar.
+        let mut malo = bueno.clone();
+        malo[0] ^= 0x01;
+        assert!(!check_aead_encrypt_contra(&malo), "no detectó un bit cambiado");
+
+        // Y longitudes distintas, y el vector vacío.
+        assert!(!check_aead_encrypt_contra(&malo[..malo.len() - 1]));
+        assert!(!check_aead_encrypt_contra(&[]));
     }
 
     #[test]
+    fn la_comprobacion_de_hkdf_discrimina() {
+        let bueno = h(RFC5869_OKM);
+        assert!(check_hkdf_rfc5869_contra(&bueno));
+
+        let mut malo = bueno.clone();
+        malo[41] ^= 0x80; // último byte del vector del RFC
+        assert!(!check_hkdf_rfc5869_contra(&malo), "no detectó un bit cambiado");
+        assert!(!check_hkdf_rfc5869_contra(&[0u8; 42]));
+    }
+
+    #[test]
+    #[cfg(feature = "selftest-fault")]
+    fn con_fallo_inyectado_el_modulo_se_niega() {
+        // Simulación del camino que importa: con una comprobación rota, el
+        // informe falla, `try_ensure` devuelve Err y `ensure` aborta.
+        let informe = run();
+        assert!(!informe.ok(), "la inyección de fallo no surtió efecto");
+        assert!(try_ensure().is_err());
+        assert!(!ready());
+
+        let r = std::panic::catch_unwind(ensure);
+        assert!(r.is_err(), "ensure() debía abortar y no lo hizo");
+    }
+
+    #[test]
+    fn el_mensaje_de_fallo_es_para_una_persona() {
+        // No basta con que falle: tiene que explicarse. Un volcado técnico deja
+        // al usuario sin saber si sus datos corren peligro ni qué hacer.
+        let malo = Report {
+            checks: vec![Check {
+                name: "XChaCha20-Poly1305 cifra",
+                passed: false,
+                source: "vector congelado del proyecto",
+            }],
+        };
+        let m = explicar_fallo(&malo);
+
+        // Dice qué NO pasó, que es lo que quita el miedo.
+        assert!(m.contains("NO ES UN PROBLEMA DE TUS DATOS"), "{m}");
+        assert!(m.contains("Tus archivos están intactos"), "{m}");
+        assert!(m.contains("no realizó la operación"), "{m}");
+        // Nombra lo que falló.
+        assert!(m.contains("XChaCha20-Poly1305 cifra"), "{m}");
+        // Dice qué hacer, con pasos concretos y una vía de reporte.
+        assert!(m.contains("Reinstálala"), "{m}");
+        assert!(m.contains("issues"), "{m}");
+        // Y adjunta el informe para que el reporte sirva de algo.
+        assert!(m.contains("autopruebas quipu"), "{m}");
+    }
+
+    #[test]
+    // Sin sentido con `selftest-fault`: ahí el módulo debe fallar a
+    // propósito. La contraparte es `con_fallo_inyectado_el_modulo_se_niega`.
+    #[cfg(not(feature = "selftest-fault"))]
     fn generar_claves_no_reentra_en_la_autoprueba() {
         // REGRESIÓN. `generate_keypair` dispara `ensure()`, y `ensure()` corre
         // `run()`, que a su vez necesita generar claves. Si esas pruebas

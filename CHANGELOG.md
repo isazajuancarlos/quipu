@@ -28,8 +28,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
      be all zeros — a dead generator is the quietest and most catastrophic
      failure mode there is.
 
-  14 checks in total, wired into keypair generation (once per process, ~12 ms)
-  rather than the hot path: no key should ever be born from a broken module.
+  14 checks in total, wired into **every entry point that uses the crypto core**
+  — `api::encode`/`decode`, `stream::encrypt`/`decrypt_stream` and both keypair
+  generators. The first call costs ~9 ms (median over 200 runs); every call after
+  it costs **8.7 ns**, which is nothing next to the Argon2id the same function is
+  about to run at 64 MiB.
+
+  **The failure path is treated as a feature, not an afterthought.** A failing
+  self-test is almost never the caller's fault — it means a build compiled for a
+  different CPU, a corrupted or substituted library file, or failing hardware. So
+  the message says that in plain language, states what did *not* happen ("nothing
+  was encrypted, decrypted or saved; your files are intact"), lists probable
+  causes in order, and gives a reporting path. A technical dump would leave a
+  person unsure whether their data was at risk.
+
+  It is also **exercised rather than assumed**: a non-default `selftest-fault`
+  feature forces a check to fail so the whole error path runs in CI, and each
+  check is proven to *discriminate* — flip a bit of the expected vector and it
+  must reject it. A check that always returned `true` would pass a conventional
+  self-test suite exactly like a correct one.
+
+  Backed by `examples/selftest_soak.rs`: 200 sequential passes + 100 concurrent
+  threads + 1000 repeated calls = **1300 simulated operations**, wired into CI.
 
 ### Planned
 - Independent security audit and public remediation of findings.
