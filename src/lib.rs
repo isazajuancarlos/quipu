@@ -35,6 +35,7 @@ pub mod pqhybrid;
 pub mod pqsign;
 pub mod prelayers;
 pub mod render;
+pub mod selftest;
 #[cfg(feature = "escrow")]
 pub mod shamir;
 pub mod stream;

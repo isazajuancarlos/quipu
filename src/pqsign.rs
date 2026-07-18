@@ -72,7 +72,22 @@ pub struct SigningKey {
 }
 
 /// Genera un par de claves de firma híbrido.
+///
+/// Dispara la autoprueba de arranque una vez por proceso: ninguna clave debe
+/// nacer de un módulo roto. Se engancha aquí, y no en el camino caliente,
+/// porque generar claves ya es caro y raro — 12 ms una sola vez no se notan.
 pub fn generate_keypair() -> (VerifyingKey, SigningKey) {
+    crate::selftest::ensure();
+    generate_keypair_unchecked()
+}
+
+/// Igual que [`generate_keypair`] pero **sin** disparar la autoprueba.
+///
+/// Existe solo para que `selftest` pueda generar claves DENTRO de la propia
+/// autoprueba: `Once::call_once` no es reentrante, así que llamar a la versión
+/// pública desde ahí bloquearía la hebra para siempre esperando una
+/// inicialización que ella misma está haciendo.
+pub(crate) fn generate_keypair_unchecked() -> (VerifyingKey, SigningKey) {
     let mut ed_seed = [0u8; ED25519_SEED_LEN];
     let mut ml_seed = [0u8; MLDSA_SEED_LEN];
     getrandom::getrandom(&mut ed_seed).expect("RNG del sistema");
