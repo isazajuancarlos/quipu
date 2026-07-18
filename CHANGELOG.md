@@ -10,13 +10,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Documented side-channel posture (`docs/SPEC.md` §15)** and **dudect coverage
   of the post-quantum path**. Two findings worth stating plainly:
 
-  **XChaCha20-Poly1305 has no lookup tables.** It is an ARX construction, so no
-  memory access depends on secret data and it is constant-time by construction on
-  every platform. This is where Quipu's symmetric choice *exceeds* what
-  government procurement asks: CNSA 2.0 mandates AES-256, and AES in software
-  without AES-NI uses S-box tables indexed by secret bytes — the classic
-  cache-timing channel, a practical and published attack. The deliberate
-  divergence from CNSA on the symmetric side is therefore not a gap.
+  **XChaCha20-Poly1305 is constant-time without a hardware dependency.** It is an
+  ARX construction with no lookup tables, so the guarantee holds *unconditionally*
+  — every architecture, with or without cryptographic hardware. AES has the same
+  property only where the hardware provides it; without AES instructions it falls
+  back to S-box tables indexed by secret bytes, the classic cache-timing channel.
+  On a modern server with AES-NI the two are equivalent; below that line they are
+  not, and **the fallback is silent** — no warning, no test, no API change. In an
+  air-gapped on-premise deployment the hardware belongs to the client and is often
+  unknown to the vendor, so a property that must be verified per machine is not one
+  a specification can promise. §15.2 states this as a table across targets rather
+  than as a blanket claim: a CNSA-conformant profile would be a compliance
+  decision, and on hardware without AES acceleration a regression on this axis.
 
   **KyberSlash does not apply.** The attack recovered Kyber keys in minutes by
   exploiting a secret-dependent division; verified in the vendored source that

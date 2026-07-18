@@ -468,27 +468,50 @@ The conclusion is the one already stated in `THREAT_MODEL` §9 — a trained mod
 The defence is therefore absence of leakage by construction, not obfuscation of
 it.
 
-### 15.2 Symmetric core: no tables, by design
+### 15.2 Symmetric core: constant-time without a hardware dependency
 
 **XChaCha20-Poly1305 is an ARX construction** — additions, rotations and XORs
-only. It has **no lookup tables**, so no memory access depends on secret data,
-and it is constant-time by construction on every platform.
+only. It has **no lookup tables**, so no memory access depends on secret data.
+The property that matters is not that it is fast, but that it holds
+**unconditionally**: on every architecture, with or without cryptographic
+hardware, in every build configuration.
 
-This is worth stating plainly because it is where Quipu's symmetric choice
-**exceeds** what government procurement asks for. CNSA 2.0 mandates AES-256. In
-software without AES-NI hardware support, AES is implemented with S-box lookup
+AES has the same property **only where the hardware provides it**. Where AES
+instructions are absent, a software implementation falls back to S-box lookup
 tables indexed by secret-dependent bytes — the classic cache-timing side channel,
-which is a practical and published attack, not a theoretical one.
+a practical and published attack rather than a theoretical one.
 
-So the deliberate divergence from CNSA 2.0 on the symmetric side is not a gap:
-on this axis Quipu is **more** side-channel resistant than the algorithm the
-standard names. A CNSA-conformant profile remains possible (§15.5), but it would
-be a compliance decision, not a security improvement.
+| Target | AES-256 | XChaCha20-Poly1305 |
+|---|---|---|
+| x86-64 with AES-NI | constant-time (hardware) | constant-time |
+| x86-64 without AES-NI (pre-2010, some VMs/hypervisors) | **table-based** | constant-time |
+| ARMv8 with crypto extensions | constant-time (hardware) | constant-time |
+| ARMv7, ARMv8 without extensions, low-cost SBCs | **table-based** | constant-time |
+| RISC-V without the scalar-crypto extension | **table-based** | constant-time |
+| WebAssembly, portable/`no_std` builds | **table-based** | constant-time |
+
+So the honest claim is narrower and stronger than "more resistant than AES". It
+is this: **the guarantee does not depend on the machine the operator happens to
+own.** On a modern server with AES-NI the two are equivalent on this axis; below
+that line they are not, and the difference is silent.
+
+That silence is the point. A build that falls back to table-based AES emits no
+warning, appears in no test, and changes no API. The operator would have to know
+to check — and in an air-gapped on-premise deployment nobody is checking, because
+the hardware belongs to the client, is chosen by the client, and is frequently
+not even known to the vendor. **A property that must be verified per machine is
+not a property a specification can promise.** One that holds unconditionally is.
+
+That is why the divergence from CNSA 2.0 on the symmetric side is deliberate and
+not a gap. A CNSA-conformant profile remains possible (§15.5), but it would be a
+compliance decision, and on hardware without AES acceleration it would be a
+**regression** on this axis, not an improvement.
 
 The same reasoning covers the KDF. HKDF-SHA256 rather than SHA-384/512 is a
 divergence in the *named algorithm*, not in the security level: HKDF's security
 as a PRF does not rest on the collision resistance that separates SHA-256 from
-SHA-384.
+SHA-384. SHA-2 is table-free in every implementation, so it carries no equivalent
+hardware dependency.
 
 ### 15.3 Post-quantum: KyberSlash does not apply
 
