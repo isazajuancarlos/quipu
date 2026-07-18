@@ -90,3 +90,13 @@ required-features = ["lab"]
 [[example]]
 name = "gen_vectors"
 required-features = ["honey"]
+
+# --- Endurecimiento del binario / ruedas (Capa 5) ---
+# overflow-checks: mantiene la comprobación de overflow de enteros EN RELEASE
+#   — defensa en profundidad para una lib que parsea entrada no confiable
+#   (longitudes/índices); evita wraparound silencioso. Coste de perf mínimo.
+# strip: quita símbolos de ruedas/binarios (menos info para un atacante, menor
+#   tamaño). NO se usa panic="abort": el Security Lab usa catch_unwind (honey_fuzz).
+[profile.release]
+overflow-checks = true
+strip = "symbols"

@@ -357,7 +357,11 @@ pub unsafe extern "C" fn quipu_generate_keypair(
         let (public, secret) = pqhybrid::generate_keypair();
         unsafe {
             write_bytes(public.to_bytes(), pk, pk_len);
-            write_bytes(secret.to_bytes(), sk, sk_len);
+            // to_bytes() ahora devuelve Zeroizing<Vec<u8>> (higiene, capa 2);
+            // write_bytes toma posesión de un Vec, así que .to_vec() — igual que
+            // en los casos de pqsign (líneas de vk/state). El secreto se entrega
+            // al llamador C a propósito; su custodia/liberación es del lado C (N7).
+            write_bytes(secret.to_bytes().to_vec(), sk, sk_len);
         }
         QUIPU_OK as i32
     })
