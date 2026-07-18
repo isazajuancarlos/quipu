@@ -1,8 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 
-//! Autopruebas de arranque: vectores de respuesta conocida sobre el binario que
-//! realmente se está ejecutando.
+//! Autopruebas de arranque: verificación de que **esta máquina** ejecuta
+//! correctamente las primitivas, sobre el binario que realmente corre.
+//!
+//! El encuadre importa y es fácil de equivocar: una autoprueba fallida **no es
+//! Quipu fallando**. El código que la ejecuta es exactamente el mismo que superó
+//! la batería antes de publicarse; si HKDF ahora da mal el vector 1 del RFC
+//! 5869, lo que cambió no es el código sino el compilador, el procesador, la
+//! biblioteca enlazada o la memoria. Estas pruebas **no introducen modos de
+//! fallo: hacen visibles los que ya existían**. Sin ellas, esa misma máquina
+//! produce contenedores silenciosamente incorrectos y nadie se entera hasta que
+//! alguien no puede descifrar un documento dos años después.
 //!
 //! ## Por qué existe
 //!
@@ -417,9 +426,14 @@ pub fn explicar_fallo(informe: &Report) -> String {
         "\n\
          Quipu se detuvo y no realizó la operación.\n\
          \n\
-         Las comprobaciones internas de la librería no dieron el resultado\n\
-         esperado, así que se negó a operar en lugar de producir un resultado en\n\
-         el que no se puede confiar.\n\
+         Antes de tocar tus datos, Quipu comprueba que ESTA MÁQUINA ejecuta\n\
+         correctamente las operaciones criptográficas. La comprobación no pasó,\n\
+         así que se detuvo en lugar de producir un resultado en el que no se\n\
+         puede confiar.\n\
+         \n\
+         El código de Quipu es el mismo que superó su batería de pruebas antes\n\
+         de publicarse. Lo que no está dando el resultado correcto es el entorno\n\
+         donde se está ejecutando.\n\
          \n\
          ESTO NO ES UN PROBLEMA DE TUS DATOS NI DE TU CONTRASEÑA.\n\
          No se cifró, descifró ni guardó nada. Tus archivos están intactos.\n\
@@ -590,6 +604,11 @@ mod tests {
         };
         let m = explicar_fallo(&malo);
 
+        // El encuadre: es el entorno el que no pasa, no la librería. Sin esto
+        // el mensaje se lee como "nuestro software puede estar mal", que en una
+        // licitación es exactamente lo que no debe leerse.
+        assert!(m.contains("ESTA MÁQUINA"), "{m}");
+        assert!(m.contains("es el entorno"), "{m}");
         // Dice qué NO pasó, que es lo que quita el miedo.
         assert!(m.contains("NO ES UN PROBLEMA DE TUS DATOS"), "{m}");
         assert!(m.contains("Tus archivos están intactos"), "{m}");
