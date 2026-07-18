@@ -43,10 +43,12 @@ datos → KDF(passphrase+pepper) → AEAD → contenedor → codec base-N → di
 | Streaming (archivos grandes) | `api::encrypt_stream` / `decrypt_stream` | Cifrado por chunks (memoria acotada) para datos en reposo grandes; resistente a truncación/reordenamiento/splice. Contenedor `QST1` |
 | Señuelos / Honey (feature `honey`) | `honey::encrypt_pin` / `decrypt_pin` (y genérico `encrypt`/`decrypt`) | **Honey Encryption** para secretos de baja entropía (PIN, frase mnemónica): cualquier passphrase equivocada descifra a **otro secreto plausible**, no a un error → sin oráculo de fuerza bruta. Opt-in. **Sin autenticación por diseño** (un tag sería un oráculo); no sustituye al núcleo AEAD, solo para secuencias uniformes |
 
-## Custodia de claves (k-de-n)
+## Custodia de claves (k-de-n, feature `escrow`)
 
 `quipu::shamir` reparte un secreto en `n` comparticiones de las que **k**
-cualesquiera lo reconstruyen y **k-1 no revelan nada**. Sirve para respaldar la
+cualesquiera lo reconstruyen y **k-1 no revelan nada**. Va **tras un feature
+gate opt-in**: es una herramienta de escrow, no del núcleo de cifrado, y quien
+no la necesite no la lleva compilada. Sirve para respaldar la
 clave del servidor OPRF, custodiar la clave de firma de un integrador o montar
 un escrow contractual — **sin red y sin HSM**, que es la condición de un
 despliegue air-gapped.
@@ -57,10 +59,10 @@ let clave = quipu::shamir::combine(&comparticiones[..3])?;
 ```
 
 Cada compartición lleva un verificador, así que una corrupta o de otro reparto
-**se detecta** en vez de devolver basura. Es para material de clave de **alta
-entropía**: el verificador permitiría comprobar conjeturas de un secreto
-adivinable (para eso está `honey`). No es firma umbral — el secreto se
-reconstruye en memoria para usarlo.
+**se detecta** en vez de devolver basura. Ese verificador permitiría comprobar
+conjeturas de un secreto adivinable, así que el módulo **rechaza secretos de
+menos de 16 bytes**: es para material de clave, y para lo adivinable está
+`honey`. No es firma umbral — el secreto se reconstruye en memoria para usarlo.
 
 ## Diccionarios (simbología enchufable)
 

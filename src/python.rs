@@ -23,7 +23,9 @@ use crate::stream::{
     decrypt_stream_bytes as core_decrypt_stream, encrypt_stream as core_encrypt_stream,
     StreamOptions,
 };
-use crate::{pqhybrid, pqsign, shamir};
+use crate::{pqhybrid, pqsign};
+#[cfg(feature = "escrow")]
+use crate::shamir;
 
 /// Diccionario por defecto: 94 símbolos ASCII imprimibles.
 fn default_dict() -> Dictionary {
@@ -199,6 +201,7 @@ fn select_separable(fingerprints: Vec<Vec<u8>>, k: usize) -> Vec<usize> {
 /// Devuelve una lista de `bytes`, cada una una compartición serializada que
 /// debe custodiarse por separado. Para material de clave de ALTA entropía; no
 /// repartas contraseñas con esto (ver `quipu::shamir`).
+#[cfg(feature = "escrow")]
 #[pyfunction]
 #[pyo3(name = "split_secret")]
 fn split_secret(py: Python<'_>, secret: &[u8], threshold: u8, shares: u8) -> PyResult<Vec<Py<PyBytes>>> {
@@ -214,6 +217,7 @@ fn split_secret(py: Python<'_>, secret: &[u8], threshold: u8, shares: u8) -> PyR
 ///
 /// Lanza `ValueError` si faltan comparticiones, si no son del mismo reparto o
 /// si alguna está corrupta.
+#[cfg(feature = "escrow")]
 #[pyfunction]
 #[pyo3(name = "combine_secret")]
 fn combine_secret(py: Python<'_>, shares: Vec<Vec<u8>>) -> PyResult<Py<PyBytes>> {
@@ -254,7 +258,9 @@ fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decrypt_stream, m)?)?;
     m.add_function(wrap_pyfunction!(glyph_min_distance, m)?)?;
     m.add_function(wrap_pyfunction!(select_separable, m)?)?;
+    #[cfg(feature = "escrow")]
     m.add_function(wrap_pyfunction!(split_secret, m)?)?;
+    #[cfg(feature = "escrow")]
     m.add_function(wrap_pyfunction!(combine_secret, m)?)?;
     Ok(())
 }

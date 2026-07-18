@@ -35,6 +35,7 @@ pub mod pqhybrid;
 pub mod pqsign;
 pub mod prelayers;
 pub mod render;
+#[cfg(feature = "escrow")]
 pub mod shamir;
 pub mod stream;
 // VOPRF vive ahora en su propio crate (Apache-2.0) para que los clientes del

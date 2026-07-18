@@ -8,6 +8,14 @@
 //! computacional: con k-1 comparticiones todos los secretos del mismo tamaño
 //! siguen siendo igual de probables).
 //!
+//! ## Aislado tras `escrow`, a propósito
+//!
+//! El módulo va tras un feature gate no-default. No es que sea peligroso: es que
+//! una herramienta debe estar **contenida a su único fin**. Quien cifra datos no
+//! necesita repartir claves, y código que no se compila no expone API, no se
+//! puede invocar por error y no puede interferir con nada. La rueda de PyPI y el
+//! CI lo activan explícitamente porque ahí sí se usa.
+//!
 //! ## Para qué está aquí
 //!
 //! `THREAT_MODEL` §N7 deja la *custodia* de claves fuera de alcance: Quipu
@@ -43,10 +51,14 @@
 //! reparte la clave que se deriva de ellas. Para secretos de baja entropía el
 //! módulo correcto es [`crate::honey`].
 //!
+//! Esa advertencia no se queda en la documentación: `split` **rechaza secretos
+//! de menos de [`MIN_SECRET_LEN`] bytes**, para que un PIN o una contraseña
+//! corta no entren aquí por descuido.
+//!
 //! ```
 //! use quipu::shamir;
 //!
-//! let clave = [7u8; 32];
+//! let clave = [7u8; 32];   // material de clave, no una contraseña
 //! let comparticiones = shamir::split(&clave, 3, 5).unwrap();
 //!
 //! // Tres cualesquiera bastan.
@@ -74,6 +86,16 @@ const HEADER_LEN: usize = 4 + 1 + 1 + SALT_LEN + CHECK_LEN + 4;
 /// Umbral mínimo con sentido: con k=1 no hay secreto que repartir.
 const MIN_THRESHOLD: u8 = 2;
 
+/// Longitud mínima del secreto, en bytes: el tamaño de una clave de 128 bits.
+///
+/// No es una restricción criptográfica —el esquema funciona con un solo byte—,
+/// es una **contención**. El verificador de cada compartición permite comprobar
+/// conjeturas del secreto (ver la advertencia del encabezado), lo que es
+/// irrelevante para material de clave y peligroso para algo adivinable. Este
+/// piso hace que un PIN o una contraseña corta no entren aquí por descuido:
+/// para eso está `crate::honey`, que es la herramienta correcta.
+pub const MIN_SECRET_LEN: usize = 16;
+
 /// Errores de la compartición de secretos.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShamirError {
@@ -81,6 +103,15 @@ pub enum ShamirError {
     BadParameters,
     /// El secreto está vacío.
     EmptySecret,
+    /// El secreto es más corto que [`MIN_SECRET_LEN`]. Este módulo es para
+    /// material de clave; un secreto corto es probablemente adivinable, y para
+    /// esos está `honey`.
+    SecretTooShort {
+        /// Longitud mínima admitida.
+        min: usize,
+        /// Longitud recibida.
+        got: usize,
+    },
     /// Se aportaron menos comparticiones que el umbral.
     NotEnoughShares {
         /// Comparticiones necesarias.
@@ -103,6 +134,11 @@ impl core::fmt::Display for ShamirError {
         match self {
             Self::BadParameters => write!(f, "parámetros de reparto inválidos"),
             Self::EmptySecret => write!(f, "el secreto está vacío"),
+            Self::SecretTooShort { min, got } => write!(
+                f,
+                "el secreto mide {got} bytes y el mínimo es {min}: este módulo es \
+                 para material de clave, no para secretos adivinables"
+            ),
             Self::NotEnoughShares { needed, got } => {
                 write!(f, "hacen falta {needed} comparticiones, se aportaron {got}")
             }
@@ -266,6 +302,12 @@ fn verificador(secret: &[u8], salt: &[u8; SALT_LEN]) -> [u8; CHECK_LEN] {
 pub fn split(secret: &[u8], threshold: u8, shares: u8) -> Result<Vec<Share>, ShamirError> {
     if secret.is_empty() {
         return Err(ShamirError::EmptySecret);
+    }
+    if secret.len() < MIN_SECRET_LEN {
+        return Err(ShamirError::SecretTooShort {
+            min: MIN_SECRET_LEN,
+            got: secret.len(),
+        });
     }
     if threshold < MIN_THRESHOLD || shares < threshold {
         return Err(ShamirError::BadParameters);
@@ -448,7 +490,7 @@ mod tests {
 
     #[test]
     fn menos_del_umbral_no_reconstruye() {
-        let comparticiones = split(b"secreto", 3, 5).unwrap();
+        let comparticiones = split(b"clave de sesion 0001", 3, 5).unwrap();
         let sub = [comparticiones[0].clone(), comparticiones[1].clone()];
         assert_eq!(
             combine(&sub),
@@ -477,29 +519,51 @@ mod tests {
 
     #[test]
     fn no_se_pueden_mezclar_repartos_distintos() {
-        let a = split(b"secreto A", 2, 3).unwrap();
-        let b = split(b"secreto B", 2, 3).unwrap();
+        let a = split(b"clave de sesion AAAA", 2, 3).unwrap();
+        let b = split(b"clave de sesion BBBB", 2, 3).unwrap();
         let sub = [a[0].clone(), b[1].clone()];
         assert_eq!(combine(&sub), Err(ShamirError::Inconsistent));
     }
 
     #[test]
     fn indices_repetidos_se_rechazan() {
-        let comparticiones = split(b"secreto", 2, 3).unwrap();
+        let comparticiones = split(b"clave de sesion 0001", 2, 3).unwrap();
         let sub = [comparticiones[0].clone(), comparticiones[0].clone()];
         assert_eq!(combine(&sub), Err(ShamirError::Inconsistent));
     }
 
     #[test]
     fn parametros_invalidos() {
-        assert_eq!(split(b"x", 1, 5), Err(ShamirError::BadParameters));
-        assert_eq!(split(b"x", 4, 3), Err(ShamirError::BadParameters));
+        let s = [0x11u8; 32];
+        assert_eq!(split(&s, 1, 5), Err(ShamirError::BadParameters));
+        assert_eq!(split(&s, 4, 3), Err(ShamirError::BadParameters));
         assert_eq!(split(b"", 2, 3), Err(ShamirError::EmptySecret));
     }
 
     #[test]
+    fn un_secreto_corto_se_rechaza() {
+        // Contención del pie de banco: un PIN o una contraseña corta no entran
+        // aquí por descuido. El verificador de las comparticiones permitiría
+        // comprobar conjeturas, y para secretos adivinables la herramienta
+        // correcta es `honey`, no esta.
+        for corto in [&b"1234"[..], b"contrasena", &[0u8; MIN_SECRET_LEN - 1]] {
+            assert_eq!(
+                split(corto, 2, 3),
+                Err(ShamirError::SecretTooShort {
+                    min: MIN_SECRET_LEN,
+                    got: corto.len()
+                }),
+                "deberia rechazar {} bytes",
+                corto.len()
+            );
+        }
+        // Justo en el piso, se acepta.
+        assert!(split(&[0u8; MIN_SECRET_LEN], 2, 3).is_ok());
+    }
+
+    #[test]
     fn n_maximo_de_255_comparticiones() {
-        let secreto = b"limite superior";
+        let secreto = b"limite superior de comparticiones";
         let comparticiones = split(secreto, 2, 255).unwrap();
         assert_eq!(comparticiones.len(), 255);
         assert_eq!(comparticiones[254].index(), 255);
@@ -509,7 +573,7 @@ mod tests {
 
     #[test]
     fn el_umbral_puede_ser_igual_a_n() {
-        let secreto = b"todos o ninguno";
+        let secreto = b"todos o ninguno, sin excepcion";
         let comparticiones = split(secreto, 4, 4).unwrap();
         assert_eq!(&combine(&comparticiones).unwrap()[..], &secreto[..]);
         let sub = [
@@ -541,7 +605,7 @@ mod tests {
         assert_eq!(Share::from_bytes(&[]), Err(ShamirError::Malformed));
         assert_eq!(Share::from_bytes(b"XXXX"), Err(ShamirError::Malformed));
 
-        let comparticiones = split(b"secreto", 2, 3).unwrap();
+        let comparticiones = split(b"clave de sesion 0001", 2, 3).unwrap();
         let buenos = comparticiones[0].to_bytes();
 
         // Magic alterado.
@@ -581,8 +645,8 @@ mod tests {
     fn comparticiones_distintas_para_el_mismo_secreto() {
         // Dos repartos del mismo secreto no deben coincidir: la sal y los
         // coeficientes son aleatorios. Si coincidieran, habría un RNG muerto.
-        let a = split(b"mismo secreto", 2, 3).unwrap();
-        let b = split(b"mismo secreto", 2, 3).unwrap();
+        let a = split(b"mismo secreto repetido dos veces", 2, 3).unwrap();
+        let b = split(b"mismo secreto repetido dos veces", 2, 3).unwrap();
         assert_ne!(a[0].y, b[0].y);
         assert_ne!(a[0].salt, b[0].salt);
     }
