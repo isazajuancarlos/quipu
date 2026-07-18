@@ -35,8 +35,12 @@ jobs:
         run: cargo clippy --features slh --all-targets --release -- -D warnings
       - name: Tests (honey feature — decoy encryption)
         run: cargo test --features honey --all-targets
+      - name: Test (escrow)
+        run: cargo test --features escrow --all-targets
       - name: Clippy (honey feature, deny warnings)
         run: cargo clippy --features honey --all-targets -- -D warnings
+      - name: Clippy (escrow)
+        run: cargo clippy --features escrow --all-targets -- -D warnings
 
   audit:
     name: cargo-audit (RustSec)

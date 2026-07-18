@@ -43,6 +43,38 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "The leak is too small to matter" is no longer a defensible position, which is
   precisely why the defence here is absence of leakage by construction rather
   than obfuscation of it.
+- **Shamir secret sharing (`quipu::shamir`, opt-in feature `escrow`)** — split a
+  secret into `n` shares of which any `k` reconstruct it, over GF(2^8) with
+  constant-time field arithmetic (no lookup tables, which would leak through the
+  cache). Exposed to Python as `split_secret` / `combine_secret`; the PyPI wheel
+  and CI enable the feature explicitly.
+
+  It sits behind a non-default gate on principle, not out of caution: a tool
+  should be **contained to its single purpose**. Whoever encrypts data does not
+  need to split keys, and code that is not compiled exposes no API, cannot be
+  invoked by mistake and cannot interfere with anything else.
+
+  This closes residual risk **R2** of the threat model, whose documented
+  mitigation was "offline backup": splitting the OPRF server key into k-of-n
+  shares held separately *is* that backup, done with discipline. It equally
+  covers custody of an integrator's ML-DSA signing key and contractual escrow,
+  and it needs neither network nor HSM — the condition of air-gapped
+  deployments.
+
+  Each share carries a salted 8-byte verifier, so a corrupted share or one from
+  a different split is **detected** instead of silently reconstructing garbage.
+  That verifier lets a holder of one share test a guess of the secret, so this
+  is for **high-entropy key material**. The warning is enforced, not just
+  documented: `split` **rejects any secret shorter than the smallest key material
+  the architecture itself produces** (`kdf::KEY_LEN`, 32 bytes — the content key,
+  the AEAD key and the KDF master key are all that size). The floor is not a
+  round number picked by convention; it is tied to the constant, so if the
+  architecture changes its sizes the floor follows. A PIN or a short password
+  cannot end up here by accident — for those the right module is
+  `honey`. Not threshold signing: the secret is reassembled in memory to be used.
+
+  Cross-validated against an independent implementation using a different
+  approach (log/antilog tables), and against the AES field's known vectors.
 
 ### Planned
 - Independent security audit and public remediation of findings.

@@ -31,5 +31,5 @@ Repository = "https://github.com/isazajuancarlos/quipu"
 # Compila con la feature `python` (activa PyO3). El módulo importable es `quipu`
 # aunque la distribución se llame quipu-crypto. abi3-py39 (en Cargo.toml) produce
 # una sola rueda compatible con CPython 3.9+.
-features = ["python"]
+features = ["python", "escrow"]
 module-name = "quipu"

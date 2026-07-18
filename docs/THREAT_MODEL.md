@@ -112,7 +112,10 @@ the operation, a local physical side channel, or control of the binary/OS.
 - **N5.** Availability of the online mode if the OPRF server is down (see R2).
 - **N6.** Secrecy of the representation/codebook (public by design).
 - **N7.** Key management/rotation and secure storage (operator's responsibility;
-  Quipu provides primitives, not custody).
+  Quipu provides primitives, not custody). `quipu::shamir` is precisely such a
+  primitive — `split`/`combine` and nothing else: there is no keystore, no
+  service, no rotation. Where and how the shares are held stays with the
+  operator.
 
 ## 6. Attack surface (for the auditor)
 
@@ -132,7 +135,9 @@ the operation, a local physical side channel, or control of the binary/OS.
   Argon2id cost + pepper + (optionally) the rate-limited online mode.
 - **R2. The OPRF server is a single point:** its downtime blocks online decryption;
   losing its key makes secrets unrecoverable. Offline backup + planned rotation +
-  high availability.
+  high availability. The offline backup now has a primitive in the library:
+  `quipu::shamir` splits the key into k-of-n shares held separately, so no single
+  custodian can recover it and no single loss destroys it.
 - **R3. Zeroization in Rust is best-effort:** copies moved by the optimizer or
   spilled to swap may persist. `zeroize` is used on key buffers, but there is no
   absolute guarantee against T6.

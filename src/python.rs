@@ -24,6 +24,8 @@ use crate::stream::{
     StreamOptions,
 };
 use crate::{pqhybrid, pqsign};
+#[cfg(feature = "escrow")]
+use crate::shamir;
 
 /// Diccionario por defecto: 94 símbolos ASCII imprimibles.
 fn default_dict() -> Dictionary {
@@ -194,6 +196,38 @@ fn select_separable(fingerprints: Vec<Vec<u8>>, k: usize) -> Vec<usize> {
     glyphopt::select_separable_subset(&fingerprints, k)
 }
 
+/// Parte `secret` en `shares` comparticiones, de las que `threshold` bastan.
+///
+/// Devuelve una lista de `bytes`, cada una una compartición serializada que
+/// debe custodiarse por separado. Para material de clave de ALTA entropía; no
+/// repartas contraseñas con esto (ver `quipu::shamir`).
+#[cfg(feature = "escrow")]
+#[pyfunction]
+#[pyo3(name = "split_secret")]
+fn split_secret(py: Python<'_>, secret: &[u8], threshold: u8, shares: u8) -> PyResult<Vec<Py<PyBytes>>> {
+    let partes = shamir::split(secret, threshold, shares)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(partes
+        .iter()
+        .map(|s| PyBytes::new(py, &s.to_bytes()).unbind())
+        .collect())
+}
+
+/// Reconstruye un secreto a partir de al menos `threshold` comparticiones.
+///
+/// Lanza `ValueError` si faltan comparticiones, si no son del mismo reparto o
+/// si alguna está corrupta.
+#[cfg(feature = "escrow")]
+#[pyfunction]
+#[pyo3(name = "combine_secret")]
+fn combine_secret(py: Python<'_>, shares: Vec<Vec<u8>>) -> PyResult<Py<PyBytes>> {
+    let partes: Result<Vec<_>, _> = shares.iter().map(|b| shamir::Share::from_bytes(b)).collect();
+    let partes = partes.map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let secreto =
+        shamir::combine(&partes).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyBytes::new(py, &secreto).unbind())
+}
+
 // VOPRF NO se expone aquí, a propósito.
 //
 // Vive en el paquete `quipu-voprf` (PyPI, Apache-2.0). Exponerlo también desde
@@ -224,5 +258,9 @@ fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decrypt_stream, m)?)?;
     m.add_function(wrap_pyfunction!(glyph_min_distance, m)?)?;
     m.add_function(wrap_pyfunction!(select_separable, m)?)?;
+    #[cfg(feature = "escrow")]
+    m.add_function(wrap_pyfunction!(split_secret, m)?)?;
+    #[cfg(feature = "escrow")]
+    m.add_function(wrap_pyfunction!(combine_secret, m)?)?;
     Ok(())
 }

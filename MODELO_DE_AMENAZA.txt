@@ -115,7 +115,10 @@ DURANTE la operación, canal lateral físico local, o control del binario/SO.
  N5. Disponibilidad del modo online si el servidor OPRF cae (ver R2).
  N6. Secreto de la representación/codebook (por diseño es público).
  N7. Gestión/rotación de claves y su almacenamiento seguro (responsabilidad
-     del operador; Quipu provee las primitivas, no el custodio).
+     del operador; Quipu provee las primitivas, no el custodio). `quipu::shamir`
+     es exactamente una de esas primitivas — `split`/`combine` y nada más: no
+     hay almacén, ni servicio, ni rotación. Dónde y cómo se guardan las
+     comparticiones sigue siendo del operador.
 
 --------------------------------------------------------------------------------
  6. SUPERFICIE DE ATAQUE (para el auditor)
@@ -137,7 +140,10 @@ DURANTE la operación, canal lateral físico local, o control del binario/SO.
      coste Argon2id alto + pepper + (opcional) modo online con rate-limit.
  R2. El servidor OPRF es un punto único: su caída bloquea el descifrado online;
      la pérdida de su clave hace irrecuperables los secretos. Backup offline +
-     rotación planificada + alta disponibilidad.
+     rotación planificada + alta disponibilidad. El backup offline ya tiene
+     primitiva en la librería: `quipu::shamir` reparte la clave en k-de-n
+     comparticiones custodiadas por separado, de modo que ningún custodio único
+     la recupera ni una pérdida única la destruye.
  R3. Zeroization en Rust es best-effort: copias movidas por el optimizador o
      spilled a swap pueden persistir. Se usa `zeroize` en los buffers clave,
      pero no hay garantía absoluta frente a T6.
