@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! VOPRF: OPRF VERIFICABLE sobre ristretto255, **conforme a RFC 9497**
 //! (ciphersuite `ristretto255-SHA512`, modo VOPRF).
 //!

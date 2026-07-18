@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Renderer visual: convierte bytes en una imagen PNG y de vuelta (sin pérdida).
 //!
 //! Es un canal de representación alternativo al diccionario textual: el dato

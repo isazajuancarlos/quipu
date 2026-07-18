@@ -2,6 +2,12 @@
 
 Quipu se distribuye bajo un modelo **de licencia dual** (open-core).
 
+> **Titularidad.** Copyright (c) 2024-2026 Juan Carlos Isaza Arenas. Titular
+> único de los derechos patrimoniales; ver [`COPYRIGHT`](COPYRIGHT). Es esa
+> titularidad indivisa la que hace posible la doble licencia — de ahí el CLA de
+> [`CONTRIBUTING.md`](CONTRIBUTING.md). El uso del nombre se rige por
+> [`TRADEMARK.md`](TRADEMARK.md).
+
 ## 0. Qué licencia cubre qué
 
 No todo el repositorio es AGPL. La regla es sencilla: **lo que un cliente del
@@ -54,6 +60,23 @@ Si tu organización quiere:
 - ofrecer un **servicio** basado en Quipu **sin publicar** tu código fuente,
 
 entonces necesitas una licencia comercial. Contacto: **isazajuancarlos@gmail.com**.
+
+Los términos están en [`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL). En resumen: la
+licencia es anual y exime del copyleft de red; al vencer sin renovar, **conservas
+de forma perpetua el derecho a seguir distribuyendo las versiones recibidas**
+durante la vigencia, pero no las posteriores.
+
+**Lo que la licencia comercial NO hace es quitarte derechos.** Es una concesión
+*adicional y paralela* a la AGPL, no una sustitución. Con contrato o sin él
+conservas todo lo que la AGPL-3.0 concede a cualquiera: usar, estudiar,
+modificar, redistribuir, vender, bifurcar e incluso competir. Eso es público e
+irrevocable, y no está en nuestro poder retirarlo.
+
+Lo único que el contrato añade es la **exención del copyleft de red**, y lo único
+que sus límites delimitan es hasta dónde llega esa exención — no qué puedes
+hacer. Si quieres redistribuir Quipu como biblioteca independiente, puedes:
+bajo AGPL, publicando el código fuente correspondiente. Al terminar el contrato
+cesa la exención, no tus derechos.
 
 ## 3. El servicio gestionado (capa de pago)
 

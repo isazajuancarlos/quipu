@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Quipu Security Lab: red-team adaptativo AUTO-HOSPEDADO (Etapa A, núcleo CI).
 //!
 //! Se ataca a sí mismo, aprende de cada corrida y convierte cada brecha en un

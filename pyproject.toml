@@ -13,7 +13,7 @@ readme = "README.md"
 license = { text = "AGPL-3.0-or-later" }
 requires-python = ">=3.9"
 keywords = ["cryptography", "post-quantum", "encoding", "oprf", "aead"]
-authors = [{ name = "isazajuancarlos", email = "isazajuancarlos@gmail.com" }]
+authors = [{ name = "Juan Carlos Isaza Arenas", email = "isazajuancarlos@gmail.com" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Rust",

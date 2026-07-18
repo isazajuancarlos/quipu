@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Contenedor: serializa/parsea la cabecera + el payload cifrado.
 //!
 //! Disposición (68 bytes de cabecera, todo big-endian):

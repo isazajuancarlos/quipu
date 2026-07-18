@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! C ABI (`extern "C"`) bindings for the Quipu core. Stateless, panic-safe,
 //! caller-frees-output. See docs/superpowers/specs/2026-07-05-c-abi-bindings-design.md.
 #![deny(unsafe_op_in_unsafe_fn)]

@@ -21,6 +21,7 @@ categories = ["cryptography"]
 # finalizar, verificar DLEQ). No es el foso: el foso son el servidor, la clave k
 # y la biblioteca post-cuantica completa, que siguen AGPL. Apache y no MIT por la
 # concesion expresa de patentes, que es lo que revisa el legal de una empresa.
+authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
 license = "Apache-2.0"
 
 [lib]

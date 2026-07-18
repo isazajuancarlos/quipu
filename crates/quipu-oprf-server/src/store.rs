@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Almacén de clientes y API keys (SQLite).
 //!
 //! Es la ÚNICA costura entre el plano de datos (este servidor) y el plano de

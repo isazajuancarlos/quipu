@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! CLI del servidor OPRF.
 //!
 //! Administración (camino manual; en producción la pasarela usa /admin vía HTTP):

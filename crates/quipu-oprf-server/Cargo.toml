@@ -6,6 +6,7 @@
 name = "quipu-oprf-server"
 version = "0.1.0"
 edition = "2024"
+authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
 license = "AGPL-3.0-or-later"
 description = "Servidor OPRF/VOPRF autenticado y medido para Quipu."
 repository = "https://github.com/isazajuancarlos/quipu"

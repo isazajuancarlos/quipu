@@ -1,0 +1,74 @@
+QUIPU — DECLARACIÓN DE TITULARIDAD
+================================================================================
+
+Copyright (c) 2024-2026 Juan Carlos Isaza Arenas.
+Todos los derechos reservados. / All rights reserved.
+
+Autor y titular único de los derechos patrimoniales de autor sobre la obra
+denominada QUIPU: Juan Carlos Isaza Arenas, propietario del establecimiento de
+comercio XILIUX (matrícula mercantil 21-833837-02, Cámara de Comercio de
+Medellín para Antioquia), Amagá, Antioquia, Colombia.
+
+Obra protegida por la Ley 23 de 1982, la Ley 1915 de 2018, la Decisión Andina
+351 de 1993 y los tratados internacionales sobre derecho de autor.
+
+--------------------------------------------------------------------------------
+LICENCIAS
+--------------------------------------------------------------------------------
+
+Quipu se distribuye bajo un modelo de LICENCIA DUAL (open-core). No todo el
+repositorio lleva la misma licencia; el detalle y su fundamento están en
+LICENSING.md.
+
+  Componente                              Licencia
+  --------------------------------------  ------------------------------------
+  quipu (núcleo) y sus bindings           AGPL-3.0-or-later   → LICENSE
+  crates/quipu-oprf-server                AGPL-3.0-or-later / comercial
+  crates/quipu-voprf                      Apache-2.0
+  integrations/{django,express,go}        Apache-2.0
+
+Cada archivo fuente declara su licencia mediante un identificador SPDX en la
+primera línea. Ese identificador es la referencia autoritativa por archivo.
+
+  LICENSE             texto completo de la AGPL-3.0
+  LICENSE-COMMERCIAL  términos de la licencia comercial alternativa
+  LICENSING.md        qué licencia cubre qué, y por qué
+  TRADEMARK.md        uso del nombre y la marca «Quipu»
+
+--------------------------------------------------------------------------------
+LICENCIA COMERCIAL
+--------------------------------------------------------------------------------
+
+En su calidad de titular único, Juan Carlos Isaza Arenas ofrece además una
+LICENCIA COMERCIAL que exime del copyleft de red de la AGPL-3.0, destinada a
+organizaciones que integren Quipu en productos propietarios o que ofrezcan
+servicios en red sin publicar su código fuente.
+
+La concesión bajo AGPL-3.0 es permanente e irrevocable para todos. La opción
+comercial no restringe en modo alguno la versión libre: existe únicamente como
+alternativa para quien necesita términos propietarios.
+
+Contacto: isazajuancarlos@gmail.com
+
+--------------------------------------------------------------------------------
+CONTRIBUCIONES DE TERCEROS
+--------------------------------------------------------------------------------
+
+La viabilidad del modelo de licencia dual depende de que la titularidad
+permanezca INDIVISA. Por esa razón, toda contribución externa requiere la firma
+previa del Acuerdo de Licencia de Contribuyente (CLA) descrito en
+CONTRIBUTING.md, mediante el cual el contribuyente concede al titular una
+licencia suficiente para relicenciar su aporte bajo términos comerciales.
+
+Sin ese acuerdo, una contribución aceptada quedaría sujeta exclusivamente a la
+AGPL-3.0 y bloquearía de forma permanente el licenciamiento comercial de la
+porción afectada.
+
+--------------------------------------------------------------------------------
+DEPENDENCIAS DE TERCEROS
+--------------------------------------------------------------------------------
+
+Quipu incorpora bibliotecas de terceros bajo sus propias licencias (MIT,
+Apache-2.0 y equivalentes permisivas), auditadas mediante cargo-vet y
+cargo-audit. Nada de lo dispuesto en este documento restringe los derechos que
+esas licencias conceden sobre sus propios componentes.

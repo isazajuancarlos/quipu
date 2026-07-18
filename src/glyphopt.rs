@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Optimización de alfabetos de glifos por separabilidad (la base algorítmica
 //! de los "glifos por IA").
 //!

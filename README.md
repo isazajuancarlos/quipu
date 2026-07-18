@@ -313,8 +313,13 @@ que un cliente del servicio OPRF enlaza dentro de su propio servidor es permisiv
 | `integrations/django` → [`quipu-oprf-django`](https://pypi.org/project/quipu-oprf-django/) | **`Apache-2.0`** |
 | `crates/quipu-oprf-server` | `AGPL-3.0-or-later` / comercial |
 
-- **Licencia comercial** para producto propietario cerrado o SaaS sin abrir código.
+- **Licencia comercial** para producto propietario cerrado o SaaS sin abrir
+  código — términos en [`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL).
 - El **servidor OPRF** se ofrece además como **servicio gestionado** de pago.
+
+Copyright (c) 2024-2026 Juan Carlos Isaza Arenas — titular único; ver
+[`COPYRIGHT`](COPYRIGHT). El uso del nombre «Quipu» se rige por
+[`TRADEMARK.md`](TRADEMARK.md).
 
 Las primitivas VOPRF viven en un crate **separado** (no solo con otra etiqueta):
 la licencia de un envoltorio no relicencia su dependencia. Detalles y el porqué

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Codificación/decodificación hex, sin dependencias.
 //!
 //! El transporte usa hex por simplicidad y depurabilidad: el punto cegado, la

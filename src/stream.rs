@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Cifrado por STREAMING para datos en reposo grandes (construcción STREAM).
 //!
 //! Procesa un `Read` → `Write` por chunks de tamaño fijo con memoria acotada

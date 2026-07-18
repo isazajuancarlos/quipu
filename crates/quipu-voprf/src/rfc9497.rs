@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! VOPRF conforme a **RFC 9497**, ciphersuite `ristretto255-SHA512`, modo VOPRF.
 //!
 //! Reemplaza la construccion propia anterior (`quipu/v2/voprf`), que estaba

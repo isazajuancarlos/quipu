@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Motor del laboratorio: PRNG determinista + bucle de ataque guiado por brechas.
 
 /// PRNG determinista (SplitMix64). NO es criptográfico: sirve SOLO para hacer los

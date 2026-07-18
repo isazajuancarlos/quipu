@@ -1,0 +1,340 @@
+QUIPU — CONTRATO DE LICENCIA COMERCIAL
+Quipu Commercial License Agreement
+
+BORRADOR v1.0 — 2026-07-18. Pendiente de revisión final por el titular antes de
+su uso con clientes. Los campos entre corchetes se diligencian por negocio.
+
+================================================================================
+POR QUÉ EXISTE ESTE DOCUMENTO
+================================================================================
+
+Quipu es software libre bajo AGPL-3.0-or-later. Cualquiera puede usarlo,
+estudiarlo, modificarlo y redistribuirlo bajo esa licencia, gratuitamente y para
+siempre.
+
+La AGPL impone una condición: quien ofrece a terceros un servicio por red
+construido con Quipu debe publicar el código fuente completo de su versión. Para
+muchas organizaciones esa condición es incompatible con su producto.
+
+Este contrato es la ALTERNATIVA para ellas. No restringe la versión libre: la
+concesión AGPL es permanente y aplica a todos.
+
+================================================================================
+PARTES
+================================================================================
+
+EL LICENCIANTE:
+  Juan Carlos Isaza Arenas, mayor de edad, identificado con cédula de ciudadanía
+  número [_____], obrando en nombre propio y como propietario del establecimiento
+  de comercio XILIUX (matrícula mercantil 21-833837-02, Cámara de Comercio de
+  Medellín para Antioquia), domiciliado en Amagá, Antioquia, Colombia.
+  Titular único de los derechos patrimoniales de autor sobre QUIPU.
+
+EL LICENCIATARIO:
+  [RAZÓN SOCIAL], [tipo societario], identificada con [NIT / registro], con
+  domicilio en [_____], representada por [_____].
+
+
+--------------------------------------------------------------------------------
+1. DEFINICIONES
+--------------------------------------------------------------------------------
+
+1.1. «Software»: la biblioteca QUIPU, en código fuente y objeto, incluyendo sus
+     bindings (Python, Node.js, Go, C ABI) y su documentación.
+
+1.2. «Producto del Licenciatario»: la aplicación o servicio desarrollado por EL
+     LICENCIATARIO que incorpora el Software, identificado en el Anexo A.
+
+1.3. «Versión Licenciada»: toda versión del Software publicada por EL
+     LICENCIANTE durante la vigencia de este contrato.
+
+1.4. «Usuario Final»: quien usa el Producto del Licenciatario sin recibir el
+     Software de forma independiente.
+
+
+--------------------------------------------------------------------------------
+2. CONCESIÓN DE LICENCIA
+--------------------------------------------------------------------------------
+
+2.1. EL LICENCIANTE concede a EL LICENCIATARIO una licencia mundial, no
+     exclusiva e intransferible para:
+
+     a) Incorporar el Software en el Producto del Licenciatario;
+     b) Distribuir el Software EN FORMA DE CÓDIGO OBJETO como parte integrante
+        de dicho Producto;
+     c) Ofrecer el Producto del Licenciatario como servicio en red;
+     d) Modificar el Software para adaptarlo a sus necesidades internas.
+
+2.2. EXENCIÓN DEL COPYLEFT. Respecto del Software licenciado bajo este contrato,
+     EL LICENCIATARIO queda EXIMIDO de las obligaciones de la AGPL-3.0, en
+     particular de las de sus artículos 5, 6 y 13. NO está obligado a publicar
+     el código fuente del Producto del Licenciatario, ni de sus modificaciones
+     al Software, ni a licenciarlos bajo AGPL.
+
+2.3. ALCANCE. La licencia se limita al Producto, al número de despliegues y a
+     las demás condiciones del Anexo A. Todo uso fuera de ese alcance requiere
+     ampliación previa.
+
+2.4. HASTA DÓNDE LLEGA LA EXENCIÓN. La exención del copyleft de la Cláusula 2.2
+     se concede para el Producto del Licenciatario y NO se extiende a:
+
+     a) Redistribuir el Software como biblioteca independiente —en fuente o en
+        objeto— exenta de copyleft;
+     b) Trasladar la exención a terceros, separadamente del Producto;
+     c) Ofrecer, exento de copyleft, un producto cuya funcionalidad principal
+        sea sustancialmente la del Software.
+
+     Cada una de esas actividades es LIBRE bajo la AGPL-3.0 cumpliendo sus
+     condiciones. Lo que esta cláusula delimita es el alcance de la exención,
+     no la libertad de hacerlas.
+
+     Aparte, y por naturaleza distinta: el uso del nombre y la marca «Quipu» se
+     rige por TRADEMARK.md. La AGPL-3.0 concede derechos sobre el CÓDIGO, no
+     sobre el nombre, así que esa sí es una restricción propia y no una
+     delimitación de la exención.
+
+2.5. LOS DERECHOS DE LA AGPL-3.0 PERMANECEN INTACTOS.
+
+     Este contrato es una concesión ADICIONAL Y PARALELA a la licencia pública
+     AGPL-3.0-or-later. No la sustituye, no la suspende y no exige renunciar a
+     ella.
+
+     EL LICENCIATARIO conserva en todo momento, con independencia de este
+     contrato, todos los derechos que la AGPL-3.0 concede a cualquier persona:
+     usar, estudiar, modificar, redistribuir e incluso vender el Software, y
+     también bifurcarlo y competir con EL LICENCIANTE. Esos derechos son
+     públicos e irrevocables y no están en poder del LICENCIANTE quitarlos.
+
+     Lo ÚNICO que este contrato añade es la exención del copyleft de red. En
+     consecuencia, la terminación de este contrato por cualquier causa NO afecta
+     los derechos AGPL-3.0 de EL LICENCIATARIO: solo cesa la exención, y a
+     partir de ahí rigen las condiciones de la licencia pública.
+
+2.6. USUARIOS FINALES. Los Usuarios Finales del Producto reciben el Software
+     únicamente como componente embebido, sin derechos independientes sobre él
+     derivados de ESTE contrato — sin perjuicio, de nuevo, de los que la
+     AGPL-3.0 les conceda por su cuenta.
+
+
+--------------------------------------------------------------------------------
+3. VIGENCIA Y EFECTOS DE LA TERMINACIÓN
+--------------------------------------------------------------------------------
+
+3.1. El contrato tiene vigencia de UN (1) AÑO, renovable por períodos iguales.
+
+3.2. DERECHO PERPETUO SOBRE LO RECIBIDO. Terminada la vigencia sin renovación,
+     EL LICENCIATARIO CONSERVA DE MANERA PERPETUA, respecto de las versiones del
+     Software recibidas durante la vigencia y del Producto ya licenciado, el
+     derecho a:
+
+     a) USAR Y OPERAR el Software dentro del Producto, sin límite de tiempo;
+     b) MANTENER EN FUNCIONAMIENTO el Producto ofrecido como servicio en red;
+     c) DISTRIBUIR el Producto que lo incorpora, en los términos de la
+        Cláusula 2.
+
+     El orden importa: lo que no puede cesar al vencer el contrato es la
+     OPERACIÓN. Un sistema que deja de funcionar porque no se renovó una licencia
+     es exactamente el modo de fallo que este contrato existe para excluir.
+
+     NO tendrá derecho a versiones publicadas con posterioridad, ni a soporte, ni
+     a las actualizaciones de la Cláusula 5.
+
+3.3. Este derecho perpetuo decae únicamente si EL LICENCIATARIO distribuye el
+     Software EXENTO DE COPYLEFT fuera del alcance de la Cláusula 2.4, o
+     incumple gravemente la Cláusula 8.
+
+     Se precisa, para evitar lecturas erróneas: actuar fuera del alcance de la
+     exención no es "incumplir una prohibición" — la Cláusula 2.4 delimita hasta
+     dónde llega la exención, no restringe libertades. Lo que sí constituye
+     infracción es ampararse en una exención que no cubre ese acto.
+
+3.4. EN TODO CASO, Y CON INDEPENDENCIA DE LO ANTERIOR, EL LICENCIATARIO conserva
+     los derechos que la AGPL-3.0 concede a cualquier persona (Cláusula 2.5).
+     Terminada la vigencia cesa la exención del copyleft, no el derecho a usar
+     el Software: a partir de ahí rigen las condiciones de la licencia pública,
+     que incluyen publicar el código fuente correspondiente.
+
+
+--------------------------------------------------------------------------------
+4. CONTRAPRESTACIÓN
+--------------------------------------------------------------------------------
+
+4.1. EL LICENCIATARIO pagará la cuota anual señalada en el Anexo B, pagadera por
+     anualidades anticipadas dentro de los treinta (30) días siguientes a la
+     factura.
+
+4.2. Los valores no incluyen tributos, que asumirá EL LICENCIATARIO conforme a
+     la ley aplicable, incluidas las retenciones que procedan.
+
+4.3. La mora causará intereses a la máxima tasa legalmente permitida.
+
+
+--------------------------------------------------------------------------------
+5. SOPORTE Y ACTUALIZACIONES
+--------------------------------------------------------------------------------
+
+5.1. Durante la vigencia, EL LICENCIATARIO tiene derecho a todas las versiones
+     nuevas del Software y al nivel de soporte del Anexo A.
+
+5.2. EL LICENCIANTE notificará las vulnerabilidades de seguridad conforme a
+     SECURITY.md, con antelación razonable a su divulgación pública cuando sea
+     posible.
+
+5.3. El soporte no comprende desarrollos a la medida, integración en el Producto
+     ni auditoría del código de EL LICENCIATARIO.
+
+
+--------------------------------------------------------------------------------
+6. PROPIEDAD INTELECTUAL
+--------------------------------------------------------------------------------
+
+6.1. EL LICENCIANTE conserva la totalidad de los derechos sobre el Software.
+     Este contrato concede un derecho de uso, no transfiere la propiedad.
+
+6.2. Las modificaciones que EL LICENCIATARIO realice sobre el Software le
+     pertenecen, sin perjuicio de los derechos del LICENCIANTE sobre la obra
+     originaria. EL LICENCIATARIO no está obligado a divulgarlas ni a cederlas.
+
+6.3. Si EL LICENCIATARIO opta por aportar mejoras al proyecto abierto, lo hará
+     conforme a CONTRIBUTING.md y al CLA allí previsto.
+
+
+--------------------------------------------------------------------------------
+7. GARANTÍAS Y RESPONSABILIDAD
+--------------------------------------------------------------------------------
+
+7.1. EL LICENCIANTE garantiza ser titular de los derechos que licencia y estar
+     facultado para celebrar este contrato.
+
+7.2. GARANTÍA LIMITADA. El Software se entrega «TAL COMO ESTÁ». EL LICENCIANTE
+     no garantiza que esté libre de errores ni que sea apto para un propósito
+     particular.
+
+7.3. ADVERTENCIA CRIPTOGRÁFICA. El Software implementa primitivas
+     criptográficas normalizadas (FIPS-203, FIPS-204, RFC 8439, RFC 9106, RFC
+     9497). La seguridad de un sistema depende de su diseño íntegro, de la
+     gestión de claves y del entorno de ejecución, no solo de la biblioteca. EL
+     LICENCIATARIO es responsable de la corrección de su propia integración y de
+     la custodia de sus claves. El modelo de amenaza y sus límites explícitos
+     están en MODELO_DE_AMENAZA.txt / docs/THREAT_MODEL.md, que EL LICENCIATARIO
+     declara conocer.
+
+7.4. INDEMNIDAD POR PROPIEDAD INTELECTUAL. EL LICENCIANTE asumirá la defensa de
+     EL LICENCIATARIO frente a reclamaciones de terceros que aleguen que el
+     Software infringe sus derechos de propiedad intelectual, siempre que se le
+     notifique oportunamente y se le permita dirigir la defensa.
+
+7.5. LÍMITE. La responsabilidad total de EL LICENCIANTE no excederá el valor
+     efectivamente pagado por EL LICENCIATARIO durante los doce (12) meses
+     anteriores al hecho que la origine.
+
+7.6. SALVEDAD IMPERATIVA. Las limitaciones de esta cláusula NO aplican en caso
+     de dolo o culpa grave de EL LICENCIANTE, ni respecto de la indemnidad de la
+     Cláusula 7.4, conforme a los artículos 63 y 1522 del Código Civil
+     colombiano.
+
+
+--------------------------------------------------------------------------------
+8. CONFIDENCIALIDAD Y VERIFICACIÓN
+--------------------------------------------------------------------------------
+
+8.1. LAS PARTES guardarán reserva sobre la información confidencial a la que
+     accedan, durante la vigencia y cinco (5) años después.
+
+8.2. El código fuente de Quipu es público; no constituye información
+     confidencial. Sí lo son las condiciones económicas de este contrato.
+
+8.3. EL LICENCIANTE podrá solicitar, una vez al año y con quince (15) días de
+     anticipación, una certificación suscrita por el representante legal de EL
+     LICENCIATARIO sobre el alcance de uso declarado en el Anexo A. La
+     verificación no implicará acceso al código ni a los datos del
+     LICENCIATARIO.
+
+
+--------------------------------------------------------------------------------
+9. ATRIBUCIÓN
+--------------------------------------------------------------------------------
+
+9.1. EL LICENCIATARIO incluirá en la documentación o en los avisos legales del
+     Producto la mención: «Incluye Quipu — Copyright (c) Juan Carlos Isaza
+     Arenas. Usado bajo licencia comercial.»
+
+9.2. EL LICENCIANTE podrá mencionar a EL LICENCIATARIO como cliente y usar su
+     logotipo con fines de referencia comercial, salvo que este lo objete por
+     escrito.
+
+
+--------------------------------------------------------------------------------
+10. CESIÓN
+--------------------------------------------------------------------------------
+
+10.1. EL LICENCIATARIO no podrá ceder este contrato sin autorización previa y
+      escrita, salvo en casos de fusión, escisión o transformación, en los que
+      bastará aviso escrito dentro de los treinta (30) días siguientes, siempre
+      que el alcance de uso no se incremente.
+
+
+--------------------------------------------------------------------------------
+11. LEY APLICABLE Y CONTROVERSIAS
+--------------------------------------------------------------------------------
+
+11.1. El contrato se rige por la ley colombiana.
+
+11.2. LAS PARTES procurarán el arreglo directo dentro de los treinta (30) días
+      siguientes a la comunicación escrita de la controversia.
+
+11.3. [SELECCIONAR SEGÚN CONTRAPARTE:]
+
+      Opción A (nacional): agotada esa etapa, conocerán los jueces competentes
+      del circuito de Medellín, Colombia.
+
+      Opción B (internacional): agotada esa etapa, las controversias se
+      resolverán definitivamente mediante arbitraje conforme al Reglamento de
+      Arbitraje de la CNUDMI, con sede en [_____], en idioma [español/inglés],
+      por [un (1)] árbitro.
+
+
+--------------------------------------------------------------------------------
+12. DISPOSICIONES FINALES
+--------------------------------------------------------------------------------
+
+12.1. Este contrato y sus Anexos constituyen el acuerdo íntegro entre LAS PARTES
+      y prevalecen, respecto del uso aquí licenciado, sobre los términos de la
+      AGPL-3.0.
+
+12.2. Toda modificación deberá constar por escrito suscrito por ambas Partes.
+
+12.3. La invalidez de una cláusula no afecta la de las demás.
+
+12.4. Sobreviven a la terminación las Cláusulas 3.2, 6, 7, 8 y 11.
+
+
+================================================================================
+ANEXO A — ALCANCE
+================================================================================
+
+  Producto del Licenciatario ....... [nombre y descripción]
+  Modalidad ........................ [ ] SaaS  [ ] On-premise  [ ] Embebido/OEM
+  Despliegues / instancias ......... [_____]
+  Nivel de soporte ................. [ ] Estándar  [ ] Prioritario
+  Territorio ....................... Mundial
+
+
+================================================================================
+ANEXO B — CONDICIONES ECONÓMICAS
+================================================================================
+
+  Cuota anual ...................... [USD _____]
+  Forma de pago .................... anticipada, anual
+  Reajuste ......................... [___]% anual o IPC/CPI
+
+
+                                   FIRMAS
+
+  EL LICENCIANTE                        EL LICENCIATARIO
+
+
+  ____________________________          ____________________________
+  Juan Carlos Isaza Arenas              [Representante legal]
+  C.C. [_____]                          [Cargo]
+  XILIUX — Mat. 21-833837-02            [NIT / registro]

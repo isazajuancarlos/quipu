@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Planes de suscripción y su cuota mensual (nº de evaluaciones OPRF/mes).
 
 /// Cuota mensual por plan. `None` si el plan no existe.

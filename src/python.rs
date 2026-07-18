@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Bindings de Python (PyO3). Exponen una API mínima de alto nivel sobre el
 //! diccionario ASCII por defecto, para usar Quipu desde Python:
 //!

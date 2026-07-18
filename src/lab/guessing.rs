@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Superficie 3 (banco offline): modelo de coste de guessing acelerado por IA.
 //!
 //! Un atacante prioriza contraseñas con un modelo local (aquí, una lista "rankeada"
