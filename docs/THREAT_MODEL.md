@@ -81,7 +81,8 @@ the operation, a local physical side channel, or control of the binary/OS.
 - Confidentiality against T1 and T5: the content key combines an X25519 secret
   and an ML-KEM-1024 secret via HKDF; breaking it requires breaking BOTH.
 - The transcript binds the recipient's FULL public key (X25519 pub + ML-KEM ek)
-  and the encapsulation (X-Wing style) → resistant to re-encapsulation /
+  and the encapsulation (X-Wing *style*, not wire-compatible: ML-KEM-1024 +
+  HKDF-SHA256, vs X-Wing's ML-KEM-768 + SHA3-256) → resistant to re-encapsulation /
   public-key-substitution attacks (closes F2).
 - ML-KEM uses implicit rejection: a wrong secret key does NOT fail but yields a
   different content key (the subsequent AEAD detects it).

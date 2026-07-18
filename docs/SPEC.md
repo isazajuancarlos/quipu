@@ -173,10 +173,10 @@ from the KEM.
 ```
 eph            = X25519 ephemeral secret;  eph_pub = X25519(eph)
 x_ss(32)       = X25519(eph, recipient_x_pub)
-(ml_ct, ml_ss) = MLKEM768.Encaps(recipient_ek)          # ml_ss is 32 bytes
-encapsulation  = eph_pub(32) ‖ ml_ct(1088)
+(ml_ct, ml_ss) = MLKEM1024.Encaps(recipient_ek)         # ml_ss is 32 bytes
+encapsulation  = eph_pub(32) ‖ ml_ct(1568)
 
-transcript     = recipient_x_pub(32) ‖ recipient_ek(1184) ‖ encapsulation(1120)
+transcript     = recipient_x_pub(32) ‖ recipient_ek(1568) ‖ encapsulation(1600)
 content_key(32)= HKDF-SHA256(ikm = x_ss ‖ ml_ss, salt = none,
                              info = "quipu/v2/hybrid-kem" ‖ transcript)
 ```
@@ -186,10 +186,18 @@ prevents public-key-substitution / re-encapsulation attacks. On decapsulation th
 recipient recomputes `ek` from its decapsulation key. Breaking `content_key`
 requires breaking **both** X25519 and ML-KEM-1024.
 
+> **X-Wing *style*, not interoperable X-Wing.** This follows the X-Wing design
+> principle (bind both shared secrets and the public material through a KDF), but
+> it is NOT wire-compatible with `draft-connolly-cfrg-xwing-kem`: X-Wing uses
+> ML-KEM-**768** and a single `SHA3-256` combiner, whereas Quipu uses
+> ML-KEM-**1024** (CNSA 2.0, NIST level 5) and `HKDF-SHA256`, and additionally
+> binds the ML-KEM `ek`/`ct`. Deliberate: the parameter set is driven by CNSA 2.0,
+> not interop.
+
 ### 7.3 Container
 
 ```
-header = "QPQ1"(4) ‖ version=1 (1) ‖ flags=0 (1) ‖ nonce(24) ‖ encapsulation(1120)
+header = "QPQ1"(4) ‖ version=1 (1) ‖ flags=0 (1) ‖ nonce(24) ‖ encapsulation(1600)
 blob   = header ‖ XChaCha20Poly1305_Seal(content_key, nonce, aad = header, padded_plaintext)
 ```
 
