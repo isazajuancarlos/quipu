@@ -39,21 +39,18 @@
 //!   campo de AES, tal como lo usan SLIP-39 y Vault. Implementarlo es como
 //!   implementar HKDF desde su RFC: hay una especificación fija que seguir.
 //!
-//! ## Advertencia sobre secretos de baja entropía
+//! ## Por qué no hay advertencia sobre secretos de baja entropía
 //!
-//! Cada compartición lleva un **verificador** de 8 bytes derivado del secreto
-//! con una sal aleatoria, para que una compartición corrupta o de otro reparto
-//! se detecte en vez de devolver basura silenciosamente.
+//! Porque no hace falta. La etiqueta de integridad viaja **dentro** de lo
+//! repartido, no en la cabecera, así que con `k-1` comparticiones no hay nada
+//! contra qué probar una conjetura: rige el secreto perfecto sobre todo el
+//! payload, etiqueta incluida. Quien puede verificar una conjetura es quien ya
+//! tiene `k` comparticiones — y ese ya tiene el secreto.
 //!
-//! Ese verificador permite a quien posea **una** compartición comprobar una
-//! conjetura del secreto. Para material de clave (alta entropía) es irrelevante.
-//! **Para un secreto adivinable no lo es**: no repartas contraseñas con esto;
-//! reparte la clave que se deriva de ellas. Para secretos de baja entropía el
-//! módulo correcto es [`crate::honey`].
-//!
-//! Esa advertencia no se queda en la documentación: `split` **rechaza secretos
-//! de menos de [`MIN_SECRET_LEN`] bytes**, para que un PIN o una contraseña
-//! corta no entren aquí por descuido.
+//! Un diseño anterior ponía el verificador en la cabecera y eso SÍ abría un
+//! oráculo: obligaba a un piso de longitud, a encarecer la derivación y a
+//! documentar la limitación. Tres parches para sostener una decisión que
+//! sobraba. Al mover ocho bytes de sitio, los tres desaparecen.
 //!
 //! ```
 //! use quipu::shamir;
@@ -67,44 +64,32 @@
 //! ```
 
 use crate::antihacker::ct_eq;
-use hkdf::Hkdf;
 use rand_core::{OsRng, RngCore};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
 /// Marca de formato de una compartición serializada.
-const MAGIC: &[u8; 4] = b"QSS1";
-/// Longitud de la sal que ata las comparticiones de un mismo reparto.
-const SALT_LEN: usize = 16;
-/// Longitud del verificador de reconstrucción.
-const CHECK_LEN: usize = 8;
-/// Etiqueta de separación de dominio del verificador.
-const CHECK_INFO: &[u8] = b"quipu/v1/shamir-check";
-/// Bytes de cabecera de una compartición: magic ‖ k ‖ x ‖ salt ‖ check ‖ len.
-const HEADER_LEN: usize = 4 + 1 + 1 + SALT_LEN + CHECK_LEN + 4;
+const MAGIC: &[u8; 4] = b"QSS2";
+/// Longitud de la etiqueta de integridad, que viaja DENTRO de lo repartido.
+const TAG_LEN: usize = 8;
+/// Separación de dominio de la etiqueta.
+const TAG_INFO: &[u8] = b"quipu/v1/shamir-tag";
+/// Bytes de cabecera de una compartición: magic ‖ k ‖ x ‖ len.
+///
+/// No hay sal ni verificador en la cabecera, y esa ausencia es el diseño: si el
+/// verificador viviera aquí, cualquiera con UNA compartición podría probar
+/// conjeturas del secreto contra él, y además dos comparticiones del mismo
+/// reparto exhibirían campos idénticos que las delatarían como pareja. Al
+/// meterlo dentro de lo repartido desaparecen las dos cosas de raíz.
+const HEADER_LEN: usize = 4 + 1 + 1 + 4;
 
 /// Umbral mínimo con sentido: con k=1 no hay secreto que repartir.
 const MIN_THRESHOLD: u8 = 2;
 
-/// Longitud mínima del secreto: **el material de clave más pequeño que produce
-/// la propia arquitectura**.
-///
-/// No es una restricción criptográfica —el esquema funciona con un solo byte— ni
-/// una cifra elegida por costumbre. Es el límite que pone el sistema: la clave
-/// de contenido, la del AEAD y la maestra del KDF miden todas
-/// [`crate::kdf::KEY_LEN`]; la de firma, 64; la secreta híbrida, 3200. Nada que
-/// Quipu genere baja de ahí, luego **nada que baje de ahí es material de clave
-/// de Quipu**.
-///
-/// Sirve de **contención**: el verificador de cada compartición permite
-/// comprobar conjeturas del secreto (ver la advertencia del encabezado), lo que
-/// es irrelevante para una clave y peligroso para algo adivinable. Con este piso
-/// un PIN o una contraseña no entran aquí por descuido — para eso está
-/// [`crate::honey`], que es la herramienta correcta.
-///
-/// Atado a la constante y no a un literal: si la arquitectura cambia sus
-/// tamaños, el piso la sigue sin que nadie tenga que acordarse.
-pub const MIN_SECRET_LEN: usize = crate::kdf::KEY_LEN;
+// No hay longitud mínima. El piso anterior existía únicamente para contener
+// el oráculo de conjeturas del verificador; sin oráculo no hay nada que
+// contener. Shamir es seguro en sentido informacional: con k-1 comparticiones
+// no se aprende NADA del secreto, tenga la entropía que tenga.
 
 /// Errores de la compartición de secretos.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,15 +98,6 @@ pub enum ShamirError {
     BadParameters,
     /// El secreto está vacío.
     EmptySecret,
-    /// El secreto es más corto que [`MIN_SECRET_LEN`]. Este módulo es para
-    /// material de clave; un secreto corto es probablemente adivinable, y para
-    /// esos está `honey`.
-    SecretTooShort {
-        /// Longitud mínima admitida.
-        min: usize,
-        /// Longitud recibida.
-        got: usize,
-    },
     /// Se aportaron menos comparticiones que el umbral.
     NotEnoughShares {
         /// Comparticiones necesarias.
@@ -144,11 +120,6 @@ impl core::fmt::Display for ShamirError {
         match self {
             Self::BadParameters => write!(f, "parámetros de reparto inválidos"),
             Self::EmptySecret => write!(f, "el secreto está vacío"),
-            Self::SecretTooShort { min, got } => write!(
-                f,
-                "el secreto mide {got} bytes y el mínimo es {min}: este módulo es \
-                 para material de clave, no para secretos adivinables"
-            ),
             Self::NotEnoughShares { needed, got } => {
                 write!(f, "hacen falta {needed} comparticiones, se aportaron {got}")
             }
@@ -211,11 +182,8 @@ pub struct Share {
     threshold: u8,
     /// Índice de evaluación, en 1..=255. Nunca 0: ahí vive el secreto.
     index: u8,
-    /// Ata las comparticiones a un mismo reparto.
-    salt: [u8; SALT_LEN],
-    /// Verificador de la reconstrucción.
-    check: [u8; CHECK_LEN],
-    /// Evaluación del polinomio en `index`, byte a byte.
+    /// Evaluación del polinomio en `index`, byte a byte, sobre el payload
+    /// completo (secreto ‖ etiqueta).
     y: Vec<u8>,
 }
 
@@ -256,8 +224,6 @@ impl Share {
         v.extend_from_slice(MAGIC);
         v.push(self.threshold);
         v.push(self.index);
-        v.extend_from_slice(&self.salt);
-        v.extend_from_slice(&self.check);
         v.extend_from_slice(&(self.y.len() as u32).to_be_bytes());
         v.extend_from_slice(&self.y);
         Zeroizing::new(v)
@@ -274,35 +240,40 @@ impl Share {
             return Err(ShamirError::Malformed);
         }
 
-        let mut salt = [0u8; SALT_LEN];
-        salt.copy_from_slice(&b[6..6 + SALT_LEN]);
-        let mut check = [0u8; CHECK_LEN];
-        check.copy_from_slice(&b[6 + SALT_LEN..6 + SALT_LEN + CHECK_LEN]);
-
-        let off = 6 + SALT_LEN + CHECK_LEN;
-        let len = u32::from_be_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]]) as usize;
+        let len = u32::from_be_bytes([b[6], b[7], b[8], b[9]]) as usize;
 
         // La longitud declarada tiene que cuadrar con lo que hay: una
-        // compartición truncada no se acepta en silencio.
-        if len == 0 || b.len() != HEADER_LEN + len {
+        // compartición truncada no se acepta en silencio. Y el payload nunca
+        // puede ser menor que la etiqueta que lleva dentro.
+        if len <= TAG_LEN || b.len() != HEADER_LEN + len {
             return Err(ShamirError::Malformed);
         }
 
         Ok(Self {
             threshold,
             index,
-            salt,
-            check,
             y: b[HEADER_LEN..].to_vec(),
         })
     }
 }
 
-/// Deriva el verificador de reconstrucción del secreto.
-fn verificador(secret: &[u8], salt: &[u8; SALT_LEN]) -> [u8; CHECK_LEN] {
-    let hk = Hkdf::<Sha256>::new(Some(salt), secret);
-    let mut out = [0u8; CHECK_LEN];
-    hk.expand(CHECK_INFO, &mut out).expect("longitud HKDF válida");
+/// Etiqueta de integridad del secreto. Viaja **dentro** de lo repartido.
+///
+/// Ahí está toda la diferencia. En la cabecera sería un oráculo: quien tuviera
+/// una compartición podría probar conjeturas contra ella, y dos comparticiones
+/// del mismo reparto mostrarían campos idénticos que las delatarían como pareja.
+/// Dentro del payload no es ninguna de las dos cosas — con `k-1` comparticiones
+/// rige el secreto perfecto sobre todo, etiqueta incluida.
+///
+/// Y por eso basta un hash: no necesita ser caro de calcular, porque nadie que
+/// no tenga ya el secreto puede llegar a compararlo con nada.
+fn etiqueta(secret: &[u8]) -> [u8; TAG_LEN] {
+    let mut h = Sha256::new();
+    h.update(TAG_INFO);
+    h.update(secret);
+    let d = h.finalize();
+    let mut out = [0u8; TAG_LEN];
+    out.copy_from_slice(&d[..TAG_LEN]);
     out
 }
 
@@ -313,35 +284,30 @@ pub fn split(secret: &[u8], threshold: u8, shares: u8) -> Result<Vec<Share>, Sha
     if secret.is_empty() {
         return Err(ShamirError::EmptySecret);
     }
-    if secret.len() < MIN_SECRET_LEN {
-        return Err(ShamirError::SecretTooShort {
-            min: MIN_SECRET_LEN,
-            got: secret.len(),
-        });
-    }
     if threshold < MIN_THRESHOLD || shares < threshold {
         return Err(ShamirError::BadParameters);
     }
 
-    let mut salt = [0u8; SALT_LEN];
-    OsRng.fill_bytes(&mut salt);
-    let check = verificador(secret, &salt);
+    // Lo que se reparte es el secreto CON su etiqueta pegada. Así la integridad
+    // queda protegida por el mismo secreto perfecto que el secreto: con k-1
+    // comparticiones no se aprende nada de ninguno de los dos.
+    let mut payload = Zeroizing::new(Vec::with_capacity(secret.len() + TAG_LEN));
+    payload.extend_from_slice(secret);
+    payload.extend_from_slice(&etiqueta(secret));
 
-    // Índices 1..=shares. El 0 se reserva: f(0) es el secreto.
+    // Índices 1..=shares. El 0 se reserva: f(0) es el payload.
     let mut fuera: Vec<Share> = (1..=shares)
         .map(|index| Share {
             threshold,
             index,
-            salt,
-            check,
-            y: Vec::with_capacity(secret.len()),
+            y: Vec::with_capacity(payload.len()),
         })
         .collect();
 
     // Un polinomio independiente por byte del secreto, de grado threshold-1,
     // con término independiente igual al byte y el resto aleatorio.
     let mut coeficientes = vec![0u8; threshold as usize - 1];
-    for &byte in secret {
+    for &byte in payload.iter() {
         OsRng.fill_bytes(&mut coeficientes);
         for compartición in fuera.iter_mut() {
             let x = compartición.index;
@@ -380,11 +346,7 @@ pub fn combine(shares: &[Share]) -> Result<Zeroizing<Vec<u8>>, ShamirError> {
 
     // Todas deben ser del mismo reparto, y sin índices repetidos.
     for s in shares {
-        if s.threshold != primera.threshold
-            || s.salt != primera.salt
-            || s.check != primera.check
-            || s.y.len() != primera.y.len()
-            || s.index == 0
+        if s.threshold != primera.threshold || s.y.len() != primera.y.len() || s.index == 0
         {
             return Err(ShamirError::Inconsistent);
         }
@@ -416,8 +378,8 @@ pub fn combine(shares: &[Share]) -> Result<Zeroizing<Vec<u8>>, ShamirError> {
         lambdas.push(gf_mul(num, gf_inv(den)));
     }
 
-    let mut secreto = Zeroizing::new(vec![0u8; primera.y.len()]);
-    for (pos, byte) in secreto.iter_mut().enumerate() {
+    let mut recuperado = Zeroizing::new(vec![0u8; primera.y.len()]);
+    for (pos, byte) in recuperado.iter_mut().enumerate() {
         let mut acc = 0u8;
         for (i, s) in usadas.iter().enumerate() {
             acc ^= gf_mul(s.y[pos], lambdas[i]);
@@ -426,9 +388,13 @@ pub fn combine(shares: &[Share]) -> Result<Zeroizing<Vec<u8>>, ShamirError> {
     }
     lambdas.zeroize();
 
-    // El verificador es lo que convierte "basura silenciosa" en un error.
-    let recomputado = verificador(&secreto, &primera.salt);
-    if !ct_eq(&recomputado, &primera.check) {
+    // Separa la etiqueta del secreto y comprueba. Esto convierte la "basura
+    // silenciosa" en un error, y hace además de detector de mezcla: si las
+    // comparticiones fueran de repartos distintos, lo reconstruido no sería el
+    // payload y la etiqueta no cuadraría.
+    let corte = recuperado.len() - TAG_LEN;
+    let secreto = Zeroizing::new(recuperado[..corte].to_vec());
+    if !ct_eq(&etiqueta(&secreto), &recuperado[corte..]) {
         return Err(ShamirError::VerificationFailed);
     }
 
@@ -529,10 +495,38 @@ mod tests {
 
     #[test]
     fn no_se_pueden_mezclar_repartos_distintos() {
+        // Ya no se detecta comparando campos de cabecera —no queda ninguno en
+        // común, que es lo que las hace inenlazables— sino porque lo que sale
+        // de interpolar no es el payload y la etiqueta no cuadra.
         let a = split(&[0xAAu8; 32], 2, 3).unwrap();
         let b = split(&[0xBBu8; 32], 2, 3).unwrap();
         let sub = [a[0].clone(), b[1].clone()];
-        assert_eq!(combine(&sub), Err(ShamirError::Inconsistent));
+        assert_eq!(combine(&sub), Err(ShamirError::VerificationFailed));
+    }
+
+    #[test]
+    fn dos_comparticiones_no_se_delatan_como_pareja() {
+        // La propiedad que motivó el rediseño: nada en una compartición permite
+        // saber si otra pertenece al mismo reparto. Antes la sal y el
+        // verificador eran 24 bytes idénticos que las emparejaban a simple
+        // vista, y en un archivo con secretos de varios clientes eso los
+        // particiona en clases de equivalencia.
+        let a = split(&[0xA1u8; 32], 2, 5).unwrap();
+        let b = split(&[0xB2u8; 32], 2, 5).unwrap();
+
+        // La cabecera de dos del MISMO reparto solo comparte magic, umbral y
+        // longitud — exactamente lo mismo que comparte con una de otro reparto.
+        let cab = |s: &Share| s.to_bytes()[..HEADER_LEN].to_vec();
+        let mismo: Vec<u8> = cab(&a[0]).iter().zip(cab(&a[1])).filter(|(x, y)| *x == y).map(|(x, _)| *x).collect();
+        let ajeno: Vec<u8> = cab(&a[0]).iter().zip(cab(&b[1])).filter(|(x, y)| *x == y).map(|(x, _)| *x).collect();
+        assert_eq!(
+            mismo.len(),
+            ajeno.len(),
+            "la cabecera distingue pareja de ajena: quedó un campo enlazable"
+        );
+
+        // Y el cuerpo tampoco: son evaluaciones de polinomios independientes.
+        assert_ne!(a[0].y, a[1].y);
     }
 
     #[test]
@@ -548,27 +542,6 @@ mod tests {
         assert_eq!(split(&s, 1, 5), Err(ShamirError::BadParameters));
         assert_eq!(split(&s, 4, 3), Err(ShamirError::BadParameters));
         assert_eq!(split(b"", 2, 3), Err(ShamirError::EmptySecret));
-    }
-
-    #[test]
-    fn un_secreto_corto_se_rechaza() {
-        // Contención del pie de banco: un PIN o una contraseña corta no entran
-        // aquí por descuido. El verificador de las comparticiones permitiría
-        // comprobar conjeturas, y para secretos adivinables la herramienta
-        // correcta es `honey`, no esta.
-        for corto in [&b"1234"[..], b"contrasena", &[0u8; MIN_SECRET_LEN - 1]] {
-            assert_eq!(
-                split(corto, 2, 3),
-                Err(ShamirError::SecretTooShort {
-                    min: MIN_SECRET_LEN,
-                    got: corto.len()
-                }),
-                "deberia rechazar {} bytes",
-                corto.len()
-            );
-        }
-        // Justo en el piso, se acepta.
-        assert!(split(&[0u8; MIN_SECRET_LEN], 2, 3).is_ok());
     }
 
     #[test]
@@ -631,8 +604,7 @@ mod tests {
 
         // Longitud mentida en la cabecera.
         let mut mentira = buenos.to_vec();
-        let off = 6 + SALT_LEN + CHECK_LEN;
-        mentira[off..off + 4].copy_from_slice(&9999u32.to_be_bytes());
+        mentira[6..10].copy_from_slice(&9999u32.to_be_bytes());
         assert_eq!(Share::from_bytes(&mentira), Err(ShamirError::Malformed));
 
         // Índice 0 (el del secreto) no es una compartición legítima.
@@ -669,7 +641,6 @@ mod tests {
         let a = split(&[0x42u8; 32], 2, 3).unwrap();
         let b = split(&[0x42u8; 32], 2, 3).unwrap();
         assert_ne!(a[0].y, b[0].y);
-        assert_ne!(a[0].salt, b[0].salt);
     }
 
     #[test]

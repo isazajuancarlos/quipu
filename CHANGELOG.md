@@ -61,17 +61,26 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and it needs neither network nor HSM — the condition of air-gapped
   deployments.
 
-  Each share carries a salted 8-byte verifier, so a corrupted share or one from
-  a different split is **detected** instead of silently reconstructing garbage.
-  That verifier lets a holder of one share test a guess of the secret, so this
-  is for **high-entropy key material**. The warning is enforced, not just
-  documented: `split` **rejects any secret shorter than the smallest key material
-  the architecture itself produces** (`kdf::KEY_LEN`, 32 bytes — the content key,
-  the AEAD key and the KDF master key are all that size). The floor is not a
-  round number picked by convention; it is tied to the constant, so if the
-  architecture changes its sizes the floor follows. A PIN or a short password
-  cannot end up here by accident — for those the right module is
-  `honey`. Not threshold signing: the secret is reassembled in memory to be used.
+  **The integrity tag travels inside what is split, not in the header** —
+  `secret ‖ SHA-256(domain ‖ secret)[0..8]`. That single placement decision is
+  what makes the design hold: with `k-1` shares perfect secrecy covers the whole
+  payload, tag included, so **there is no guessing oracle** — whoever can verify
+  a guess already holds `k` shares, and therefore already holds the secret. A
+  corrupted share, or one from a different split, is still detected: the
+  reconstruction is not the payload and the tag does not match.
+
+  It also makes shares **unlinkable**. The header carries only
+  `magic ‖ threshold ‖ index ‖ length`, so two shares of the same split look no
+  more related than two of different splits. This matters wherever shares for
+  several secrets are stored together: a shared field would partition them into
+  equivalence classes and hand a reader a map of which shares are worth
+  combining.
+
+  An earlier draft put the verifier in the header. That opened an oracle and
+  required four patches to contain it — a minimum length floor, Argon2id
+  hardening, a documented "high-entropy only" caveat, and per-share salts for
+  unlinkability. Moving eight bytes removed all four. Not threshold signing: the
+  secret is reassembled in memory to be used.
 
   Cross-validated against an independent implementation using a different
   approach (log/antilog tables), and against the AES field's known vectors.
