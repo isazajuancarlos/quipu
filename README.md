@@ -88,6 +88,28 @@ representación.
   binding de contexto (AAD), HKDF (separación de subclaves).
 - **Antihacker**: borrado de claves en memoria (`zeroize`), comparación en tiempo
   constante, validación de parámetros KDF, errores uniformes.
+- **Autopruebas de arranque** (`quipu::selftest`): 14 vectores de respuesta
+  conocida sobre **el binario que realmente se ejecuta**, no sobre el build de
+  CI. Corren una vez por proceso al entrar por cualquier punto del núcleo, y si
+  alguna falla el módulo **se niega a operar** en vez de producir resultados
+  silenciosamente incorrectos.
+
+  Una autoprueba fallida **no significa que Quipu falle**: significa que la
+  máquina no está ejecutando la criptografía correctamente — una rueda compilada
+  para otro procesador, un archivo dañado o sustituido, memoria defectuosa. No
+  introducen modos de fallo, hacen visibles los que ya existían.
+
+  Van más allá de lo que exigen FIPS 140-3 y los GM/T chinos en tres puntos:
+  usan **vectores publicados** donde existen (HKDF contra el RFC 5869, no
+  vectores propios que solo demuestran consistencia consigo mismos), incluyen
+  **pruebas negativas** (lo manipulado debe *fallar*), y vigilan la **salud del
+  RNG** en continuo. Cada comprobación está probada de que **discrimina**: una
+  que devolviera siempre `true` pasaría una batería convencional igual que una
+  correcta.
+
+  Verificadas con 1300 operaciones simuladas —200 pasadas, 100 hebras
+  concurrentes, 1000 llamadas repetidas— y con inyección de fallo para ejercitar
+  el camino de error, ambas en CI.
 - **Hackerbot**: red-team interno (tamper/truncation/uniqueness). Encontró y se
   corrigió un DoS por parámetros Argon2 maliciosos.
 - **Security Lab** (features `lab` / `lab-offline`, no viajan en el build
@@ -313,9 +335,37 @@ que un cliente del servicio OPRF enlaza dentro de su propio servidor es permisiv
 | `integrations/django` → [`quipu-oprf-django`](https://pypi.org/project/quipu-oprf-django/) | **`Apache-2.0`** |
 | `crates/quipu-oprf-server` | `AGPL-3.0-or-later` / comercial |
 
-- **Licencia comercial** para producto propietario cerrado o SaaS sin abrir
-  código — términos en [`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL).
-- El **servidor OPRF** se ofrece además como **servicio gestionado** de pago.
+### Qué se cobra, exactamente
+
+**Quipu es libre y siempre lo será.** Puedes usarlo hoy sin pagar nada. La única
+condición es publicar el código de lo que construyas encima. Si eso no te sirve,
+te vendemos la exención de esa obligación.
+
+Dicho de otro modo: **no se cobra por el uso, se cobra por el derecho a no
+publicar.** El copyleft no prohíbe cobrar —la GPL dice literalmente que puedes
+cobrar cualquier precio o ninguno—; lo que restringe es el **secreto**, no el
+precio.
+
+- **Licencia comercial** — para producto propietario cerrado o SaaS sin abrir
+  código. Términos en [`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL). Es una
+  concesión **adicional y paralela** a la AGPL, no una sustitución: con contrato
+  o sin él conservas todo lo que la AGPL concede a cualquiera —usar, estudiar,
+  modificar, redistribuir, vender, bifurcar e incluso competir—. Lo único que
+  añade es la exención del copyleft de red.
+- **Servidor OPRF gestionado** — negocio distinto y complementario: ahí no se
+  vende exención sino no tener que operar la infraestructura ni custodiar la
+  clave.
+
+**Si puedes cumplir el copyleft, no necesitas comprarnos nada.** Un proyecto
+libre, uno académico o una entidad con política de software abierto usan Quipu
+gratis, y nos interesa que lo hagan.
+
+**Por qué AGPL y no GPL:** con GPL a secas, quien corre el software como servicio
+en red nunca lo *distribuye*, así que nunca dispara el copyleft. El artículo 13
+de la AGPL cierra ese hueco. No fue una elección ideológica.
+
+Es la misma estructura que **Qt** o **MySQL**: licencia libre para quien cumple,
+licencia comercial para quien necesita términos propietarios.
 
 Copyright (c) 2024-2026 Juan Carlos Isaza Arenas — titular único; ver
 [`COPYRIGHT`](COPYRIGHT). El uso del nombre «Quipu» se rige por
