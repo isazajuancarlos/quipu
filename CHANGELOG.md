@@ -6,6 +6,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Planned
+- Independent security audit and public remediation of findings.
+- A non-blocking `worker_threads` wrapper for the Node.js bindings.
+- Reference deployment of the online VOPRF hardening server.
+- Coupled primitives migration (`ml-kem` 0.3, `x25519-dalek` 3, `rand_core` 0.9)
+  — an API migration, not a bump; ships in 0.9.0.
+
+## [0.8.0] — 2026-07-18
+
 ### Added
 - **Documented side-channel posture (`docs/SPEC.md` §15)** and **dudect coverage
   of the post-quantum path**. Two findings worth stating plainly:
@@ -128,10 +137,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Backed by `examples/selftest_soak.rs`: 200 sequential passes + 100 concurrent
   threads + 1000 repeated calls = **1300 simulated operations**, wired into CI.
 
-### Planned
-- Independent security audit and public remediation of findings.
-- A non-blocking `worker_threads` wrapper for the Node.js bindings.
-- Reference deployment of the online VOPRF hardening server.
 
 ## [0.7.0] — 2026-07-06
 
@@ -363,7 +368,8 @@ First public release. Published to crates.io (`quipu`) and PyPI
   (no crashes) on the pure-logic and parsing modules; `cargo-audit` in CI.
 - **Not yet independently audited** — see [`SECURITY.md`](SECURITY.md).
 
-[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/isazajuancarlos/quipu/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/isazajuancarlos/quipu/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/isazajuancarlos/quipu/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/isazajuancarlos/quipu/compare/v0.4.1...v0.5.0
