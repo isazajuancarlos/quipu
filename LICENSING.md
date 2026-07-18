@@ -48,6 +48,39 @@ licencia.
 El texto legal completo debe acompañar al proyecto en el archivo `LICENSE`
 (texto oficial: https://www.gnu.org/licenses/agpl-3.0.txt).
 
+## 1.bis. Qué se cobra, y qué no
+
+**No se cobra por el uso.** El uso ya es libre bajo AGPL y lo seguirá siendo. Lo
+que se cobra es el **derecho a no publicar**.
+
+Conviene decirlo porque el malentendido es persistente: **el copyleft no prohíbe
+cobrar**. La licencia dice literalmente que puedes cobrar cualquier precio o
+ninguno por cada copia. «Libre» es de libertad, no de gratis. Lo que el copyleft
+restringe es el **secreto**, no el precio.
+
+La consecuencia práctica es que vender copias no funciona como negocio —quien la
+compra puede regalarla después—, así que el dinero está en dos sitios distintos:
+
+| Se vende | Qué resuelve al cliente |
+|---|---|
+| Licencia comercial | No tener que publicar su código |
+| Servidor OPRF gestionado | No tener que operar la infraestructura ni custodiar la clave |
+
+Un cliente puede necesitar uno, el otro, los dos o ninguno.
+
+**Si puedes cumplir el copyleft, no necesitas comprar nada.** Un proyecto libre,
+uno académico o una entidad con política de software abierto usan Quipu gratis, y
+nos interesa que lo hagan: son la razón de que el proyecto exista y de que otros
+confíen en él.
+
+**Por qué AGPL y no GPL.** Con GPL a secas, quien corre el software como servicio
+en red nunca lo *distribuye* y por tanto nunca dispara el copyleft: usaría el
+trabajo sin devolver nada. El artículo 13 de la AGPL cierra ese hueco. No fue una
+elección ideológica sino la que hace defendible el modelo.
+
+La estructura es la de **Qt** y **MySQL**: licencia libre para quien cumple,
+comercial para quien necesita términos propietarios.
+
 ## 2. Licencia comercial
 
 La obligación de abrir el código de la AGPL **no encaja** con muchos productos
