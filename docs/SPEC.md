@@ -483,12 +483,17 @@ a practical and published attack rather than a theoretical one.
 
 | Target | AES-256 | XChaCha20-Poly1305 |
 |---|---|---|
-| x86-64 with AES-NI | constant-time (hardware) | constant-time |
-| x86-64 without AES-NI (pre-2010, some VMs/hypervisors) | **table-based** | constant-time |
+| x86-64 with AES-NI (Westmere, 2010, and later) | constant-time (hardware) | constant-time |
+| x86-64 predating AES-NI | **table-based** | constant-time |
 | ARMv8 with crypto extensions | constant-time (hardware) | constant-time |
 | ARMv7, ARMv8 without extensions, low-cost SBCs | **table-based** | constant-time |
 | RISC-V without the scalar-crypto extension | **table-based** | constant-time |
 | WebAssembly, portable/`no_std` builds | **table-based** | constant-time |
+
+> The table compares **choices, not code paths that ship**. Quipu contains no AES
+> implementation: the AES column describes what a CNSA-conformant profile (§15.5)
+> would inherit if it were built, and is the reason such a profile is not an
+> automatic improvement.
 
 So the honest claim is narrower and stronger than "more resistant than AES". It
 is this: **the guarantee does not depend on the machine the operator happens to
