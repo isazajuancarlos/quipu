@@ -9,7 +9,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyByteArray, PyBytes};
 
 use crate::api::{
     decode as core_decode, decode_as_recipient as core_decode_pq,
@@ -198,18 +198,36 @@ fn select_separable(fingerprints: Vec<Vec<u8>>, k: usize) -> Vec<usize> {
 
 /// Parte `secret` en `shares` comparticiones, de las que `threshold` bastan.
 ///
-/// Devuelve una lista de `bytes`, cada una una compartición serializada que
+/// Devuelve una lista de `bytearray`, cada una una compartición serializada que
 /// debe custodiarse por separado. Para material de clave de ALTA entropía; no
 /// repartas contraseñas con esto (ver `quipu::shamir`).
+///
+/// **Devuelve `bytearray` y no `bytes` a propósito.** El lado Rust borra su
+/// copia al soltarla, pero lo que cruza a Python vive hasta que lo recoja el
+/// recolector de basura. Un `bytes` es inmutable: no hay forma de limpiarlo ni
+/// queriendo. Un `bytearray` sí se puede sobrescribir en sitio, así que el
+/// llamante puede acotar cuánto tiempo permanece vivo:
+///
+/// ```python
+/// partes = quipu.split_secret(clave, 3, 5)
+/// # …custodiarlas…
+/// for p in partes:
+///     p[:] = b"\x00" * len(p)
+/// ```
 #[cfg(feature = "escrow")]
 #[pyfunction]
 #[pyo3(name = "split_secret")]
-fn split_secret(py: Python<'_>, secret: &[u8], threshold: u8, shares: u8) -> PyResult<Vec<Py<PyBytes>>> {
+fn split_secret(
+    py: Python<'_>,
+    secret: &[u8],
+    threshold: u8,
+    shares: u8,
+) -> PyResult<Vec<Py<PyByteArray>>> {
     let partes = shamir::split(secret, threshold, shares)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(partes
         .iter()
-        .map(|s| PyBytes::new(py, &s.to_bytes()).unbind())
+        .map(|s| PyByteArray::new(py, &s.to_bytes()).unbind())
         .collect())
 }
 
@@ -217,15 +235,33 @@ fn split_secret(py: Python<'_>, secret: &[u8], threshold: u8, shares: u8) -> PyR
 ///
 /// Lanza `ValueError` si faltan comparticiones, si no son del mismo reparto o
 /// si alguna está corrupta.
+///
+/// **Devuelve `bytearray` y no `bytes` a propósito**, por lo mismo que
+/// [`split_secret`]: lo que importa no es que exista una copia temporal, sino
+/// **cuánto tiempo permanece viva**. En Rust el secreto se borra al salir del
+/// ámbito; lo que cruza a Python sobrevive hasta el recolector de basura. Con
+/// `bytes` esa vida es incontrolable porque es inmutable; con `bytearray` el
+/// llamante la acota:
+///
+/// ```python
+/// clave = quipu.combine_secret(partes)
+/// try:
+///     firmado = quipu.encode_signed(datos, bytes(clave))
+/// finally:
+///     clave[:] = b"\x00" * len(clave)   # acota la vida del secreto
+/// ```
+///
+/// No es garantía absoluta: el intérprete pudo copiar el buffer al cruzar la
+/// frontera FFI, y esas copias no se pueden alcanzar. Lo que sí hace es pasar de
+/// "imposible de limpiar" a "limpiable por quien la tiene".
 #[cfg(feature = "escrow")]
 #[pyfunction]
 #[pyo3(name = "combine_secret")]
-fn combine_secret(py: Python<'_>, shares: Vec<Vec<u8>>) -> PyResult<Py<PyBytes>> {
+fn combine_secret(py: Python<'_>, shares: Vec<Vec<u8>>) -> PyResult<Py<PyByteArray>> {
     let partes: Result<Vec<_>, _> = shares.iter().map(|b| shamir::Share::from_bytes(b)).collect();
     let partes = partes.map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let secreto =
-        shamir::combine(&partes).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(PyBytes::new(py, &secreto).unbind())
+    let secreto = shamir::combine(&partes).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyByteArray::new(py, &secreto).unbind())
 }
 
 // VOPRF NO se expone aquí, a propósito.
