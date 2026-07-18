@@ -29,8 +29,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a different split is **detected** instead of silently reconstructing garbage.
   That verifier lets a holder of one share test a guess of the secret, so this
   is for **high-entropy key material**. The warning is enforced, not just
-  documented: `split` **rejects secrets shorter than 16 bytes**, so a PIN or a
-  short password cannot end up here by accident — for those the right module is
+  documented: `split` **rejects any secret shorter than the smallest key material
+  the architecture itself produces** (`kdf::KEY_LEN`, 32 bytes — the content key,
+  the AEAD key and the KDF master key are all that size). The floor is not a
+  round number picked by convention; it is tied to the constant, so if the
+  architecture changes its sizes the floor follows. A PIN or a short password
+  cannot end up here by accident — for those the right module is
   `honey`. Not threshold signing: the secret is reassembled in memory to be used.
 
   Cross-validated against an independent implementation using a different

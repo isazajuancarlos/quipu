@@ -60,9 +60,9 @@ let clave = quipu::shamir::combine(&comparticiones[..3])?;
 
 Cada compartición lleva un verificador, así que una corrupta o de otro reparto
 **se detecta** en vez de devolver basura. Ese verificador permitiría comprobar
-conjeturas de un secreto adivinable, así que el módulo **rechaza secretos de
-menos de 16 bytes**: es para material de clave, y para lo adivinable está
-`honey`. No es firma umbral — el secreto se reconstruye en memoria para usarlo.
+conjeturas de un secreto adivinable, así que el módulo **rechaza secretos más
+cortos que el material de clave más pequeño que produce la propia arquitectura**
+(`kdf::KEY_LEN`, 32 bytes): es para claves, y para lo adivinable está `honey`. No es firma umbral — el secreto se reconstruye en memoria para usarlo.
 
 ## Diccionarios (simbología enchufable)
 

@@ -86,15 +86,25 @@ const HEADER_LEN: usize = 4 + 1 + 1 + SALT_LEN + CHECK_LEN + 4;
 /// Umbral mínimo con sentido: con k=1 no hay secreto que repartir.
 const MIN_THRESHOLD: u8 = 2;
 
-/// Longitud mínima del secreto, en bytes: el tamaño de una clave de 128 bits.
+/// Longitud mínima del secreto: **el material de clave más pequeño que produce
+/// la propia arquitectura**.
 ///
-/// No es una restricción criptográfica —el esquema funciona con un solo byte—,
-/// es una **contención**. El verificador de cada compartición permite comprobar
-/// conjeturas del secreto (ver la advertencia del encabezado), lo que es
-/// irrelevante para material de clave y peligroso para algo adivinable. Este
-/// piso hace que un PIN o una contraseña corta no entren aquí por descuido:
-/// para eso está `crate::honey`, que es la herramienta correcta.
-pub const MIN_SECRET_LEN: usize = 16;
+/// No es una restricción criptográfica —el esquema funciona con un solo byte— ni
+/// una cifra elegida por costumbre. Es el límite que pone el sistema: la clave
+/// de contenido, la del AEAD y la maestra del KDF miden todas
+/// [`crate::kdf::KEY_LEN`]; la de firma, 64; la secreta híbrida, 3200. Nada que
+/// Quipu genere baja de ahí, luego **nada que baje de ahí es material de clave
+/// de Quipu**.
+///
+/// Sirve de **contención**: el verificador de cada compartición permite
+/// comprobar conjeturas del secreto (ver la advertencia del encabezado), lo que
+/// es irrelevante para una clave y peligroso para algo adivinable. Con este piso
+/// un PIN o una contraseña no entran aquí por descuido — para eso está
+/// [`crate::honey`], que es la herramienta correcta.
+///
+/// Atado a la constante y no a un literal: si la arquitectura cambia sus
+/// tamaños, el piso la sigue sin que nadie tenga que acordarse.
+pub const MIN_SECRET_LEN: usize = crate::kdf::KEY_LEN;
 
 /// Errores de la compartición de secretos.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,7 +479,7 @@ mod tests {
 
     #[test]
     fn cualquier_subconjunto_del_umbral_reconstruye() {
-        let secreto = b"clave de firma ML-DSA (simulada)";
+        let secreto = &[0x6Bu8; 64];
         let comparticiones = split(secreto, 3, 5).unwrap();
         assert_eq!(comparticiones.len(), 5);
 
@@ -490,7 +500,7 @@ mod tests {
 
     #[test]
     fn menos_del_umbral_no_reconstruye() {
-        let comparticiones = split(b"clave de sesion 0001", 3, 5).unwrap();
+        let comparticiones = split(&[0x11u8; 32], 3, 5).unwrap();
         let sub = [comparticiones[0].clone(), comparticiones[1].clone()];
         assert_eq!(
             combine(&sub),
@@ -500,14 +510,14 @@ mod tests {
 
     #[test]
     fn sobran_comparticiones_y_sigue_funcionando() {
-        let secreto = b"con mas de las necesarias";
+        let secreto = &[0x5Eu8; 32];
         let comparticiones = split(secreto, 2, 5).unwrap();
         assert_eq!(&combine(&comparticiones).unwrap()[..], &secreto[..]);
     }
 
     #[test]
     fn una_comparticion_alterada_se_detecta() {
-        let comparticiones = split(b"material de clave", 3, 5).unwrap();
+        let comparticiones = split(&[0x3Cu8; 32], 3, 5).unwrap();
         let mut sub = [
             comparticiones[0].clone(),
             comparticiones[1].clone(),
@@ -519,15 +529,15 @@ mod tests {
 
     #[test]
     fn no_se_pueden_mezclar_repartos_distintos() {
-        let a = split(b"clave de sesion AAAA", 2, 3).unwrap();
-        let b = split(b"clave de sesion BBBB", 2, 3).unwrap();
+        let a = split(&[0xAAu8; 32], 2, 3).unwrap();
+        let b = split(&[0xBBu8; 32], 2, 3).unwrap();
         let sub = [a[0].clone(), b[1].clone()];
         assert_eq!(combine(&sub), Err(ShamirError::Inconsistent));
     }
 
     #[test]
     fn indices_repetidos_se_rechazan() {
-        let comparticiones = split(b"clave de sesion 0001", 2, 3).unwrap();
+        let comparticiones = split(&[0x11u8; 32], 2, 3).unwrap();
         let sub = [comparticiones[0].clone(), comparticiones[0].clone()];
         assert_eq!(combine(&sub), Err(ShamirError::Inconsistent));
     }
@@ -563,7 +573,7 @@ mod tests {
 
     #[test]
     fn n_maximo_de_255_comparticiones() {
-        let secreto = b"limite superior de comparticiones";
+        let secreto = &[0x99u8; 32];
         let comparticiones = split(secreto, 2, 255).unwrap();
         assert_eq!(comparticiones.len(), 255);
         assert_eq!(comparticiones[254].index(), 255);
@@ -573,7 +583,7 @@ mod tests {
 
     #[test]
     fn el_umbral_puede_ser_igual_a_n() {
-        let secreto = b"todos o ninguno, sin excepcion";
+        let secreto = &[0x77u8; 48];
         let comparticiones = split(secreto, 4, 4).unwrap();
         assert_eq!(&combine(&comparticiones).unwrap()[..], &secreto[..]);
         let sub = [
@@ -605,7 +615,7 @@ mod tests {
         assert_eq!(Share::from_bytes(&[]), Err(ShamirError::Malformed));
         assert_eq!(Share::from_bytes(b"XXXX"), Err(ShamirError::Malformed));
 
-        let comparticiones = split(b"clave de sesion 0001", 2, 3).unwrap();
+        let comparticiones = split(&[0x11u8; 32], 2, 3).unwrap();
         let buenos = comparticiones[0].to_bytes();
 
         // Magic alterado.
@@ -633,10 +643,21 @@ mod tests {
 
     #[test]
     fn debug_no_filtra_el_material() {
-        let comparticiones = split(b"no debe aparecer", 2, 3).unwrap();
-        let texto = format!("{:?}", comparticiones[0]);
-        assert!(!texto.contains("no debe aparecer"));
-        assert!(texto.contains("threshold"));
+        let comparticiones = split(&[0xDEu8; 32], 2, 3).unwrap();
+        let s = &comparticiones[0];
+        let texto = format!("{s:?}");
+
+        // El material (`y`) no debe aparecer en NINGUNA forma: ni como lista de
+        // bytes ni en hexadecimal. Un `Debug` derivado lo volcaría entero, y un
+        // log de un integrador se llevaría la compartición.
+        let como_lista = format!("{:?}", s.y);
+        let como_hex: String = s.y.iter().map(|b| format!("{b:02x}")).collect();
+        assert!(!texto.contains(&como_lista), "volcó `y` como lista: {texto}");
+        assert!(!texto.contains(&como_hex), "volcó `y` en hex: {texto}");
+
+        // Y sí debe traer lo que sirve para diagnosticar sin filtrar nada.
+        assert!(texto.contains("threshold"), "{texto}");
+        assert!(texto.contains("len"), "{texto}");
     }
 
     // --- propiedades de secreto ---
@@ -645,8 +666,8 @@ mod tests {
     fn comparticiones_distintas_para_el_mismo_secreto() {
         // Dos repartos del mismo secreto no deben coincidir: la sal y los
         // coeficientes son aleatorios. Si coincidieran, habría un RNG muerto.
-        let a = split(b"mismo secreto repetido dos veces", 2, 3).unwrap();
-        let b = split(b"mismo secreto repetido dos veces", 2, 3).unwrap();
+        let a = split(&[0x42u8; 32], 2, 3).unwrap();
+        let b = split(&[0x42u8; 32], 2, 3).unwrap();
         assert_ne!(a[0].y, b[0].y);
         assert_ne!(a[0].salt, b[0].salt);
     }
