@@ -6,6 +6,29 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Shamir secret sharing (`quipu::shamir`)** — split a secret into `n` shares
+  of which any `k` reconstruct it, over GF(2^8) with constant-time field
+  arithmetic (no lookup tables, which would leak through the cache). Exposed to
+  Python as `split_secret` / `combine_secret`.
+
+  This closes residual risk **R2** of the threat model, whose documented
+  mitigation was "offline backup": splitting the OPRF server key into k-of-n
+  shares held separately *is* that backup, done with discipline. It equally
+  covers custody of an integrator's ML-DSA signing key and contractual escrow,
+  and it needs neither network nor HSM — the condition of air-gapped
+  deployments.
+
+  Each share carries a salted 8-byte verifier, so a corrupted share or one from
+  a different split is **detected** instead of silently reconstructing garbage.
+  That verifier lets a holder of one share test a guess of the secret, so this
+  is for **high-entropy key material**; for low-entropy secrets the right module
+  is `honey`. Not threshold signing: the secret is reassembled in memory to be
+  used.
+
+  Cross-validated against an independent implementation using a different
+  approach (log/antilog tables), and against the AES field's known vectors.
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - A non-blocking `worker_threads` wrapper for the Node.js bindings.
