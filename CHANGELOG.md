@@ -6,6 +6,44 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Documented side-channel posture (`docs/SPEC.md` §15)** and **dudect coverage
+  of the post-quantum path**. Two findings worth stating plainly:
+
+  **XChaCha20-Poly1305 is constant-time without a hardware dependency.** It is an
+  ARX construction with no lookup tables, so the guarantee holds *unconditionally*
+  — every architecture, with or without cryptographic hardware. AES has the same
+  property only where the hardware provides it; without AES instructions it falls
+  back to S-box tables indexed by secret bytes, the classic cache-timing channel.
+  On a modern server with AES-NI the two are equivalent; below that line they are
+  not, and **the fallback is silent** — no warning, no test, no API change. In an
+  air-gapped on-premise deployment the hardware belongs to the client and is often
+  unknown to the vendor, so a property that must be verified per machine is not one
+  a specification can promise. §15.2 states this as a table across targets rather
+  than as a blanket claim: a CNSA-conformant profile would be a compliance
+  decision, and on hardware without AES acceleration a regression on this axis.
+
+  **KyberSlash does not apply.** The attack recovered Kyber keys in minutes by
+  exploiting a secret-dependent division; verified in the vendored source that
+  `ml-kem` replaces it with a multiply-and-shift and that its only division is a
+  compile-time constant. `RUSTSEC-2023-0079` is filed against `pqc_kyber`, not
+  used here.
+
+  The bench now measures what the analysis claims: dudect probes over ML-KEM
+  decapsulation, with classes *valid vs corrupted encapsulation* (implicit
+  rejection must be indistinguishable, or a chosen-ciphertext attack opens up)
+  and *two different secret keys* (key-dependent timing). Both report
+  constant-time. Signature verification is deliberately **not** a target — key,
+  message and signature are all public, so its timing reveals no secret — and
+  ML-DSA *signing* is excluded because rejection sampling makes its time vary by
+  specification, which would read as a leak that is not one.
+
+  Also recorded: deep-learning side-channel analysis reports breaking an AES
+  implementation in ~350 traces where a classical template attack needs ~52,000.
+  "The leak is too small to matter" is no longer a defensible position, which is
+  precisely why the defence here is absence of leakage by construction rather
+  than obfuscation of it.
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - A non-blocking `worker_threads` wrapper for the Node.js bindings.

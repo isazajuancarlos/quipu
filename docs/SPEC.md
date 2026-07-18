@@ -439,3 +439,155 @@ pins the algorithm, not the cost. [`tests/vectors.rs`](../tests/vectors.rs)
 recomputes the deterministic vectors and checks the frozen ones on every
 `cargo test`. Regenerate after an intentional format change with
 `cargo run --example gen_vectors --features honey`.
+
+## 15. Side-channel posture
+
+The threat model puts local physical side channels out of scope (N3): Quipu is
+software protecting data at rest, and an attacker with an oscilloscope on the
+CPU is not the adversary it is built against. That is a scoping decision, not an
+excuse to be careless — the primitives are chosen so that the leakage an
+attacker *could* reach is absent by construction rather than merely small.
+
+### 15.1 Why "the leak is small" is no longer a defence
+
+Machine learning does not break the mathematics, but it has collapsed the safety
+margin on implementation leaks. Deep-learning side-channel analysis reports
+compromising an AES implementation in **~350 traces where a classical template
+attack needs ~52,000** — five orders of magnitude, at greater distance. The 2025
+literature further reports that deep-learning attacks break **masked**
+implementations in a black-box setting, without preprocessing to combine
+leakages.
+
+Two consequences shape this section. First, a leak that is "too small to be
+practical" should be assumed practical. Second, masking is not the silver bullet
+it is often taken for: it is provable in the *d*-probing model, but real
+implementations leak through channels that model does not capture.
+
+The conclusion is the one already stated in `THREAT_MODEL` §9 — a trained model
+*amplifies* leaks that exist; it cannot learn a trace that was never emitted.
+The defence is therefore absence of leakage by construction, not obfuscation of
+it.
+
+### 15.2 Symmetric core: constant-time without a hardware dependency
+
+**XChaCha20-Poly1305 is an ARX construction** — additions, rotations and XORs
+only. It has **no lookup tables**, so no memory access depends on secret data.
+The property that matters is not that it is fast, but that it holds
+**unconditionally**: on every architecture, with or without cryptographic
+hardware, in every build configuration.
+
+AES has the same property **only where the hardware provides it**. Where AES
+instructions are absent, a software implementation falls back to S-box lookup
+tables indexed by secret-dependent bytes — the classic cache-timing side channel,
+a practical and published attack rather than a theoretical one.
+
+| Target | AES-256 | XChaCha20-Poly1305 |
+|---|---|---|
+| x86-64 with AES-NI (Westmere, 2010, and later) | constant-time (hardware) | constant-time |
+| x86-64 predating AES-NI | **table-based** | constant-time |
+| ARMv8 with crypto extensions | constant-time (hardware) | constant-time |
+| ARMv7, ARMv8 without extensions, low-cost SBCs | **table-based** | constant-time |
+| RISC-V without the scalar-crypto extension | **table-based** | constant-time |
+| WebAssembly, portable/`no_std` builds | **table-based** | constant-time |
+
+> The table compares **choices, not code paths that ship**. Quipu contains no AES
+> implementation: the AES column describes what a CNSA-conformant profile (§15.5)
+> would inherit if it were built, and is the reason such a profile is not an
+> automatic improvement.
+
+So the honest claim is narrower and stronger than "more resistant than AES". It
+is this: **the guarantee does not depend on the machine the operator happens to
+own.** On a modern server with AES-NI the two are equivalent on this axis; below
+that line they are not, and the difference is silent.
+
+That silence is the point. A build that falls back to table-based AES emits no
+warning, appears in no test, and changes no API. The operator would have to know
+to check — and in an air-gapped on-premise deployment nobody is checking, because
+the hardware belongs to the client, is chosen by the client, and is frequently
+not even known to the vendor. **A property that must be verified per machine is
+not a property a specification can promise.** One that holds unconditionally is.
+
+That is why the divergence from CNSA 2.0 on the symmetric side is deliberate and
+not a gap. A CNSA-conformant profile remains possible (§15.5), but it would be a
+compliance decision, and on hardware without AES acceleration it would be a
+**regression** on this axis, not an improvement.
+
+The same reasoning covers the KDF. HKDF-SHA256 rather than SHA-384/512 is a
+divergence in the *named algorithm*, not in the security level: HKDF's security
+as a PRF does not rest on the collision resistance that separates SHA-256 from
+SHA-384. SHA-2 is table-free in every implementation, so it carries no equivalent
+hardware dependency.
+
+### 15.3 Post-quantum: KyberSlash does not apply
+
+**KyberSlash** (2024) recovered Kyber secret keys — in minutes on a Cortex-A7 —
+by exploiting a **secret-dependent division** present in several implementations,
+including the reference code. A direct implementation divides a secret value by
+the constant `q`, and division is not constant-time on most platforms.
+
+Quipu uses the `ml-kem` crate (RustCrypto), which **avoids this by
+construction**, verified in the vendored source:
+
+- `compress.rs` replaces the division with a multiply-and-shift
+  (`a / q ≈ (a * x) >> s`), the standard constant-time substitution.
+- The only division in the crate is `DIV_MUL`, a **compile-time constant**, never
+  evaluated at runtime on secret data.
+
+`RUSTSEC-2023-0079` (KyberSlash) is filed against `pqc_kyber`, which Quipu does
+not use.
+
+### 15.4 What is actively verified
+
+- **`antihacker::ct_eq`** — constant-time comparison (`subtle`) for every tag and
+  signature check. A meta-test in the Security Lab fails CI if this defence is
+  weakened.
+- **dudect harness** (`lab::timing`, offline bench) — measures Welch's *t*
+  between two input classes sampled *interleaved*, so system drift cancels.
+  It covers `ct_eq`, container `decode`, and the two post-quantum classes where
+  a secret is actually involved:
+  - **valid vs corrupted encapsulation** — ML-KEM's implicit rejection must be
+    indistinguishable in time, or an attacker who can submit ciphertexts and
+    measure gains a validity oracle, which is the way into a chosen-ciphertext
+    attack against the KEM;
+  - **two different secret keys over the same encapsulation** — detects timing
+    correlated with key material itself.
+
+  Both report *constant-time* against the `DUDECT_T_THRESHOLD` of 10, with |*t*|
+  well under 1 on the reference machine. This is the empirical counterpart to the
+  static argument in §15.3: the analysis says the KyberSlash division is absent,
+  and the bench measures no distinguishable timing. Absolute *t* values are
+  machine-dependent and are not part of this specification; the verdict is.
+
+  **Signature verification is deliberately not a dudect target.** The verifying
+  key, the message and the signature are all public, so a timing difference there
+  reveals no secret — measuring it would produce a number and no information.
+- The power-on self-tests (`quipu::selftest`) confirm on the executing binary
+  that `ct_eq` still discriminates — a comparison that always returned `true`
+  would make every tag check decorative.
+
+**ML-DSA *signing* is deliberately not dudect-tested.** ML-DSA uses rejection
+sampling: the number of loop iterations legitimately varies with the sampled
+randomness, so signing time is variable *by specification*. A dudect verdict
+there would report leakage that is a documented property of the algorithm, not a
+defect of this implementation. Verification, which has no rejection loop, is
+tested.
+
+### 15.5 What Quipu does not do, and what to use instead
+
+**Masking / threshold implementations are not implemented.** They are the
+software counterpart of dual-rail precharge logic and cost 2–10× in performance
+and a large increase in complexity, to defend against an adversary the threat
+model excludes (N2, N3) — while §15.1 shows they are not unconditionally
+effective either. The leakage they would close is already closed by primitive
+choice, which is cheaper and auditable.
+
+**Noise, dummy operations and random delays are deliberately absent.** Such
+*hiding* multiplies an attacker's trace count by a constant; more samples average
+the noise away. It costs performance and auditability and changes nothing
+asymptotically.
+
+**For an adversary with physical access, the correct answer is hardware.** A
+software library cannot defend the silicon it runs on. The supported path is to
+keep the private key inside a certified module (PKCS#11 / HSM) so the sensitive
+operation never happens in Quipu's address space — planned as the `Signer` /
+`KeyStore` abstraction with a PKCS#11 reference backend.

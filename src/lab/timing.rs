@@ -212,6 +212,87 @@ pub fn dudect_ct_eq(samples: usize) -> DudectReport {
     DudectReport::from_classes("dudect/ct_eq", &a, &b)
 }
 
+// --- Superficie post-cuántica ------------------------------------------------
+//
+// Qué se mide aquí y qué NO, que es la parte que se suele hacer mal:
+//
+// - `decapsulate` SÍ: toma la clave secreta. Es el único punto del modo
+//   asimétrico donde un tiempo dependiente del secreto es explotable.
+// - La VERIFICACIÓN de firma NO: la clave de verificación, el mensaje y la firma
+//   son todos públicos. Una diferencia de tiempo ahí no revela ningún secreto,
+//   así que medirla daría una cifra bonita y ninguna información.
+// - El FIRMADO ML-DSA tampoco: usa muestreo por rechazo, y el número de
+//   iteraciones varía POR ESPECIFICACIÓN con la aleatoriedad muestreada. Un
+//   veredicto dudect ahí reportaría como fuga una propiedad documentada del
+//   algoritmo, no un defecto de esta implementación.
+
+/// dudect sobre `pqhybrid::decapsulate`: encapsulación VÁLIDA frente a CORRUPTA.
+///
+/// ML-KEM usa rechazo implícito: una encapsulación inválida no falla, devuelve
+/// una clave de contenido distinta. Ese rechazo **debe ser indistinguible en
+/// tiempo** del caso válido. Si no lo fuera, un atacante que pueda someter
+/// ciphertexts al destinatario y medir obtiene un oráculo de validez — la puerta
+/// de entrada a un ataque de texto cifrado elegido contra el KEM.
+///
+/// El par de claves se genera UNA vez, fuera del bucle: generar claves es órdenes
+/// de magnitud más caro que decapsular y ahogaría la señal.
+pub fn dudect_decapsulate_valid_vs_corrupt(samples: usize) -> DudectReport {
+    let (pk, sk) = crate::pqhybrid::generate_keypair();
+    let (_key, valida) = crate::pqhybrid::encapsulate(&pk);
+
+    // Corrompe la parte ML-KEM, no la X25519: es el rechazo implícito de ML-KEM
+    // lo que se está midiendo.
+    let mut corrupta = valida.clone();
+    let ultimo = corrupta.len() - 1;
+    corrupta[ultimo] ^= 0x01;
+
+    let (a, b) = sample_two_classes_interleaved(
+        samples,
+        || {
+            std::hint::black_box(crate::pqhybrid::decapsulate(
+                std::hint::black_box(&sk),
+                std::hint::black_box(&valida),
+            ));
+        },
+        || {
+            std::hint::black_box(crate::pqhybrid::decapsulate(
+                std::hint::black_box(&sk),
+                std::hint::black_box(&corrupta),
+            ));
+        },
+    );
+    DudectReport::from_classes("dudect/decapsulate-valida-vs-corrupta", &a, &b)
+}
+
+/// dudect sobre `pqhybrid::decapsulate` con DOS claves secretas distintas sobre
+/// la misma encapsulación.
+///
+/// Detecta tiempo dependiente de la CLAVE, que es la fuga más directa: si
+/// decapsular con `sk1` tarda sistemáticamente distinto que con `sk2`, el tiempo
+/// está correlacionado con el material secreto.
+pub fn dudect_decapsulate_two_keys(samples: usize) -> DudectReport {
+    let (pk, sk1) = crate::pqhybrid::generate_keypair();
+    let (_pk2, sk2) = crate::pqhybrid::generate_keypair();
+    let (_key, enc) = crate::pqhybrid::encapsulate(&pk);
+
+    let (a, b) = sample_two_classes_interleaved(
+        samples,
+        || {
+            std::hint::black_box(crate::pqhybrid::decapsulate(
+                std::hint::black_box(&sk1),
+                std::hint::black_box(&enc),
+            ));
+        },
+        || {
+            std::hint::black_box(crate::pqhybrid::decapsulate(
+                std::hint::black_box(&sk2),
+                std::hint::black_box(&enc),
+            ));
+        },
+    );
+    DudectReport::from_classes("dudect/decapsulate-dos-claves", &a, &b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
