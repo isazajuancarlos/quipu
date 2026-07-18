@@ -41,6 +41,15 @@ slh = ["dep:fips205"]
 # frases mnemónicas). Opt-in y SIN autenticación por diseño (un tag sería un
 # oráculo de éxito); no es sustituto del núcleo AEAD. Ver `src/honey.rs`.
 honey = []
+# Custodia de claves por umbral (Shamir k-de-n). NO-default: es una
+# herramienta de ESCROW, no del núcleo de cifrado. Aislada tras su propio
+# gate para que quien no la necesite no la lleve compilada — menos
+# superficie expuesta, y ninguna interferencia posible con el resto.
+escrow = []
+# Inyección de fallo en las autopruebas. SOLO para ejercitar el camino de error
+# de punta a punta en CI. Nunca en un build publicado: haría que la librería se
+# negara a operar siempre.
+selftest-fault = []
 
 [dependencies]
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }

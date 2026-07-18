@@ -146,8 +146,23 @@ implementación vive en el spec de cada fase.
 - **Alcance / entregables:**
   - **Versionado/ID de clave** y metadatos de rotación en el formato del
     contenedor (permite re-cifrado/roll-over ordenado).
-  - **Shamir Secret Sharing** (crate vetado, p. ej. `vsss-rs`) para escrow/respaldo
-    de claves con umbral k-de-n.
+  - ~~**Shamir Secret Sharing** (crate vetado, p. ej. `vsss-rs`) para escrow/respaldo
+    de claves con umbral k-de-n.~~ **HECHO** (`src/shamir.rs`), con dos
+    desviaciones deliberadas de este plan, ambas justificadas en el PR:
+    1. **Implementado en el propio repo, no con `vsss-rs`.** Ese crate está
+       construido sobre `elliptic-curve` y reparte escalares de curva; para
+       partir BYTES arrastraba dos subárboles nuevos (`elliptic-curve`, `sha3`)
+       al presupuesto de `cargo-vet`, y su línea 6.0 está en RC. Shamir sobre
+       GF(2^8) son ~200 líneas de algoritmo especificado desde 1979 — está más
+       cerca de implementar HKDF desde su RFC que de inventar cripto.
+    2. ~~**No va tras un feature gate.**~~ **REVERTIDO**: sí va tras `escrow`,
+       como decía este plan. Mi argumento era que un gate lo dejaría fuera de la
+       rueda de PyPI que consume `informes`; el argumento era flojo, porque eso
+       se arregla añadiendo `escrow` a los args de maturin, que es lo que se
+       hizo. El principio que manda es que **una herramienta debe estar contenida
+       a su único fin**: quien cifra datos no necesita repartir claves, y código
+       que no se compila no expone API ni puede interferir con nada. Directiva de
+       Juan, 2026-07-18.
   - Helpers de rotación; integración documentada con KMS/PKI existentes (no se
     construye PKI).
 - **Criterio de éxito:** roll-over de clave con artefactos versionados; recuperar

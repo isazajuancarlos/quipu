@@ -50,7 +50,22 @@ pub struct SecretKey {
 }
 
 /// Genera un par de claves híbrido.
+///
+/// Dispara la autoprueba de arranque una vez por proceso: ninguna clave debe
+/// nacer de un módulo roto. Se engancha aquí, y no en el camino caliente,
+/// porque generar claves ya es caro y raro — 12 ms una sola vez no se notan.
 pub fn generate_keypair() -> (PublicKey, SecretKey) {
+    crate::selftest::ensure();
+    generate_keypair_unchecked()
+}
+
+/// Igual que [`generate_keypair`] pero **sin** disparar la autoprueba.
+///
+/// Existe solo para que `selftest` pueda generar claves DENTRO de la propia
+/// autoprueba: `Once::call_once` no es reentrante, así que llamar a la versión
+/// pública desde ahí bloquearía la hebra para siempre esperando una
+/// inicialización que ella misma está haciendo.
+pub(crate) fn generate_keypair_unchecked() -> (PublicKey, SecretKey) {
     let x_secret = XSecret::random_from_rng(OsRng);
     let x_public = XPublic::from(&x_secret);
     let (ml_dk, ml_ek) = MlKem1024::generate(&mut OsRng);

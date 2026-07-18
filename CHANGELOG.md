@@ -43,6 +43,90 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "The leak is too small to matter" is no longer a defensible position, which is
   precisely why the defence here is absence of leakage by construction rather
   than obfuscation of it.
+- **Shamir secret sharing (`quipu::shamir`, opt-in feature `escrow`)** — split a
+  secret into `n` shares of which any `k` reconstruct it, over GF(2^8) with
+  constant-time field arithmetic (no lookup tables, which would leak through the
+  cache). Exposed to Python as `split_secret` / `combine_secret`; the PyPI wheel
+  and CI enable the feature explicitly.
+
+  It sits behind a non-default gate on principle, not out of caution: a tool
+  should be **contained to its single purpose**. Whoever encrypts data does not
+  need to split keys, and code that is not compiled exposes no API, cannot be
+  invoked by mistake and cannot interfere with anything else.
+
+  This closes residual risk **R2** of the threat model, whose documented
+  mitigation was "offline backup": splitting the OPRF server key into k-of-n
+  shares held separately *is* that backup, done with discipline. It equally
+  covers custody of an integrator's ML-DSA signing key and contractual escrow,
+  and it needs neither network nor HSM — the condition of air-gapped
+  deployments.
+
+  **The integrity tag travels inside what is split, not in the header** —
+  `secret ‖ SHA-256(domain ‖ secret)[0..8]`. That single placement decision is
+  what makes the design hold: with `k-1` shares perfect secrecy covers the whole
+  payload, tag included, so **there is no guessing oracle** — whoever can verify
+  a guess already holds `k` shares, and therefore already holds the secret. A
+  corrupted share, or one from a different split, is still detected: the
+  reconstruction is not the payload and the tag does not match.
+
+  It also makes shares **unlinkable**. The header carries only
+  `magic ‖ threshold ‖ index ‖ length`, so two shares of the same split look no
+  more related than two of different splits. This matters wherever shares for
+  several secrets are stored together: a shared field would partition them into
+  equivalence classes and hand a reader a map of which shares are worth
+  combining.
+
+  An earlier draft put the verifier in the header. That opened an oracle and
+  required four patches to contain it — a minimum length floor, Argon2id
+  hardening, a documented "high-entropy only" caveat, and per-share salts for
+  unlinkability. Moving eight bytes removed all four. Not threshold signing: the
+  secret is reassembled in memory to be used.
+
+  Cross-validated against an independent implementation using a different
+  approach (log/antilog tables), and against the AES field's known vectors.
+- **Power-on self-tests (`quipu::selftest`)** — known-answer tests run against
+  the binary actually executing, not the CI build. A wheel compiled with an odd
+  flag, a broken SIMD backend or a faulty CPU would otherwise go unnoticed:
+  the vectors in `tests/` only ever prove the build that ran them. Certified
+  cryptographic modules — FIPS 140-3 and the Chinese GM/T alike — require this
+  for that reason, and the module **refuses to operate** if a check fails
+  rather than returning silently wrong results.
+
+  Three ways it goes beyond what those standards ask:
+  1. **Published vectors, not vendor-chosen ones.** HKDF-SHA256 is checked
+     against **RFC 5869 test case 1**. A certified module may use vectors of the
+     vendor's own making, which only prove self-consistency; an RFC vector
+     proves conformance to the standard.
+  2. **Negative tests.** It is not enough that the correct path works — tampered
+     ciphertexts, wrong AAD, forged signatures and wrong-key decapsulation must
+     all *fail*. A module that always validated would pass conventional
+     self-tests, which are purely positive.
+  3. **Continuous RNG health.** Two consecutive draws must differ and must not
+     be all zeros — a dead generator is the quietest and most catastrophic
+     failure mode there is.
+
+  14 checks in total, wired into **every entry point that uses the crypto core**
+  — `api::encode`/`decode`, `stream::encrypt`/`decrypt_stream` and both keypair
+  generators. The first call costs ~9 ms (median over 200 runs); every call after
+  it costs **8.7 ns**, which is nothing next to the Argon2id the same function is
+  about to run at 64 MiB.
+
+  **The failure path is treated as a feature, not an afterthought.** A failing
+  self-test is almost never the caller's fault — it means a build compiled for a
+  different CPU, a corrupted or substituted library file, or failing hardware. So
+  the message says that in plain language, states what did *not* happen ("nothing
+  was encrypted, decrypted or saved; your files are intact"), lists probable
+  causes in order, and gives a reporting path. A technical dump would leave a
+  person unsure whether their data was at risk.
+
+  It is also **exercised rather than assumed**: a non-default `selftest-fault`
+  feature forces a check to fail so the whole error path runs in CI, and each
+  check is proven to *discriminate* — flip a bit of the expected vector and it
+  must reject it. A check that always returned `true` would pass a conventional
+  self-test suite exactly like a correct one.
+
+  Backed by `examples/selftest_soak.rs`: 200 sequential passes + 100 concurrent
+  threads + 1000 repeated calls = **1300 simulated operations**, wired into CI.
 
 ### Planned
 - Independent security audit and public remediation of findings.
