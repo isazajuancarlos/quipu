@@ -6,6 +6,31 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Power-on self-tests (`quipu::selftest`)** — known-answer tests run against
+  the binary actually executing, not the CI build. A wheel compiled with an odd
+  flag, a broken SIMD backend or a faulty CPU would otherwise go unnoticed:
+  the vectors in `tests/` only ever prove the build that ran them. Certified
+  cryptographic modules — FIPS 140-3 and the Chinese GM/T alike — require this
+  for that reason, and the module **refuses to operate** if a check fails
+  rather than returning silently wrong results.
+
+  Three ways it goes beyond what those standards ask:
+  1. **Published vectors, not vendor-chosen ones.** HKDF-SHA256 is checked
+     against **RFC 5869 test case 1**. A certified module may use vectors of the
+     vendor's own making, which only prove self-consistency; an RFC vector
+     proves conformance to the standard.
+  2. **Negative tests.** It is not enough that the correct path works — tampered
+     ciphertexts, wrong AAD, forged signatures and wrong-key decapsulation must
+     all *fail*. A module that always validated would pass conventional
+     self-tests, which are purely positive.
+  3. **Continuous RNG health.** Two consecutive draws must differ and must not
+     be all zeros — a dead generator is the quietest and most catastrophic
+     failure mode there is.
+
+  14 checks in total, wired into keypair generation (once per process, ~12 ms)
+  rather than the hot path: no key should ever be born from a broken module.
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - A non-blocking `worker_threads` wrapper for the Node.js bindings.
