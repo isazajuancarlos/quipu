@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Fuente de glifos nativa: genera de forma DETERMINISTA un alfabeto de 94
 //! glifos optimizados por separabilidad (mismo enfoque que scripts/glyph_pipeline.py
 //! pero en Rust), y permite:

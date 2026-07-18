@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Cifrado AEAD: envoltorio fino sobre XChaCha20-Poly1305 (RFC 8439 / extendido).
 //!
 //! AQUÍ VIVE LA SEGURIDAD de la librería. No inventamos cripto: orquestamos una

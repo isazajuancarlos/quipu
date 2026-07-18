@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Rate-limit de ráfaga por API key (token bucket en memoria).
 //!
 //! Es la defensa anti-DoS de corto plazo; la cuota mensual (en `store`) es el

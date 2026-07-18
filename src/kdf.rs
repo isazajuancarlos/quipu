@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Derivación de clave. Precapas del lado de la CLAVE:
 //!   passphrase -> NFKC -> (+ pepper) -> Argon2id -> clave maestra
 //!   clave maestra -> HKDF-SHA256 (etiqueta `info`) -> subclaves independientes.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! OPRF (Oblivious Pseudo-Random Function) sobre ristretto255.
 //!
 //! Modo online: endurece una passphrase de forma que adivinarla requiere

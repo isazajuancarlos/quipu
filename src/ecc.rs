@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Corrección de errores Reed-Solomon (GF(256)) para canales ruidosos
 //! (impreso/fotografiado). Añade paridad que corrige errores en posiciones
 //! DESCONOCIDAS (no solo borrados), hasta `parity/2` por bloque de 255 bytes.

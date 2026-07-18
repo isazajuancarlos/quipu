@@ -2,6 +2,12 @@
 
 Quipu se distribuye bajo un modelo **de licencia dual** (open-core).
 
+> **Titularidad.** Copyright (c) 2024-2026 Juan Carlos Isaza Arenas. Titular
+> único de los derechos patrimoniales; ver [`COPYRIGHT`](COPYRIGHT). Es esa
+> titularidad indivisa la que hace posible la doble licencia — de ahí el CLA de
+> [`CONTRIBUTING.md`](CONTRIBUTING.md). El uso del nombre se rige por
+> [`TRADEMARK.md`](TRADEMARK.md).
+
 ## 0. Qué licencia cubre qué
 
 No todo el repositorio es AGPL. La regla es sencilla: **lo que un cliente del
@@ -54,6 +60,12 @@ Si tu organización quiere:
 - ofrecer un **servicio** basado en Quipu **sin publicar** tu código fuente,
 
 entonces necesitas una licencia comercial. Contacto: **isazajuancarlos@gmail.com**.
+
+Los términos están en [`LICENSE-COMMERCIAL`](LICENSE-COMMERCIAL). En resumen: la
+licencia es anual y exime del copyleft de red; al vencer sin renovar, **conservas
+de forma perpetua el derecho a seguir distribuyendo las versiones recibidas**
+durante la vigencia, pero no las posteriores. La concesión AGPL es permanente y
+no se ve afectada por nada de esto.
 
 ## 3. El servicio gestionado (capa de pago)
 

@@ -3,6 +3,7 @@ name = "quipu-capi"
 version = "0.7.0"
 edition = "2021"
 description = "C ABI (extern \"C\") bindings for the Quipu post-quantum crypto core."
+authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/isazajuancarlos/quipu"
 publish = false

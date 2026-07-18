@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Fuzzer del parser honey: alimenta bytes ADVERSARIOS a `honey::decrypt` y
 //! exige que nunca entre en pánico ni asigne memoria sin cota — solo puede
 //! devolver `Ok(señuelo)` o un error estructural. Un pánico es brecha.

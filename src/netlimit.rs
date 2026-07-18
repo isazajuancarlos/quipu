@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Rate-limiter por IP para el servidor OPRF online.
 //!
 //! Endurece dos problemas del contador ingenuo (hallazgo O3 de la auditoría):

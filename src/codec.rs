@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Codec base-N: convierte una secuencia de bytes en una secuencia de índices
 //! de símbolo (0..N) y viceversa, de forma totalmente reversible.
 //!

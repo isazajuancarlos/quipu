@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Honey Encryption: cifrado con **señuelos** para secretos de baja entropía.
 //!
 //! La idea (Juels & Ristenpart, 2014) es la versión *con demostración* de "una

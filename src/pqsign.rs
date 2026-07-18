@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Firma digital híbrida post-cuántica: Ed25519 (clásico) + ML-DSA-87 (FIPS-204).
 //!
 //! Combina DOS firmas independientes (una clásica, una post-cuántica) sobre el

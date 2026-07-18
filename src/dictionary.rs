@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Diccionario (codebook): biyección entre índices (0..base) e identidades de
 //! símbolo. En v1 la identidad es un `char` (sirve para el fallback ASCII y para
 //! glifos Unicode). El "binario" de un símbolo es su índice (posicional); este

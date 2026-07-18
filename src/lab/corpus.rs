@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Corpus de hallazgos encadenado por hash (candado de INTEGRIDAD).
 //!
 //! Append-only: cada entrada liga el hash de la anterior. Envenenar el historial

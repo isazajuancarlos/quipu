@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Superficie honey: busca un **oráculo de éxito** contra el cifrado con
 //! señuelos. Sobre un contenedor honey válido, el atacante prueba passphrases al
 //! azar. La propiedad a romper: que la passphrase *correcta* se distinga de las

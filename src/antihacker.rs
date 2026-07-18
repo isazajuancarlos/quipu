@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Antihacker: endurecimiento defensivo (defensa en profundidad).
 //!
 //! NO es seguridad por oscuridad: son defensas estándar y públicas que reducen

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Transporte de red para el OPRF (std-only, sin dependencias).
 //!
 //! Protocolo binario mínimo sobre TCP:

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Superficie 2 (banco offline): harness de timing / canales laterales.
 //!
 //! Mide tiempos de operaciones sensibles y compara distribuciones para detectar

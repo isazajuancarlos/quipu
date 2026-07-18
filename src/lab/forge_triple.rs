@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Superficie 4 (triple): falsificación adaptativa contra el modo QSG3.
 //!
 //! Refleja `forge.rs` para el AND 3-de-3: frankensignature sobre cada uno de los

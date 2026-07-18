@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! `quipu-oprf-server`: plano de datos del endurecimiento OPRF/VOPRF de Quipu.
 //!
 //! Expone la primitiva `voprf::Server` (de la lib `quipu`) como una API HTTP

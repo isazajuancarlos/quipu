@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Cliente OPRF de referencia sobre HTTP EN CLARO (sin TLS).
 //!
 //! Sirve al ejemplo (`examples/client.rs`) y al test de integración. En

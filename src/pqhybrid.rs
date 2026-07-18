@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+
 //! Cifrado híbrido post-cuántico: X25519 (clásico) + ML-KEM-1024 (FIPS-203).
 //!
 //! Combina DOS secretos compartidos (uno clásico, uno post-cuántico) vía HKDF
