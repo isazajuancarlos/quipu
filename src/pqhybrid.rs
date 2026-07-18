@@ -13,7 +13,7 @@ use ml_kem::{EncodedSizeUser, KemCore, MlKem1024};
 use rand_core::OsRng;
 use sha2::Sha256;
 use x25519_dalek::{PublicKey as XPublic, StaticSecret as XSecret};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 type MlEk = <MlKem1024 as KemCore>::EncapsulationKey;
 type MlDk = <MlKem1024 as KemCore>::DecapsulationKey;
@@ -89,13 +89,16 @@ impl PublicKey {
 }
 
 impl SecretKey {
-    /// Serializa la clave secreta (X25519 secret || ML-KEM dk). ¡Material
-    /// sensible: protégela!
-    pub fn to_bytes(&self) -> Vec<u8> {
+    /// Serializa la clave secreta (X25519 secret || ML-KEM dk). Devuelve un
+    /// `Zeroizing`: el buffer se borra al soltarse, igual que en `pqsign`, para
+    /// no dejar la serialización del secreto en RAM (paridad de higiene entre
+    /// módulos). `Zeroizing<Vec<u8>>` deref-ea a `&[u8]`, así que los usos
+    /// existentes (PyBytes, `from_bytes`, `.len()`) siguen compilando.
+    pub fn to_bytes(&self) -> Zeroizing<Vec<u8>> {
         let mut v = Vec::with_capacity(SECRET_KEY_LEN);
         v.extend_from_slice(&self.x.to_bytes());
         v.extend_from_slice(&self.ml.as_bytes());
-        v
+        Zeroizing::new(v)
     }
 
     /// Reconstruye la clave secreta desde bytes.
