@@ -54,6 +54,7 @@ quipu-oprf-server serve 127.0.0.1:8787
 |--------|------|------|-------------|
 | GET  | `/healthz` | — | health check |
 | GET  | `/v1/public-key` | — | `{"public_key":"<64hex>"}` para *pinning* |
+| GET  | `/v1/plans` | — | catálogo que aplica ESTE servidor: cuota y límites por plan |
 | POST | `/v1/oprf/evaluate` | `Authorization: Bearer <key>` | body = punto cegado (64 hex) → `{"evaluation":"..","proof":".."}` |
 | POST | `/admin/keys` | `X-Admin-Token` | form `email=..&plan=..` → emite key |
 | POST | `/admin/keys/<prefix>/{activate,deactivate,revoke}` | `X-Admin-Token` | conmuta estado |
@@ -93,7 +94,23 @@ quipu-oprf-server activate   quipu_live_ab12cd34ef56
 quipu-oprf-server revoke     quipu_live_ab12cd34ef56
 ```
 
-Planes (evaluaciones/mes): `beta` 10 000 · `starter` 100 000 · `pro` 1 000 000.
+### Planes
+
+| Plan | Evaluaciones/mes | Ráfaga | Sostenido |
+|---|---|---|---|
+| `starter` | 250 000 | 60 | 30/s |
+| `pro` | 1 500 000 | 200 | 100/s |
+
+Definidos en un solo sitio, [`src/plans.rs`](src/plans.rs), y publicados en
+`GET /v1/plans` para que quien vende pueda comprobar que vende lo que aquí se
+concede. **Estas cifras deben coincidir con las de la web y las de PayPal**: si
+se anuncian 250 000 y se conceden 100 000, el cliente lo descubre al chocar con
+el límite real — y como el SDK falla cerrado, lo descubre con sus usuarios sin
+poder iniciar sesión.
+
+El plan `beta` (10 000) se retiró en 2026-07: la vía gratuita es auto-hospedar
+bajo AGPL, no un plan barato. Una clave con un plan ya desconocido no se queda
+sin servicio: cae a límites conservadores (`plans::FALLBACK`).
 
 ## Cliente de referencia (M4)
 

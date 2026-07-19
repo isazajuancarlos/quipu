@@ -35,15 +35,13 @@ type Resp = Response<Cursor<Vec<u8>>>;
 pub struct Config {
     pub addr: String,
     pub admin_token: Option<String>,
-    pub rate_capacity: f64,
-    pub rate_refill_per_sec: f64,
 }
 
 pub fn serve(store: Store, server_key: voprf::Server, cfg: Config) -> io::Result<()> {
     let http = Server::http(cfg.addr.as_str())
         .map_err(|e| io::Error::other(e.to_string()))?;
     let public_key_hex = to_hex(&server_key.public_key());
-    let mut limiter = RateLimiter::new(cfg.rate_capacity, cfg.rate_refill_per_sec);
+    let mut limiter = RateLimiter::new();
 
     eprintln!("quipu-oprf-server escuchando en http://{}", cfg.addr);
     eprintln!("clave pública (pinnear en el cliente): {public_key_hex}");
@@ -81,6 +79,7 @@ fn route(
         (Method::Get, "/v1/public-key") => {
             json(200, format!("{{\"public_key\":\"{public_key_hex}\"}}"))
         }
+        (Method::Get, "/v1/plans") => json(200, plans_json()),
         (Method::Post, "/v1/oprf/evaluate") => evaluate(req, store, server_key, limiter),
         (Method::Post, "/admin/keys") => admin_issue(req, store, cfg),
         (Method::Post, p) if p.starts_with("/admin/keys/") => {
@@ -88,6 +87,29 @@ fn route(
         }
         _ => text(404, "not found"),
     }
+}
+
+/// Catálogo de planes tal como los aplica ESTE servidor.
+///
+/// Existe para que quien vende pueda comprobar que vende lo que aquí se
+/// concede. El caso real: la web anunciaba 250 000 evaluaciones para `starter`
+/// mientras el servidor otorgaba 100 000 — el 40 % de lo pagado, y como el SDK
+/// falla cerrado, el cliente lo habría descubierto con sus usuarios sin poder
+/// entrar. Publicarlo convierte un descuadre silencioso en algo comprobable.
+///
+/// Es información de producto, no secreta: son los límites que el cliente compra.
+fn plans_json() -> String {
+    let items: Vec<String> = crate::plans::PLANS
+        .iter()
+        .map(|p| {
+            format!(
+                "{{\"name\":\"{}\",\"quota_monthly\":{},\"rate_capacity\":{},\
+                 \"rate_refill_per_sec\":{}}}",
+                p.name, p.quota_monthly, p.rate_capacity, p.rate_refill_per_sec
+            )
+        })
+        .collect();
+    format!("{{\"plans\":[{}]}}", items.join(","))
 }
 
 fn evaluate(
@@ -112,8 +134,13 @@ fn evaluate(
     };
 
     match store.verify(&bearer) {
-        Ok(AuthResult::Valid { key_id, .. }) => {
-            if !limiter.allow(&key_id) {
+        Ok(AuthResult::Valid { key_id, plan, .. }) => {
+            // Los límites salen del PLAN de quien presenta la clave, no de una
+            // constante global: quien paga más recibe más ráfaga. `limits_for`
+            // cae a un valor conservador si el plan no se reconoce, para no
+            // dejar sin servicio a un cliente que ya pagó.
+            let limits = crate::plans::limits_for(&plan);
+            if !limiter.allow(&key_id, limits.rate_capacity, limits.rate_refill_per_sec) {
                 return text(429, "rate limit de ráfaga");
             }
             match server_key.blind_evaluate(&blinded) {
@@ -151,7 +178,15 @@ fn admin_issue(req: &mut Request, store: &Store, cfg: &Config) -> Resp {
         Some(e) if !e.is_empty() => e,
         _ => return text(400, "falta email"),
     };
-    let plan = form_get(&body, "plan").unwrap_or_else(|| "beta".to_string());
+    // El plan es OBLIGATORIO: no se adivina. Antes caía por defecto a "beta",
+    // que además ya no se vende. Suponer el plan de facturación cuando quien
+    // llama no lo dice es el camino directo a emitir una clave con la cuota
+    // equivocada, y el cliente no lo notaría hasta chocar con el límite — con
+    // sus usuarios sin poder iniciar sesión, porque el SDK falla cerrado.
+    let plan = match form_get(&body, "plan") {
+        Some(p) if !p.is_empty() => p,
+        _ => return text(400, "falta plan"),
+    };
     let quota = match quota_for(&plan) {
         Some(q) => q,
         None => return text(400, "plan desconocido"),

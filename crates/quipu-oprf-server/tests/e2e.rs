@@ -30,6 +30,18 @@ fn wait_ready(addr: &str) {
     panic!("el servidor no arrancó en {addr}");
 }
 
+
+/// GET crudo por TCP. El crate no arrastra un cliente HTTP para las pruebas y
+/// no hace falta: la respuesta cabe en una lectura.
+fn get(addr: &str, path: &str) -> String {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(addr).unwrap();
+    write!(s, "GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n").unwrap();
+    let mut buf = String::new();
+    s.read_to_string(&mut buf).unwrap();
+    buf
+}
+
 #[test]
 fn end_to_end_hardening() {
     let seed = [7u8; 32];
@@ -45,8 +57,6 @@ fn end_to_end_hardening() {
     let cfg = Config {
         addr: addr.clone(),
         admin_token: None,
-        rate_capacity: 100.0,
-        rate_refill_per_sec: 100.0,
     };
     {
         let addr = addr.clone();
@@ -92,8 +102,6 @@ fn rejects_unknown_api_key() {
     let cfg = Config {
         addr: addr.clone(),
         admin_token: None,
-        rate_capacity: 100.0,
-        rate_refill_per_sec: 100.0,
     };
     thread::spawn(move || {
         let _ = http::serve(store, server_key, cfg);
@@ -102,4 +110,42 @@ fn rejects_unknown_api_key() {
 
     let bogus = "quipu_live_".to_string() + &"a".repeat(64);
     assert!(client::harden(&addr, &bogus, b"x", &server_pub).is_err());
+}
+
+/// El catálogo publicado debe reflejar EXACTAMENTE lo que el servidor concede.
+/// Es la costura que permite a la web comprobar que vende lo que aquí se otorga:
+/// el descuadre que motivó esto (250 000 anunciadas, 100 000 concedidas) habría
+/// sido invisible sin un sitio donde contrastarlo.
+#[test]
+fn plans_endpoint_publishes_what_the_server_grants() {
+    use quipu_oprf_server::plans;
+
+    let store = Store::open_in_memory().unwrap();
+    let server_key = voprf::Server::from_seed(&[9u8; 32], b"test").unwrap();
+    let addr = free_addr();
+    let cfg = Config {
+        addr: addr.clone(),
+        admin_token: None,
+    };
+    thread::spawn(move || {
+        let _ = http::serve(store, server_key, cfg);
+    });
+    wait_ready(&addr);
+
+    let body = get(&addr, "/v1/plans");
+
+    for p in plans::PLANS {
+        assert!(
+            body.contains(&format!("\"name\":\"{}\"", p.name)),
+            "falta el plan {} en {body}",
+            p.name
+        );
+        assert!(
+            body.contains(&format!("\"quota_monthly\":{}", p.quota_monthly)),
+            "la cuota de {} no coincide con la que concede el servidor: {body}",
+            p.name
+        );
+    }
+    // El plan retirado no puede seguir publicándose.
+    assert!(!body.contains("\"name\":\"beta\""), "beta sigue anunciándose: {body}");
 }

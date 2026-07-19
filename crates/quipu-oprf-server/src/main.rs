@@ -5,7 +5,7 @@
 //!
 //! Administración (camino manual; en producción la pasarela usa /admin vía HTTP):
 //!   QUIPU_OPRF_DB=oprf.db quipu-oprf-server init
-//!   quipu-oprf-server issue <email> [beta|starter|pro]   # imprime la key UNA vez
+//!   quipu-oprf-server issue <email> <starter|pro>          # imprime la key UNA vez
 //!   quipu-oprf-server revoke <prefix>
 //!   quipu-oprf-server deactivate <prefix>
 //!   quipu-oprf-server activate <prefix>
@@ -68,7 +68,7 @@ fn usage() {
     eprintln!(
         "uso:\n  \
          init\n  \
-         issue <email> [beta|starter|pro]\n  \
+         issue <email> <starter|pro>\n  \
          revoke <prefix>\n  \
          deactivate <prefix>\n  \
          activate <prefix>\n  \
@@ -87,7 +87,7 @@ fn run() -> Result<(), String> {
         }
         Some("issue") => {
             let email = args.get(2).ok_or("falta <email>")?;
-            let plan = args.get(3).map(String::as_str).unwrap_or("beta");
+            let plan = args.get(3).map(String::as_str).unwrap_or("starter");
             let quota = quota_for(plan).ok_or_else(|| format!("plan desconocido: {plan}"))?;
             let customer = store
                 .create_customer(email, plan)
@@ -126,11 +126,11 @@ fn run() -> Result<(), String> {
                 .cloned()
                 .or_else(|| std::env::var("QUIPU_OPRF_ADDR").ok())
                 .unwrap_or_else(|| "127.0.0.1:8787".to_string());
+            // Los límites de ráfaga ya no viven aquí: dependen del plan de cada
+            // cliente y se leen de `plans::limits_for` en cada evaluación.
             let cfg = Config {
                 addr,
                 admin_token: std::env::var("QUIPU_OPRF_ADMIN_TOKEN").ok(),
-                rate_capacity: 20.0,
-                rate_refill_per_sec: 10.0,
             };
             http::serve(store, load_server_key(), cfg).map_err(|e| format!("servidor: {e}"))?;
         }

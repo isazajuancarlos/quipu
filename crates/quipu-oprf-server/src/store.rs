@@ -51,6 +51,9 @@ pub enum AuthResult {
         customer_id: String,
         quota_monthly: u64,
         used: u64,
+        /// Plan del cliente. Lo necesita la ruta de evaluación para aplicar los
+        /// límites de ráfaga que le corresponden (ver `plans::limits_for`).
+        plan: String,
     },
     /// Formato inválido o key inexistente (mismo mensaje: no filtrar cuáles existen).
     Unknown,
@@ -159,8 +162,10 @@ impl Store {
         let row = self
             .conn
             .query_row(
-                "SELECT id, customer_id, key_hash, active, quota_monthly, expires_at \
-                 FROM api_key WHERE prefix = ?1",
+                "SELECT k.id, k.customer_id, k.key_hash, k.active, k.quota_monthly, \
+                        k.expires_at, c.plan \
+                 FROM api_key k JOIN customer c ON c.id = k.customer_id \
+                 WHERE k.prefix = ?1",
                 params![prefix],
                 |r| {
                     Ok((
@@ -170,12 +175,13 @@ impl Store {
                         r.get::<_, i64>(3)?,
                         r.get::<_, i64>(4)?,
                         r.get::<_, Option<i64>>(5)?,
+                        r.get::<_, String>(6)?,
                     ))
                 },
             )
             .optional()?;
 
-        let Some((key_id, customer_id, stored_hash, active, quota, expires_at)) = row else {
+        let Some((key_id, customer_id, stored_hash, active, quota, expires_at, plan)) = row else {
             return Ok(AuthResult::Unknown);
         };
 
@@ -202,6 +208,7 @@ impl Store {
             customer_id,
             quota_monthly: quota,
             used,
+            plan,
         })
     }
 
