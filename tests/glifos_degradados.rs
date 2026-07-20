@@ -246,3 +246,116 @@ fn banco_de_degradaciones() {
         rotada * 100.0
     );
 }
+
+// ---------------------------------------------------------------------------
+// ¿El desenfoque es un defecto o era mi forma de medirlo?
+// ---------------------------------------------------------------------------
+//
+// El 34 % de acierto bajo desenfoque que motivó la tarea #90 se midió aplicando
+// una mayoría 3×3 sobre el bitmap de 16×16. En proporción, eso difumina casi un
+// QUINTO del ancho del glifo. Ninguna cámara hace eso.
+//
+// El camino real es otro:
+//
+//   1. el glifo se imprime, así que cada píxel lógico ocupa varios físicos;
+//   2. la óptica difumina unos pocos píxeles FÍSICOS;
+//   3. al reconocer se remuestrea de vuelta a 16×16, y ese remuestreo promedia.
+//
+// El parámetro con sentido físico no es «3×3» sino el radio del desenfoque
+// COMO FRACCIÓN de la celda. Se mide así, barriendo esa fracción.
+
+/// Amplía por vecino más cercano: simula que el glifo se imprime más grande.
+fn ampliar(img: &GrayImage, factor: u32) -> GrayImage {
+    let (w, h) = img.dimensions();
+    let mut out = GrayImage::new(w * factor, h * factor);
+    for y in 0..h * factor {
+        for x in 0..w * factor {
+            out.put_pixel(x, y, *img.get_pixel(x / factor, y / factor));
+        }
+    }
+    out
+}
+
+/// Desenfoque de caja de radio `r` píxeles. Es la óptica de la cámara.
+fn desenfocar_caja(img: &GrayImage, r: u32) -> GrayImage {
+    if r == 0 {
+        return img.clone();
+    }
+    let (w, h) = img.dimensions();
+    let mut out = GrayImage::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let (mut suma, mut n) = (0u32, 0u32);
+            for dy in -(r as i32)..=(r as i32) {
+                for dx in -(r as i32)..=(r as i32) {
+                    let (sx, sy) = (x as i32 + dx, y as i32 + dy);
+                    if sx >= 0 && sy >= 0 && (sx as u32) < w && (sy as u32) < h {
+                        suma += img.get_pixel(sx as u32, sy as u32).0[0] as u32;
+                        n += 1;
+                    }
+                }
+            }
+            out.put_pixel(x, y, Luma([(suma / n.max(1)) as u8]));
+        }
+    }
+    out
+}
+
+#[test]
+fn el_desenfoque_a_escala_realista() {
+    let font = glyphfont::standard();
+    let esperados = indices();
+    let limpia = png_a_gris(&font.render(&esperados));
+
+    // La celda mide 18 px lógicos. Al ampliar ×N, mide 18·N físicos.
+    const AMPLIACION: u32 = 8;
+    let celda_fisica = 18 * AMPLIACION;
+
+    println!("\n  celda impresa = {celda_fisica} px · radio como fracción de celda");
+    println!("  radio    fracción   acierto");
+    println!("  ------   --------   -------");
+
+    let grande = ampliar(&limpia, AMPLIACION);
+    let mut resultados = Vec::new();
+    for radio in [0u32, 2, 4, 8, 16, 24, 32] {
+        let borrosa = desenfocar_caja(&grande, radio);
+        // `normalizar` remuestrea de vuelta a la geometría de 16×16: es el paso
+        // que en el mundo real hace el propio reconocedor.
+        let acierto = match quipu::glyphscan::normalizar(&borrosa, 16, 1) {
+            None => 0.0,
+            Some((n, _)) => compara(font.recognize(&gris_a_png(&n)), &esperados),
+        };
+        let fraccion = radio as f32 / celda_fisica as f32;
+        println!("  {radio:>6}   {:>7.1} %   {:>6.1} %", fraccion * 100.0, acierto * 100.0);
+        resultados.push((fraccion, acierto));
+    }
+
+    // Referencia: la medición que motivó #90 fue una mayoría 3×3 sobre 16×16,
+    // es decir un radio de 1 sobre una celda de 18 → ~5,6 % de la celda.
+    // Si a esa misma fracción el acierto ahora es alto, el 34 % era del método
+    // de medida y no del alfabeto.
+    let (_, a_5pc) = resultados
+        .iter()
+        .min_by(|a, b| (a.0 - 0.056).abs().partial_cmp(&(b.0 - 0.056).abs()).unwrap())
+        .copied()
+        .unwrap();
+    println!("\n  al 5,6 % de la celda —el equivalente del 3×3 sobre 16×16— \
+              el acierto es {:.1} %", a_5pc * 100.0);
+
+    assert_eq!(resultados[0].1, 1.0, "sin desenfoque tiene que ser exacto");
+
+    // EL RESULTADO, fijado: a la fracción de celda que motivó la tarea #90 el
+    // acierto es TOTAL. El 34 % de aquella medición era del método —desenfocar
+    // el bitmap nativo, donde no hay remuestreo que promedie—, no del alfabeto.
+    assert_eq!(
+        a_5pc, 1.0,
+        "el desenfoque al 5,6 % de la celda ya NO es inocuo: eso sí sería un \
+         defecto del alfabeto y hay que reabrir #90"
+    );
+
+    // Y el límite real, para que se sepa dónde está y se note si empeora.
+    let (_, a_11pc) = resultados[4];
+    let (_, a_17pc) = resultados[5];
+    assert!(a_11pc > 0.5, "al 11 % de la celda debería aguantar la mitad largo");
+    assert_eq!(a_17pc, 0.0, "al 17 % la tira ya no se lee: es el límite conocido");
+}
