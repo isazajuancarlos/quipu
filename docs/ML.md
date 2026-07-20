@@ -109,7 +109,14 @@ límite y la pregunta se reabre. No es un no definitivo.
 
 ## 3. Modelar la distribución del secreto en Honey Encryption — **no aporta, y es la peligrosa**
 
-Esta se cierra **por argumento, no por medición**, y conviene que quede dicho.
+De sus dos bloqueos, uno se cierra por argumento y el otro **sí se midió**.
+
+El primero no se puede medir con honestidad: el determinismo en coma flotante
+falla *entre* máquinas, y aquí hay una CPU y un compilador. Un «me dio igual en
+mi portátil» no probaría nada, y sería justo el error de medir lo fácil en vez
+de lo que se afirma.
+
+El segundo sí, y el número es contundente.
 
 Honey Encryption devuelve un secreto falso pero creíble ante cada contraseña
 equivocada, de modo que un atacante no puede confirmar aciertos. Hoy modela el
@@ -128,6 +135,38 @@ dos cosas:
    no coincide con la real, los señuelos se vuelven distinguibles y la propiedad
    que justifica el modo entero desaparece. En los otros dos casos, equivocarse
    cuesta acierto; aquí cuesta la garantía.
+
+**Medido** (`tests/honey_distinguibilidad.rs`, 20 000 simulaciones por fila).
+Secreto: un PIN de cuatro dígitos elegido como los elige una persona —años,
+fechas, `ABAB`, escaleras—. Señuelos: uniformes, como los produce `honey` hoy.
+El atacante ordena los candidatos por «cuánto parece humano»:
+
+| señuelos | acierta al primero | por azar | ventaja | rango mediano |
+|---:|---:|---:|---:|---:|
+| 9 | 73,5 % | 10,00 % | **×7,3** | 1 |
+| 99 | 27,3 % | 1,00 % | **×27,3** | 3 |
+| 999 | 7,0 % | 0,10 % | **×69,8** | 23 |
+
+*Control con secreto uniforme —el caso para el que `honey` está diseñado—:
+ventaja ×1,47, es decir, nada. Sin ese control, los números de arriba podrían
+ser un sesgo del experimento en vez de una propiedad del secreto.*
+
+Dos lecturas:
+
+- Con 999 señuelos, al atacante le basta probar **23 candidatos en vez de
+  1 000**. La protección se reduce 43 veces.
+- **La ventaja CRECE con el número de señuelos** (×7 → ×27 → ×70). Es lo
+  contrario de lo que se busca: generar más señuelos debería proteger más, y
+  como el filtro los elimina a todos por igual mientras el verdadero se queda,
+  protege relativamente menos.
+
+Y la medición es **cota inferior**: el modelo de plausibilidad está escrito de
+memoria, no ajustado sobre datos. Un atacante real, con estadísticas de
+filtraciones masivas, lo hace mejor.
+
+**Conclusión.** Confirma lo que el módulo ya declaraba —`honey` no es para
+secretos no uniformes— y le pone cifra. También fija el listón de la tabla de
+señuelos estática (#91): tendría que llevar ese ×70 cerca de ×1.
 
 ---
 
@@ -165,8 +204,9 @@ función nueva.
 ## Reproducir las mediciones
 
 ```bash
-cargo test --release --test glifos_degradados    -- --nocapture
-cargo test --release --test glifos_separabilidad -- --nocapture
+cargo test --release --test glifos_degradados      -- --nocapture
+cargo test --release --test glifos_separabilidad   -- --nocapture
+cargo test --release --test honey_distinguibilidad -- --nocapture
 ```
 
 Todas deterministas: PRNG propio con semilla fija, sin red, sin datos externos.
