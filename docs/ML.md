@@ -13,7 +13,7 @@ glifos degradados, generar alfabetos, y modelar la distribución del secreto en
 Honey Encryption—. Se cierra con números donde los hay y con el argumento
 explícito donde no, para que la conclusión se pueda discutir en vez de heredar.
 
-Fecha de la medición: **20 de julio de 2026**, contra `0.8.0`.
+Fecha de la medición: **20 de julio de 2026**, contra `0.9.0`.
 
 ---
 

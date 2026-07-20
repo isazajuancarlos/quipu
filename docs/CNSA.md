@@ -12,7 +12,7 @@ no está construido. Se construye cuando un comprador lo pida, no antes.**
 Este documento existe para que la divergencia sea una posición defendible y no
 un hueco que alguien descubra en una evaluación.
 
-Verificado contra el repositorio el 20 de julio de 2026, versión `0.8.0`.
+Verificado contra el repositorio el 20 de julio de 2026, versión `0.9.0`.
 
 ---
 
