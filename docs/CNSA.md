@@ -88,6 +88,34 @@ todavía**, y construirlo antes de que alguien pregunte añade:
 
 ---
 
+## La cuarta vía: una librería hermana
+
+Lo anterior asume que el perfil viviría dentro de `quipu`. Hay una alternativa
+mejor y está anotada como trabajo aparte: **`quipu-cnsa`, una librería hermana**,
+en la relación que Devuan guarda con Debian.
+
+No es una variante ni un flag: es un proyecto con su propio compromiso declarado
+—las primitivas de CNSA 2.0 y la vía FIPS— frente al de `quipu`, que se queda
+con XChaCha20 y su argumento de canal lateral. Dos compromisos, no dos
+configuraciones.
+
+Eso desactiva la objeción de siempre contra los forks. Un fork sin compromiso
+declarado se pudre porque nadie sabe cuándo debe converger; uno con compromiso
+declarado sabe exactamente en qué diverge y en qué no.
+
+**Condición innegociable:** no se copia el repositorio. Se extrae el núcleo
+—formato, contenedor, Padmé, base-N, ECC— como crate agnóstico de primitivas, y
+los dos perfiles quedan encima. Un fallo se arregla una vez. Copiar y dejar
+divergir es cómo mueren los forks, y en criptografía muere con una
+vulnerabilidad corregida en una rama y no en la otra.
+
+Precedente en casa: `quipu-voprf` ya está separado por una razón estructural.
+
+Y la extracción del núcleo **mejora `quipu` aunque la hermana nunca se
+construya**, que es la prueba de que la dirección es correcta.
+
+---
+
 ## Cómo se construiría, si se pide
 
 Especificado ahora para que la decisión futura sea de ejecución y no de diseño.
