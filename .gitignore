@@ -20,7 +20,11 @@ oprf_seed*
 # --- Local del agente / privado ---
 /.claude
 /.remember
+# Volcados de conversación del agente. El ancla a la raíz (/conversaciones) NO
+# cubre las subcarpetas de las integraciones, y ahí se coló una: se ignora
+# conversaciones/ en CUALQUIER nivel.
 /conversaciones
+conversaciones/
 
 # --- Borradores de financiación (estrategia/datos personales, NO públicos) ---
 GRANT_NLNET.md
