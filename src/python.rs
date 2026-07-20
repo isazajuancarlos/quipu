@@ -129,6 +129,101 @@ fn encode_signed(data: &[u8], signing_key: &[u8]) -> PyResult<String> {
     Ok(core_encode_signed(data, &sk, &default_dict()))
 }
 
+/// Firma con una clave que vive en un dispositivo PKCS#11 (HSM, token) y **no
+/// sale de él**. El artefacto es idéntico al de `encode_signed`; lo verifica el
+/// mismo `decode_verified`.
+///
+/// Es la pieza que un comité de seguridad pide: la clave privada nunca cruza a
+/// Python. Este objeto sostiene la sesión con el dispositivo; se crea una vez y
+/// se reutiliza. La aplicación abre y autentica el dispositivo por fuera (con
+/// `python-pkcs11`, `pkcs11-tool`, etc.) y aquí solo se nombran las claves.
+///
+///     firmante = quipu.CustodioHsm(
+///         "/usr/lib64/pkcs11/libkryoptic_pkcs11.so",
+///         pin="1234", ed25519="firma-ed", mldsa="firma-ml")
+///     blob = firmante.encode_signed(datos)          # la clave no entra a Python
+///     msg  = quipu.decode_verified(blob, firmante.verifying_key())
+// `unsendable`: una sesión PKCS#11 está atada al hilo que la abrió —lleva
+// estado de login y punteros del módulo—, así que el objeto no puede viajar
+// entre hilos. No es una limitación que sortear: es la naturaleza del recurso.
+// PyO3 lo hace cumplir en runtime con un error claro si se cruza de hilo, en
+// vez de arriesgar corrupción silenciosa.
+#[cfg(feature = "hsm")]
+#[pyclass(unsendable)]
+struct CustodioHsm {
+    inner: crate::firmante::pkcs11::CustodioPkcs11,
+}
+
+#[cfg(feature = "hsm")]
+#[pymethods]
+impl CustodioHsm {
+    /// Carga el módulo PKCS#11, abre sesión en el primer slot, presenta el PIN
+    /// (si se da) y localiza las dos claves por etiqueta.
+    #[new]
+    #[pyo3(signature = (module, ed25519, mldsa, pin = None))]
+    fn new(module: &str, ed25519: &str, mldsa: &str, pin: Option<&str>) -> PyResult<Self> {
+        use cryptoki::session::UserType;
+        use cryptoki::types::AuthPin;
+
+        let ctx = pkcs11_contexto(module)?;
+        let slot = *ctx
+            .get_all_slots()
+            .map_err(|e| PyOSError::new_err(format!("slots PKCS#11: {e}")))?
+            .first()
+            .ok_or_else(|| PyOSError::new_err("el módulo PKCS#11 no expone ningún slot"))?;
+        let sesion = ctx
+            .open_rw_session(slot)
+            .map_err(|e| PyOSError::new_err(format!("abrir sesión PKCS#11: {e}")))?;
+        if let Some(p) = pin {
+            sesion
+                .login(UserType::User, Some(&AuthPin::new(p.into())))
+                .map_err(|e| PyValueError::new_err(format!("login PKCS#11: {e}")))?;
+        }
+        let inner = crate::firmante::pkcs11::CustodioPkcs11::por_etiqueta(sesion, ed25519, mldsa)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    /// Firma `data` dentro del dispositivo y devuelve el artefacto codificado.
+    fn encode_signed(&self, data: &[u8]) -> PyResult<String> {
+        crate::api::encode_signed_con_custodio(data, &self.inner, &default_dict())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// La clave pública de la identidad del dispositivo, para `decode_verified`.
+    fn verifying_key<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        use crate::firmante::Custodio;
+        let vk = self
+            .inner
+            .clave_de_verificacion()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyBytes::new(py, &vk.to_bytes()))
+    }
+}
+
+/// Contexto PKCS#11 único del proceso. `C_Initialize` solo puede llamarse una
+/// vez por librería cargada, así que se comparte; si se pide otro módulo
+/// distinto al ya cargado, se avisa en vez de fallar de forma opaca.
+#[cfg(feature = "hsm")]
+fn pkcs11_contexto(module: &str) -> PyResult<&'static cryptoki::context::Pkcs11> {
+    use cryptoki::context::{CInitializeArgs, CInitializeFlags, Pkcs11};
+    use std::sync::OnceLock;
+    static CTX: OnceLock<(String, Pkcs11)> = OnceLock::new();
+    let (cargado, ctx) = CTX.get_or_init(|| {
+        let p = Pkcs11::new(module).expect("cargar el módulo PKCS#11");
+        p.initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
+            .expect("initialize PKCS#11");
+        (module.to_string(), p)
+    });
+    if cargado != module {
+        return Err(PyOSError::new_err(format!(
+            "ya hay un módulo PKCS#11 cargado en este proceso ({cargado}); \
+             no se puede cargar además {module}"
+        )));
+    }
+    Ok(ctx)
+}
+
 /// Verifica la firma de un artefacto contra la clave de verificación FIJADA y,
 /// solo si valida, devuelve el mensaje. Lanza `ValueError` si no verifica.
 #[pyfunction]
@@ -302,6 +397,8 @@ fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate_signing_keypair, m)?)?;
     m.add_function(wrap_pyfunction!(encode_signed, m)?)?;
     m.add_function(wrap_pyfunction!(decode_verified, m)?)?;
+    #[cfg(feature = "hsm")]
+    m.add_class::<CustodioHsm>()?;
     m.add_function(wrap_pyfunction!(encrypt_stream, m)?)?;
     m.add_function(wrap_pyfunction!(decrypt_stream, m)?)?;
     m.add_function(wrap_pyfunction!(glyph_min_distance, m)?)?;

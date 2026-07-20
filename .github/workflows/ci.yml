@@ -204,3 +204,24 @@ jobs:
       - name: Test
         working-directory: bindings/go
         run: CGO_ENABLED=1 go test -v ./...
+
+  hsm:
+    name: HSM (PKCS#11 contra kryoptic)
+    runs-on: ubuntu-latest
+    # kryoptic con ML-DSA exige OpenSSL 3.5; ubuntu-latest trae 3.0. Fedora 43 ya
+    # empaqueta kryoptic con la feature `pqc` y el módulo en /usr/lib64/pkcs11.
+    container: fedora:43
+    steps:
+      - uses: actions/checkout@v7
+      - name: Instalar kryoptic y el toolchain de Rust
+        # kryoptic trae libkryoptic_pkcs11.so; cargo/gcc para compilar quipu.
+        # cryptoki carga el .so por dlopen en runtime, así que aquí no hace falta
+        # OpenSSL en tiempo de compilación de quipu.
+        run: dnf install -y kryoptic cargo gcc
+      - name: Prueba del custodio PKCS#11
+        # Firma DENTRO del token y verifica con el verificador puro de quipu.
+        env:
+          QUIPU_PKCS11_MODULE: /usr/lib64/pkcs11/libkryoptic_pkcs11.so
+          KRYOPTIC_CONF: ${{ runner.temp }}/kryoptic-token.sql
+        # --test-threads=1: C_Initialize del módulo es un singleton del proceso.
+        run: cargo test --features hsm --test hsm_pkcs11 -- --test-threads=1
