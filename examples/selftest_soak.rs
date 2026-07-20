@@ -100,7 +100,7 @@ fn main() {
         let tx = tx.clone();
         std::thread::spawn(move || {
             selftest::ensure();
-            let (_pk, _sk) = quipu::pqhybrid::generate_keypair();
+            let (_pk, _sk) = quipu::pqhybrid::generate_keypair().unwrap();
             let (_vk, _sk2) = quipu::pqsign::generate_keypair();
             listas.fetch_add(1, Ordering::SeqCst);
             let _ = tx.send(());

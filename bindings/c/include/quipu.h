@@ -19,6 +19,12 @@ enum quipu_status
     QUIPU_ERR_KEY = -3,
     QUIPU_ERR_CHUNK = -4,
     QUIPU_ERR_INTERNAL = -5,
+    /* The OS could not provide randomness. NO key was generated and nothing
+       was encrypted: Quipu never substitutes a weaker source. Usually
+       deterministic and caused by the deployment (seccomp blocking getrandom,
+       a chroot without /dev/urandom, a target with no entropy source), so
+       retrying rarely helps. */
+    QUIPU_ERR_NO_ENTROPY = -6,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L

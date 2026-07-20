@@ -68,8 +68,8 @@ fn main() {
     // -------------------------------------------------------------------------
     // 5) Modo asimétrico POST-CUÁNTICO (cifrar a una clave pública).
     // -------------------------------------------------------------------------
-    let (pk, sk) = pqhybrid::generate_keypair();
-    let enc_pq = encode_to_recipient(secret, &pk, &dict);
+    let (pk, sk) = pqhybrid::generate_keypair().expect("el sistema debe dar entropia");
+    let enc_pq = encode_to_recipient(secret, &pk, &dict).expect("el sistema debe dar entropia");
     let dec_pq = decode_as_recipient(&enc_pq, &sk, &dict).expect("decapsular con la clave secreta");
     assert_eq!(dec_pq, secret, "round-trip post-cuántico");
     println!("[5] Post-cuántico (X25519 + ML-KEM-1024) -> round-trip OK ✔\n");

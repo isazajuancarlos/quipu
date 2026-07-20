@@ -167,7 +167,7 @@ pub fn encrypt(
     }
 
     let mut salt = [0u8; SALT_LEN];
-    getrandom::getrandom(&mut salt).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut salt).expect("RNG del sistema");
 
     let ks = keystream_digits(
         passphrase,

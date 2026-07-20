@@ -21,7 +21,7 @@ const OPRF_DOMAIN: &[u8] = b"quipu/v2/oprf";
 
 fn random_scalar() -> Scalar {
     let mut b = [0u8; 64];
-    getrandom::getrandom(&mut b).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut b).expect("RNG del sistema");
     Scalar::from_bytes_mod_order_wide(&b)
 }
 

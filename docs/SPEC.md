@@ -167,6 +167,21 @@ from the KEM.
 | ML-KEM-1024 ciphertext (ct) | 1568 |
 | Hybrid public key (X25519 pub ‖ ek) | 1600 |
 | Encapsulation (eph X25519 pub ‖ ct) | 1600 |
+| ML-KEM-1024 decapsulation key **seed** | 64 |
+| Hybrid secret key (X25519 secret ‖ dk seed) | **96** |
+
+> **Secret-key serialization changed in 0.9.0.** Up to and including 0.8.0 the
+> decapsulation key was stored in its *expanded* form (3168 bytes), making the
+> hybrid secret key 3200 bytes. `ml-kem` 0.3 stores the 64-byte **seed** it is
+> derived from and deprecated the expanded form, so the hybrid secret key is now
+> 96 bytes.
+>
+> **Both are read; only the new one is written.** `SecretKey::from_bytes`
+> accepts either length — 96 or 3200 — and `to_bytes` always emits 96, so any
+> key that passes through is migrated. A secret key is the one thing a user
+> cannot regenerate: losing it loses everything encrypted to it, so breaking it
+> silently was not an option. Public keys, ciphertexts and the symmetric
+> container are **unchanged** (`tests/vectors.rs` still passes byte-for-byte).
 
 ### 7.2 Encapsulation and key combination
 

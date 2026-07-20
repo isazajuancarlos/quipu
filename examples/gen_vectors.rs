@@ -212,9 +212,9 @@ fn main() {
     ]);
 
     // ---- congelado: post-cuántico (dirección descifrado) ----
-    let (pk, sk) = pqhybrid::generate_keypair();
+    let (pk, sk) = pqhybrid::generate_keypair().expect("el sistema debe dar entropia");
     let pq_pt = b"secreto post-cuantico X25519+ML-KEM-1024";
-    let pq_symbols = encode_to_recipient(pq_pt, &pk, &dict);
+    let pq_symbols = encode_to_recipient(pq_pt, &pk, &dict).expect("el sistema debe dar entropia");
     assert_eq!(decode_as_recipient(&pq_symbols, &sk, &dict).unwrap(), pq_pt);
     let pq_vectors = json!([
         {

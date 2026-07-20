@@ -36,6 +36,12 @@ pub enum quipu_status {
     QUIPU_ERR_KEY = -3,
     QUIPU_ERR_CHUNK = -4,
     QUIPU_ERR_INTERNAL = -5,
+    /// The operating system could not provide randomness. **No key was
+    /// generated and nothing was encrypted**: Quipu never substitutes a weaker
+    /// source. Usually deterministic and caused by the deployment — a seccomp
+    /// policy blocking `getrandom`, a chroot without `/dev/urandom`, or a
+    /// target with no entropy source — so retrying rarely helps.
+    QUIPU_ERR_NO_ENTROPY = -6,
 }
 use quipu_status::*;
 
@@ -357,7 +363,9 @@ pub unsafe extern "C" fn quipu_generate_keypair(
         if pk.is_null() || pk_len.is_null() || sk.is_null() || sk_len.is_null() {
             return QUIPU_ERR_NULL_ARG as i32;
         }
-        let (public, secret) = pqhybrid::generate_keypair();
+        let Ok((public, secret)) = pqhybrid::generate_keypair() else {
+            return QUIPU_ERR_NO_ENTROPY as i32;
+        };
         unsafe {
             write_bytes(public.to_bytes(), pk, pk_len);
             // to_bytes() ahora devuelve Zeroizing<Vec<u8>> (higiene, capa 2);
@@ -399,7 +407,9 @@ pub unsafe extern "C" fn quipu_encrypt_to_recipient(
             Some(k) => k,
             None => return QUIPU_ERR_KEY as i32,
         };
-        let s = core_encode_pq(data, &public, &default_dict());
+        let Ok(s) = core_encode_pq(data, &public, &default_dict()) else {
+            return QUIPU_ERR_NO_ENTROPY as i32;
+        };
         unsafe { write_string(s, out) }
     })
 }
