@@ -64,6 +64,33 @@ conjeturas de un secreto adivinable, así que el módulo **rechaza secretos más
 cortos que el material de clave más pequeño que produce la propia arquitectura**
 (`kdf::KEY_LEN`, 32 bytes): es para claves, y para lo adivinable está `honey`. No es firma umbral — el secreto se reconstruye en memoria para usarlo.
 
+## Firma en un dispositivo (HSM/PKCS#11, feature `hsm`)
+
+La clave privada de firma puede vivir en un **HSM, token o tarjeta PKCS#11 y no
+salir de ahí**. Es la respuesta a la primera pregunta de un comité de seguridad,
+y funciona con la firma híbrida completa: las **dos mitades** —Ed25519 y
+ML-DSA-87— se generan y se usan **dentro** del dispositivo; de la librería solo
+salen firmas y la clave pública.
+
+El trait `firmante::Custodio` separa *quién guarda la clave* de *cómo se arma la
+firma*. Pide operaciones, nunca material: no existe forma de sacar la clave,
+porque el punto entero es que no salga. Una firma hecha en un HSM y una hecha en
+memoria son **idénticas byte a byte** y las verifica el mismo verificador.
+
+```rust
+// El custodio en memoria de siempre (predeterminado, sin feature):
+let firma = firmante::firmar(&firmante::EnMemoria::nuevo(sk), mensaje)?;
+
+// O contra un dispositivo PKCS#11, con la clave dentro (feature `hsm`):
+let custodio = CustodioPkcs11::por_etiqueta(sesion, "firma-ed", "firma-ml")?;
+let firma = firmante::firmar(&custodio, mensaje)?;  // la clave nunca cruza aquí
+```
+
+Con `escrow`, `firmar_con_comparticiones` reconstruye desde Shamir, firma y
+borra en una sola llamada de Rust, sin que la clave cruce a los bindings.
+Probado de punta a punta —128 firmas concurrentes contra un token real, cada una
+verificada— y en el binding de Python (`quipu.CustodioHsm`), que va en la rueda.
+
 ## Diccionarios (simbología enchufable)
 
 - `dictionaries::ascii94()` — 94 símbolos ASCII (copy-paste universal).
@@ -88,6 +115,15 @@ representación.
   binding de contexto (AAD), HKDF (separación de subclaves).
 - **Antihacker**: borrado de claves en memoria (`zeroize`), comparación en tiempo
   constante, validación de parámetros KDF, errores uniformes.
+- **Fallo de entropía, no sustitución silenciosa**: cuando el sistema operativo
+  no puede dar aleatoriedad, Quipu **no cae a una fuente más débil** — ninguna
+  clave nace de un RNG muerto. El fallo se informa como un error accionable
+  (¿reintento yo, o arreglo el despliegue?) con un reintento acotado para el
+  único caso transitorio, en vez de un `panic`: así la limpieza de memoria
+  (`Drop`/zeroize) se ejecuta incluso ahí, que es justo cuando más importa. Es
+  el modo de fallo de Debian OpenSSL 2008 —claves predecibles que *parecen*
+  correctas— prevenido por construcción, y hay una autoprueba que avisa al
+  arrancar en vez de matar el proceso.
 - **Autopruebas de arranque** (`quipu::selftest`): 14 vectores de respuesta
   conocida sobre **el binario que realmente se ejecuta**, no sobre el build de
   CI. Corren una vez por proceso al entrar por cualquier punto del núcleo, y si
