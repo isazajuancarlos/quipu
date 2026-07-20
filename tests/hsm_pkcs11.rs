@@ -143,3 +143,143 @@ fn dos_firmas_del_mismo_mensaje_verifican_ambas() {
     let vk = custodio.clave_de_verificacion().unwrap();
     assert!(vk.verify(mensaje, &a) && vk.verify(mensaje, &b), "una de las dos no verifica");
 }
+
+// ===================== Soak de la directiva 8 =====================
+//
+// 100+ operaciones, concurrencia con timeout, camino de error inyectado, y
+// prueba de que DISCRIMINA. El modelo de concurrencia no es una elección: el
+// contexto `Pkcs11` es `Arc` y se comparte; la `Session` es `Send` pero NO
+// `Sync`, así que cada hilo abre y posee la SUYA. Es como lo usaría un servicio.
+
+use std::sync::mpsc;
+use std::time::Duration;
+
+/// Crea el token y DOS claves persistentes etiquetadas, una sola vez. Las
+/// devuelve por etiqueta para que cada hilo las encuentre por su cuenta.
+fn preparar_etiquetado(modulo: &str) -> (&'static Pkcs11, cryptoki::slot::Slot) {
+    let p = contexto(modulo);
+    let slot = *p.get_all_slots().expect("slots").first().expect("un slot");
+    let so = AuthPin::new("12345678".into());
+    p.init_token(slot, &so, "quipu-soak").expect("init_token");
+    let s = p.open_rw_session(slot).expect("sesión RW");
+    s.login(UserType::So, Some(&so)).expect("login SO");
+    let user = AuthPin::new("87654321".into());
+    s.init_pin(&user).expect("init_pin");
+    s.logout().ok();
+    s.login(UserType::User, Some(&user)).expect("login usuario");
+
+    let ed_oid = [0x06u8, 0x03, 0x2b, 0x65, 0x70];
+    s.generate_key_pair(
+        &Mechanism::EccEdwardsKeyPairGen,
+        &[Attribute::EcParams(ed_oid.to_vec()), Attribute::Verify(true),
+          Attribute::Token(true), Attribute::Label(b"soak-ed".to_vec())],
+        &[Attribute::Sign(true), Attribute::Token(true), Attribute::Private(true),
+          Attribute::Label(b"soak-ed".to_vec())],
+    ).expect("Ed25519");
+    s.generate_key_pair(
+        &Mechanism::MlDsaKeyPairGen,
+        &[Attribute::ParameterSet(MlDsaParameterSetType::ML_DSA_87.into()),
+          Attribute::Verify(true), Attribute::Token(true), Attribute::Label(b"soak-ml".to_vec())],
+        &[Attribute::Sign(true), Attribute::Token(true), Attribute::Private(true),
+          Attribute::Label(b"soak-ml".to_vec())],
+    ).expect("ML-DSA-87");
+    (p, slot)
+}
+
+/// Un hilo abre su propia sesión, firma `n` mensajes distintos y verifica cada
+/// uno. Devuelve cuántas firmas verificaron.
+///
+/// NO hace login: en PKCS#11 el login es por APLICACIÓN, no por sesión —una
+/// sesión guardiana lo mantiene vivo y esta lo hereda—. Volver a autenticar
+/// daría `CKR_USER_ALREADY_LOGGED_IN`.
+fn hilo_firmante(p: &'static Pkcs11, slot: cryptoki::slot::Slot, hilo: usize, n: usize) -> usize {
+    let s = p.open_rw_session(slot).expect("sesión del hilo");
+    let custodio = CustodioPkcs11::por_etiqueta(s, "soak-ed", "soak-ml").expect("custodio por etiqueta");
+    let vk = custodio.clave_de_verificacion().expect("vk");
+    let mut ok = 0;
+    for i in 0..n {
+        let mensaje = format!("soak hilo {hilo} op {i}");
+        let firma = firmar(&custodio, mensaje.as_bytes()).expect("firmar bajo carga");
+        // Verifica el mensaje propio (discrimina) y RECHAZA otro.
+        assert!(vk.verify(mensaje.as_bytes(), &firma), "no verificó bajo carga");
+        assert!(!vk.verify(b"mensaje ajeno", &firma), "verificó un mensaje que no era");
+        ok += 1;
+    }
+    ok
+}
+
+/// El soak. 8 hilos x 16 firmas = 128 operaciones concurrentes, con timeout.
+#[test]
+fn soak_directiva8_concurrente_con_timeout() {
+    let Some(m) = modulo() else { return };
+    const HILOS: usize = 8;
+    const POR_HILO: usize = 16; // 128 operaciones, > 100
+
+    // Todo el soak corre en un hilo aparte con timeout: sin él, un deadlock del
+    // token parecería una compilación lenta (trampa documentada del proyecto).
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let (p, slot) = preparar_etiquetado(&m);
+        // Sesión guardiana: mantiene el login de aplicación vivo mientras los
+        // hilos trabajan. Los hilos heredan ese login sin re-autenticar.
+        let guardiana = p.open_rw_session(slot).expect("sesión guardiana");
+        guardiana
+            .login(UserType::User, Some(&AuthPin::new("87654321".into())))
+            .expect("login guardiana");
+
+        let manijas: Vec<_> = (0..HILOS)
+            .map(|h| std::thread::spawn(move || hilo_firmante(p, slot, h, POR_HILO)))
+            .collect();
+        // join devuelve Err si un hilo entró en pánico; se propaga como total 0
+        // para que el assert de abajo lo cace, sin abortar el hilo guardián.
+        let total: usize = manijas
+            .into_iter()
+            .map(|h| h.join().unwrap_or(0))
+            .sum();
+        drop(guardiana); // el login se suelta cuando ya nadie firma
+        tx.send(total).ok();
+    });
+
+    match rx.recv_timeout(Duration::from_secs(120)) {
+        Ok(total) => assert_eq!(total, HILOS * POR_HILO, "faltaron firmas: {total} de {}", HILOS * POR_HILO),
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            panic!("el soak no terminó en 120 s: posible deadlock del token")
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            panic!("un hilo del soak entró en pánico (canal cortado antes de enviar)")
+        }
+    }
+}
+
+/// Camino de error INYECTADO contra el dispositivo real: sin login, PKCS#11 no
+/// expone las claves privadas, así que construir el custodio DEBE fallar en vez
+/// de acabar firmando con una clave que no está. Es un error permanente
+/// (hay que autenticarse; reintentar la misma llamada no lo arregla).
+///
+/// La discriminación transitorio/permanente en sí —qué códigos de error mapean
+/// a qué variante— está probada aparte, a nivel unitario, en `firmante` con
+/// mocks; aquí se comprueba que un error de dispositivo de verdad SUBE como
+/// error y no se traga.
+#[test]
+fn error_de_dispositivo_sube_en_vez_de_firmar_a_ciegas() {
+    let Some(m) = modulo() else { return };
+    let (p, slot) = preparar_etiquetado(&m);
+
+    // Sesión SIN login: las claves privadas no son visibles.
+    let s = p.open_rw_session(slot).expect("sesión");
+    match CustodioPkcs11::por_etiqueta(s, "soak-ed", "soak-ml") {
+        Err(e) => {
+            // Cualquiera de las dos variantes de error es correcta; lo que NO
+            // puede es construirse y luego firmar con nada.
+            eprintln!("sin login, construir el custodio falla como debe: {e}");
+        }
+        Ok(custodio) => {
+            // Si el módulo dejó ver las claves sin login, al menos firmar debe
+            // fallar; jamás debe producir una firma silenciosa.
+            match firmar(&custodio, b"sin autenticar") {
+                Err(e) => eprintln!("sin login, firmar falla como debe: {e}"),
+                Ok(_) => panic!("firmó sin autenticación: no discrimina el fallo"),
+            }
+        }
+    }
+}
