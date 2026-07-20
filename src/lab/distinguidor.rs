@@ -155,6 +155,61 @@ impl Veredicto {
     }
 }
 
+/// Rondas de una medición repetida, y cuántas tienen que acusar para que cuente.
+const RONDAS: usize = 3;
+const RONDAS_PARA_ACUSAR: usize = 2;
+
+/// Repite una medición con muestras NUEVAS y solo acusa si la mayoría acusa.
+///
+/// Existe porque las muestras que salen de Quipu no son reproducibles: el
+/// cifrado pide sal y nonce al sistema, así que cada corrida es un experimento
+/// nuevo. Eso es deseable —cada CI vuelve a preguntar, en vez de repetir una
+/// respuesta congelada— pero tiene un precio: bajo la hipótesis de que no hay
+/// fuga, el sigma reportado es una gaussiana estándar, y cruza 3 por azar
+/// aproximadamente una vez de cada mil.
+///
+/// Una vez de cada mil es demasiado para una prueba cuyo mensaje de fallo dice
+/// «brecha». Con dos de tres rondas la falsa alarma baja a una de cada millón,
+/// y **no esconde nada**: una fuga real da 20σ en todas las rondas, no en una.
+/// Es el mismo criterio del reintento de `aleatorio`: reintentar solo sirve si
+/// discrimina lo transitorio de lo permanente.
+///
+pub fn medir_repetido(mut experimento: impl FnMut() -> Veredicto) -> VeredictoRepetido {
+    let mut veredictos: Vec<Veredicto> = (0..RONDAS).map(|_| experimento()).collect();
+    let rondas_que_acusan = veredictos.iter().filter(|v| v.distingue()).count();
+    veredictos.sort_by(|a, b| b.sigmas().total_cmp(&a.sigmas()));
+    VeredictoRepetido { peor: veredictos.remove(0), rondas_que_acusan }
+}
+
+/// El resultado de una medición repetida.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VeredictoRepetido {
+    /// La ronda más acusadora — la que hay que mirar si algo falla.
+    pub peor: Veredicto,
+    /// Cuántas de las [`RONDAS`] superaron el umbral por su cuenta.
+    pub rondas_que_acusan: usize,
+}
+
+impl VeredictoRepetido {
+    /// Si la mayoría de las rondas acusa.
+    ///
+    /// El criterio vive aquí y no en cada llamante a propósito: si estuviera
+    /// repetido en cada prueba, cambiarlo exigiría acordarse de todas.
+    pub fn distingue(&self) -> bool {
+        self.rondas_que_acusan >= RONDAS_PARA_ACUSAR
+    }
+}
+
+impl core::fmt::Display for VeredictoRepetido {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{} — acusan {} de {RONDAS} rondas",
+            self.peor, self.rondas_que_acusan
+        )
+    }
+}
+
 impl core::fmt::Display for Veredicto {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
@@ -318,6 +373,75 @@ mod tests {
         assert!(v.acierto > 0.9, "acierto pobre ante una fuga obvia: {v}");
     }
 
+    /// Cien rondas del experimento sobre Quipu, para ver si el sigma está
+    /// centrado en cero o desplazado.
+    ///
+    /// No lo corre el CI (`#[ignore]`, ~30 s): es el instrumento que distingue
+    /// «prueba con ruido de muestreo» de «fuga pequeña pero real». Si la media
+    /// se aleja de 0, el mecanismo de mayoría estaría tapando algo y habría que
+    /// mirar el cifrador, no el umbral.
+    ///
+    /// ```text
+    /// cargo test --release --features lab --lib distribucion -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "instrumento de medida, ~30 s"]
+    fn distribucion_del_sigma_sobre_muestras_frescas() {
+        const RONDAS_SIM: usize = 100;
+        let mut rng = Rng::seeded(0x51_0000_0000);
+        let mut sigmas = Vec::with_capacity(RONDAS_SIM);
+        for _ in 0..RONDAS_SIM {
+            let cifrado = muestras_de_ciphertext(&mut rng, 200, 256);
+            let azar = muestras_pseudoaleatorias(&mut rng, 200, 256);
+            sigmas.push(entrenar_y_evaluar(&cifrado, &azar).sigmas());
+        }
+        let media = sigmas.iter().sum::<f64>() / RONDAS_SIM as f64;
+        let var = sigmas.iter().map(|s| (s - media).powi(2)).sum::<f64>() / RONDAS_SIM as f64;
+        let pasan_3 = sigmas.iter().filter(|s| **s >= 3.0).count();
+        println!(
+            "\n  {RONDAS_SIM} rondas: media {media:+.3}σ, desviación {:.3}, \
+             {pasan_3} por encima de 3σ",
+            var.sqrt()
+        );
+        assert!(
+            media.abs() < 0.5,
+            "el sigma NO está centrado en cero (media {media:+.3}σ): hay señal \
+             sistemática, no ruido de muestreo. Mirar el cifrador, no el umbral"
+        );
+    }
+
+    #[test]
+    fn la_repeticion_no_tapa_una_fuga_real() {
+        // Que `medir_repetido` exija dos de tres rondas baja la falsa alarma,
+        // pero solo sirve si NO amortigua lo que sí hay. Una fuga real acusa en
+        // las tres, no en una: por eso la mayoría es un filtro de ruido y no un
+        // silenciador.
+        let mut rng = Rng::seeded(0xF11A6E);
+        let v = medir_repetido(|| {
+            let rotos = muestras_con_fuga_sembrada(&mut rng, 400, 256);
+            let azar = muestras_pseudoaleatorias(&mut rng, 400, 256);
+            entrenar_y_evaluar(&rotos, &azar)
+        });
+        assert!(v.distingue(), "la mayoría no acusó una fuga evidente: {v}");
+        assert_eq!(v.rondas_que_acusan, RONDAS, "no acusó en TODAS: {v}");
+    }
+
+    #[test]
+    fn la_repeticion_exige_mayoria_y_no_una_sola_ronda() {
+        // Que una ronda suelta acuse no basta: es justo el caso de la falsa
+        // alarma que motivó el mecanismo. Se simula con un experimento que
+        // acusa solo la primera vez.
+        let mut vuelta = 0;
+        let v = medir_repetido(|| {
+            vuelta += 1;
+            // sigma = 0,025 → 10σ en la primera ronda, 0σ en las demás.
+            let acierto = if vuelta == 1 { 0.75 } else { 0.5 };
+            Veredicto { acierto, evaluadas: 400, sigma: 0.025 }
+        });
+        assert_eq!(v.rondas_que_acusan, 1, "debería acusar exactamente una ronda");
+        assert!(!v.distingue(), "una sola ronda no puede condenar: {v}");
+    }
+
     #[test]
     fn el_veredicto_reporta_su_propio_margen() {
         // Sin sigma, un 53 % parece un hallazgo y es ruido de muestreo. El
@@ -377,15 +501,21 @@ mod pruebas_sobre_quipu {
         // Se le pone fácil al adversario: todos los textos claros son la misma
         // cadena repetitiva, así que cualquier dependencia del contenido
         // saltaría.
+        //
+        // La semilla fija NO hace reproducible esta medición: solo elige las
+        // contraseñas. La sal y el nonce salen del sistema, así que cada ronda
+        // ve ciphertext nuevo. De ahí `medir_repetido` — ver su documentación.
         let mut rng = Rng::seeded(0x0DDBA11);
-        let cifrado = muestras_de_ciphertext(&mut rng, 200, 256);
-        let azar = muestras_pseudoaleatorias(&mut rng, 200, 256);
-        let v = entrenar_y_evaluar(&cifrado, &azar);
+        let v = medir_repetido(|| {
+            let cifrado = muestras_de_ciphertext(&mut rng, 200, 256);
+            let azar = muestras_pseudoaleatorias(&mut rng, 200, 256);
+            entrenar_y_evaluar(&cifrado, &azar)
+        });
         println!("\n  ciphertext contra azar: {v}");
         assert!(
             !v.distingue(),
-            "el adversario SEPARA el ciphertext del azar: {v}. Es una brecha, \
-             no un ajuste de umbral"
+            "el adversario SEPARA el ciphertext del azar con muestras nuevas: \
+             {v}. Es una brecha, no un ajuste de umbral"
         );
     }
 
@@ -394,24 +524,28 @@ mod pruebas_sobre_quipu {
         // La otra mitad: no basta con parecerse al azar, dos cifrados de
         // contenidos MUY distintos tienen que parecerse entre sí. Si no, el
         // ciphertext filtra qué se cifró.
+        //
+        // Igual que la anterior, cada ronda ve ciphertext nuevo.
         let mut rng = Rng::seeded(0xFEEDFACE);
-        let ceros = {
-            use crate::api::{encode_to_blob, Options};
-            use crate::kdf::KdfParams;
-            let opts = Options {
-                pepper: b"",
-                kdf_params: KdfParams { mem_kib: 64, iterations: 1, parallelism: 1 },
-                ..Default::default()
+        let v = medir_repetido(|| {
+            let ceros = {
+                use crate::api::{encode_to_blob, Options};
+                use crate::kdf::KdfParams;
+                let opts = Options {
+                    pepper: b"",
+                    kdf_params: KdfParams { mem_kib: 64, iterations: 1, parallelism: 1 },
+                    ..Default::default()
+                };
+                (0..200)
+                    .map(|_| {
+                        let clave = format!("k{}", rng.next_u64());
+                        encode_to_blob(&[0u8; 256], &clave, [0u8; 8], &opts)[68..].to_vec()
+                    })
+                    .collect::<Vec<_>>()
             };
-            (0..200)
-                .map(|_| {
-                    let clave = format!("k{}", rng.next_u64());
-                    encode_to_blob(&[0u8; 256], &clave, [0u8; 8], &opts)[68..].to_vec()
-                })
-                .collect::<Vec<_>>()
-        };
-        let estructurado = muestras_de_ciphertext(&mut rng, 200, 256);
-        let v = entrenar_y_evaluar(&ceros, &estructurado);
+            let estructurado = muestras_de_ciphertext(&mut rng, 200, 256);
+            entrenar_y_evaluar(&ceros, &estructurado)
+        });
         println!("  ceros contra texto:     {v}");
         assert!(!v.distingue(), "el ciphertext filtra el contenido: {v}");
     }
