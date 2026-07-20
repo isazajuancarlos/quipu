@@ -871,7 +871,7 @@ dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",
  "fips205",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "hkdf",
  "image",
  "ml-dsa",
