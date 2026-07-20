@@ -62,6 +62,11 @@ pub const SIGNATURE_LEN: usize = ED25519_SIG_LEN + MLDSA_SIG_LEN; // 4691
 const SIGN_CONTEXT: &[u8] = b"quipu/v3/sign";
 
 /// Clave de verificación híbrida (pública). Publicable/fijable en el verificador.
+///
+/// Es `Clone` porque es material público: no hay nada que proteger de una copia,
+/// y quien integra necesita repartirla (una por firmante, cacheada, en un mapa).
+/// La clave SECRETA no lo es, y esa asimetría es intencionada.
+#[derive(Clone)]
 pub struct VerifyingKey {
     ed: EdVerifyingKey,
     ml: MlVerifyingKey<MlDsa87>,
@@ -131,6 +136,21 @@ impl SigningKey {
         out.extend_from_slice(&ed_sig.to_bytes());
         out.extend_from_slice(ml_sig.encode().as_slice());
         out
+    }
+
+    /// Firma bytes ya preparados con la mitad Ed25519, sin ensamblar nada.
+    ///
+    /// Existe para [`crate::firmante`]: es la operación que un custodio externo
+    /// —un HSM, por ejemplo— hace por su cuenta. Deliberadamente `pub(crate)`,
+    /// porque firmar una preimagen mal construida produce una firma que no
+    /// verifica y el error aparecería lejos de aquí.
+    pub(crate) fn firmar_ed25519_crudo(&self, preimagen: &[u8]) -> Vec<u8> {
+        EdSigningKey::from_bytes(&self.ed_seed).sign(preimagen).to_bytes().to_vec()
+    }
+
+    /// La otra mitad. Mismo criterio que [`Self::firmar_ed25519_crudo`].
+    pub(crate) fn firmar_mldsa_crudo(&self, preimagen: &[u8]) -> Vec<u8> {
+        ml_signing_key(&self.ml_seed).sign(preimagen).encode().as_slice().to_vec()
     }
 
     /// Serializa la clave de firma (Ed25519 seed || ML-DSA seed). ¡Sensible!
@@ -209,7 +229,7 @@ impl VerifyingKey {
 }
 
 /// Preimagen firmada: etiqueta de dominio || clave pública completa || mensaje.
-fn build_preimage(vk_bytes: &[u8], message: &[u8]) -> Vec<u8> {
+pub(crate) fn build_preimage(vk_bytes: &[u8], message: &[u8]) -> Vec<u8> {
     let mut p = Vec::with_capacity(SIGN_CONTEXT.len() + vk_bytes.len() + message.len());
     p.extend_from_slice(SIGN_CONTEXT);
     p.extend_from_slice(vk_bytes);

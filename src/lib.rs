@@ -36,6 +36,7 @@ pub mod netlimit;
 pub mod oprf;
 pub mod oprf_net;
 pub mod pqhybrid;
+pub mod firmante;
 pub mod pqsign;
 pub mod prelayers;
 pub mod render;
