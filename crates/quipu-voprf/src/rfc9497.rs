@@ -98,7 +98,7 @@ fn hash_to_scalar(msg: &[u8]) -> Scalar {
 
 fn random_scalar() -> Scalar {
     let mut b = [0u8; 64];
-    getrandom::getrandom(&mut b).expect("RNG del sistema");
+    getrandom::fill(&mut b).expect("RNG del sistema");
     Scalar::from_bytes_mod_order_wide(&b)
 }
 
@@ -173,7 +173,7 @@ impl Server {
     /// servicio que promete secretos estables.
     pub fn new() -> Self {
         let mut seed = [0u8; 32];
-        getrandom::getrandom(&mut seed).expect("RNG del sistema");
+        getrandom::fill(&mut seed).expect("RNG del sistema");
         Self::from_seed(&seed, b"quipu-voprf-ephemeral").expect("DeriveKeyPair con seed aleatorio")
     }
 

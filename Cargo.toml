@@ -98,7 +98,7 @@ curve25519-dalek = { version = "5", features = ["digest"] }
 # Primitivas VOPRF, en su propio crate Apache-2.0: es lo unico que un cliente
 # del servicio OPRF debe enlazar, y no puede arrastrar esta AGPL. Apache fluye
 # hacia AGPL, asi que el nucleo puede usarlo sin friccion.
-quipu-voprf = { version = "0.2.1", path = "crates/quipu-voprf" }
+quipu-voprf = { version = "0.2.2", path = "crates/quipu-voprf" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 reed-solomon = "0.2"
 fips205 = { version = "0.4.1", optional = true, default-features = false, features = ["slh_dsa_sha2_256s", "default-rng"] }
