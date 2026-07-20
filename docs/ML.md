@@ -5,13 +5,15 @@ SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 
 # ¿El aprendizaje automático aporta algo a Quipu?
 
-**Respuesta corta: no en el producto. Puede que sí en el laboratorio, y eso está
-sin medir.**
+**Respuesta corta: no en el producto. Sí en el laboratorio —del lado del
+ataque—, y ahora medido.**
 
-Este documento cierra una investigación abierta con tres sondas —reconocer
-glifos degradados, generar alfabetos, y modelar la distribución del secreto en
-Honey Encryption—. Se cierra con números donde los hay y con el argumento
-explícito donde no, para que la conclusión se pueda discutir en vez de heredar.
+Este documento cierra una investigación abierta con cuatro sondas —reconocer
+glifos degradados, generar alfabetos, modelar la distribución del secreto en
+Honey Encryption, y un adversario entrenado que intenta distinguir—. Las tres
+primeras no aportan al producto; la cuarta sí, pero para atacar, no para
+construir. Se cierra con números donde los hay y con el argumento explícito
+donde no, para que la conclusión se pueda discutir en vez de heredar.
 
 Fecha de la medición: **20 de julio de 2026**, contra `0.9.0`.
 
@@ -170,6 +172,51 @@ señuelos estática (#91): tendría que llevar ese ×70 cerca de ×1.
 
 ---
 
+## 4. Un adversario entrenado que intenta distinguir — **sí aporta, del lado del ataque**
+
+Las tres sondas anteriores preguntaban si un modelo ayuda a *construir* algo de
+Quipu. Esta le da la vuelta: ¿ayuda a *atacarlo*? Y ahí la respuesta es que sí,
+como instrumento del laboratorio (`feature = "lab"`, que no se embarca).
+
+Toda la criptografía simétrica descansa en una afirmación —*el ciphertext es
+indistinguible del azar*— que `SPEC.md` justificaba citando XChaCha20-Poly1305 y
+que **nadie había medido contra la implementación**. `src/lab/distinguidor.rs`
+entrena un adversario a separar dos fuentes de bytes y reporta su acierto sobre
+muestras que no vio, con el margen del azar en sigmas.
+
+Es **regresión logística sobre doce rasgos** (monobit, sesgo por posición de
+bit, chi² del histograma, repeticiones, correlación serial), **no una red
+neuronal**, a propósito: un auditor tiene que poder leer al adversario. Sesenta
+líneas se verifican mirándolas; unos pesos entrenados hay que aceptarlos de fe.
+
+Lo medido:
+
+| enfrentamiento | veredicto |
+|---|---|
+| ruido contra ruido *(control)* | 50,7 %, +0,3σ — **no distingue** |
+| **fuga sembrada** (XOR de clave corta) | 100,0 %, +20σ — **DISTINGUE** |
+| ciphertext de Quipu contra azar | **no distingue** |
+| dos ciphertext de contenidos opuestos | **no distingue** |
+
+Las dos primeras filas hacen válidas a las otras dos: un detector que nunca dice
+«sí» no vale nada, y hay que enseñarle una fuga real para saber que su silencio
+significa algo.
+
+**Y aquí está el matiz que corrige un error mío.** Las dos filas de Quipu **no
+son reproducibles**: la sal y el nonce salen del sistema, así que cada corrida ve
+ciphertext nuevo. Citar «50,5 %» como si fuera *el* número —como hice al
+principio— es confundir una tirada con la distribución. La afirmación correcta es
+más fuerte y está medida sobre **100 rondas**: el sigma tiene **media +0,07 y
+desviación 0,94, sin ninguna por encima de 3σ**. Es decir, una gaussiana estándar
+—exactamente lo que debe ser cuando no hay nada que encontrar—. Por eso la prueba
+exige mayoría de tres rondas antes de gritar «brecha»: con muestras frescas, un
+umbral de 3σ da un rojo espurio una vez de cada mil, y una falsa alarma que dice
+«fuga» en una librería de cripto es peor que no tener la prueba.
+
+Que las muestras sean frescas no es un defecto que ocultar: es lo que convierte
+**cada corrida del CI en un experimento nuevo** que vuelve a no encontrar nada,
+en vez de repetir una respuesta congelada.
+
 ## Lo que sí sería admisible
 
 El repositorio ya tiene escrito el patrón correcto, en `src/glyphopt.rs`:
@@ -186,9 +233,9 @@ Bajo ese patrón, la pregunta útil no es «¿usamos aprendizaje automático?» 
 - **Tablas de señuelos fijas para Honey** — esquiva el bloqueo del punto 3,
   porque en tiempo de ejecución no hay modelo sino tabla. Sin medir.
 - **Distinguidores para el `lab`** — riesgo cero por construcción: el
-  laboratorio nunca se embarca. Sin medir, y es la sonda que sigue viva.
+  laboratorio nunca se embarca. **Construido y medido: es el punto 4.**
 
-Ese último merece un párrafo, porque reordena el planteamiento entero. Un
+Ese último reordena el planteamiento entero. Un
 distinguidor es exactamente la pregunta *«¿puede un modelo notar la diferencia
 entre estas dos salidas?»*. Si puede, hay una fuga. Si un adversario bien
 entrenado **no puede**, eso es evidencia de indistinguibilidad expresable como
@@ -207,8 +254,16 @@ función nueva.
 cargo test --release --test glifos_degradados      -- --nocapture
 cargo test --release --test glifos_separabilidad   -- --nocapture
 cargo test --release --test honey_distinguibilidad -- --nocapture
+# El distinguidor (punto 4) vive tras la feature del laboratorio:
+cargo test --release --features lab --lib distinguidor -- --nocapture
+# Y la distribución de 100 rondas, que es un instrumento y no lo corre el CI:
+cargo test --release --features lab --lib distribucion -- --ignored --nocapture
 ```
 
-Todas deterministas: PRNG propio con semilla fija, sin red, sin datos externos.
+Los glifos y honey son **deterministas**: PRNG propio con semilla fija, sin red,
+sin datos externos. **El distinguidor sobre Quipu no lo es** —la sal y el nonce
+salen del sistema, a propósito (ver el punto 4)—; su veredicto se estabiliza por
+mayoría de tres rondas, no por congelar la entrada.
+
 Los degradadores viven en `tests/` a propósito — son instrumentos de medida y no
 tienen por qué viajar en la biblioteca.
