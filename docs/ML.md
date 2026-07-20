@@ -5,13 +5,15 @@ SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 
 # ¿El aprendizaje automático aporta algo a Quipu?
 
-**Respuesta corta: no en el producto. Puede que sí en el laboratorio, y eso está
-sin medir.**
+**Respuesta corta: no en el producto. Sí en el laboratorio —del lado del
+ataque—, y ahora medido.**
 
-Este documento cierra una investigación abierta con tres sondas —reconocer
-glifos degradados, generar alfabetos, y modelar la distribución del secreto en
-Honey Encryption—. Se cierra con números donde los hay y con el argumento
-explícito donde no, para que la conclusión se pueda discutir en vez de heredar.
+Este documento cierra una investigación abierta con cuatro sondas —reconocer
+glifos degradados, generar alfabetos, modelar la distribución del secreto en
+Honey Encryption, y un adversario entrenado que intenta distinguir—. Las tres
+primeras no aportan al producto; la cuarta sí, pero para atacar, no para
+construir. Se cierra con números donde los hay y con el argumento explícito
+donde no, para que la conclusión se pueda discutir en vez de heredar.
 
 Fecha de la medición: **20 de julio de 2026**, contra `0.9.0`.
 
