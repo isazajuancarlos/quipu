@@ -59,6 +59,22 @@ fn desplazar(img: &GrayImage, dx: i32, dy: i32) -> GrayImage {
     out
 }
 
+/// Añade papel alrededor. Hace falta ANTES de girar: la tira mide 18 px de
+/// alto y más de mil de ancho, así que medio grado desplaza los extremos casi
+/// ocho píxeles en vertical. Girándola dentro de su propio lienzo, la tinta se
+/// sale y se PIERDE — y lo que se estaría midiendo es recorte, no rotación.
+/// Ningún reconocedor puede recuperar lo que ya no está en el archivo.
+fn con_margen(img: &GrayImage, m: u32) -> GrayImage {
+    let (w, h) = img.dimensions();
+    let mut out = GrayImage::from_pixel(w + 2 * m, h + 2 * m, Luma([255]));
+    for y in 0..h {
+        for x in 0..w {
+            out.put_pixel(x + m, y + m, *img.get_pixel(x, y));
+        }
+    }
+    out
+}
+
 /// Gira `grados` alrededor del centro, con vecino más cercano.
 fn rotar(img: &GrayImage, grados: f32) -> GrayImage {
     let (w, h) = img.dimensions();
@@ -132,20 +148,35 @@ fn ruido(img: &GrayImage, amplitud: i32, semilla: u64) -> GrayImage {
 
 // --- Medición ------------------------------------------------------------
 
-/// Qué fracción de los glifos se reconoce bien tras aplicar `degradar`.
+fn compara(leidos: Option<Vec<u32>>, esperados: &[u32]) -> f32 {
+    match leidos {
+        None => 0.0,
+        Some(v) if v.len() != esperados.len() => 0.0,
+        Some(v) => {
+            let ok = v.iter().zip(esperados).filter(|(a, b)| a == b).count();
+            ok as f32 / esperados.len() as f32
+        }
+    }
+}
+
+/// Qué fracción de los glifos se reconoce bien tras aplicar `degradar`,
+/// leyendo la imagen TAL CUAL, con posiciones fijas.
 fn acierto(degradar: impl Fn(&GrayImage) -> GrayImage) -> f32 {
     let font = glyphfont::standard();
     let esperados = indices();
-    let png = font.render(&esperados);
-    let degradada = degradar(&png_a_gris(&png));
-    match font.recognize(&gris_a_png(&degradada)) {
+    let degradada = degradar(&png_a_gris(&font.render(&esperados)));
+    compara(font.recognize(&gris_a_png(&degradada)), &esperados)
+}
+
+/// Lo mismo, pero registrando la rejilla antes de leer.
+fn acierto_registrado(degradar: impl Fn(&GrayImage) -> GrayImage) -> f32 {
+    let font = glyphfont::standard();
+    let esperados = indices();
+    let degradada = degradar(&png_a_gris(&font.render(&esperados)));
+    match quipu::glyphscan::normalizar(&degradada, 16, 1) {
         None => 0.0,
-        Some(leidos) => {
-            if leidos.len() != esperados.len() {
-                return 0.0;
-            }
-            let ok = leidos.iter().zip(&esperados).filter(|(a, b)| a == b).count();
-            ok as f32 / esperados.len() as f32
+        Some((normalizada, _)) => {
+            compara(font.recognize(&gris_a_png(&normalizada)), &esperados)
         }
     }
 }
@@ -159,12 +190,13 @@ fn sobre_una_imagen_limpia_acierta_todo() {
 /// Se imprime siempre: el número importa más que el veredicto.
 #[test]
 fn banco_de_degradaciones() {
-    let casos: Vec<(&str, Box<dyn Fn(&GrayImage) -> GrayImage>)> = vec![
+    type Degradacion = Box<dyn Fn(&GrayImage) -> GrayImage>;
+    let casos: Vec<(&str, Degradacion)> = vec![
         ("limpia", Box::new(|i: &GrayImage| i.clone())),
         ("desplazada 1 px", Box::new(|i: &GrayImage| desplazar(i, 1, 0))),
         ("desplazada 2 px", Box::new(|i: &GrayImage| desplazar(i, 2, 1))),
-        ("rotada 0,5°", Box::new(|i: &GrayImage| rotar(i, 0.5))),
-        ("rotada 2°", Box::new(|i: &GrayImage| rotar(i, 2.0))),
+        ("rotada 0,5°", Box::new(|i: &GrayImage| rotar(&con_margen(i, 12), 0.5))),
+        ("rotada 2°", Box::new(|i: &GrayImage| rotar(&con_margen(i, 40), 2.0))),
         ("luz lateral 40 %", Box::new(|i: &GrayImage| iluminacion_lateral(i, 0.4))),
         ("luz lateral 60 %", Box::new(|i: &GrayImage| iluminacion_lateral(i, 0.6))),
         ("sangrado de tinta", Box::new(sangrado)),
@@ -172,26 +204,45 @@ fn banco_de_degradaciones() {
         ("ruido ±90", Box::new(|i: &GrayImage| ruido(i, 90, 0xC0FFEE))),
     ];
 
-    println!("\n  degradación            acierto");
-    println!("  ---------------------- -------");
+    println!("\n  degradación            posición fija   con registro");
+    println!("  ---------------------- -------------   ------------");
     let mut resultados = Vec::new();
     for (nombre, f) in &casos {
         let a = acierto(|i| f(i));
-        println!("  {nombre:<22} {:>6.1} %", a * 100.0);
-        resultados.push((*nombre, a));
+        let b = acierto_registrado(|i| f(i));
+        println!("  {nombre:<22} {:>10.1} %   {:>10.1} %", a * 100.0, b * 100.0);
+        resultados.push((*nombre, a, b));
     }
 
     // Lo que se fija hoy es el ESTADO, no el objetivo: la imagen limpia se lee
     // entera y basta un píxel de desplazamiento para que no se lea nada. Cuando
     // el reconocedor mejore, estas dos aserciones fallarán y habrá que subirlas.
-    let limpia = resultados[0].1;
-    assert_eq!(limpia, 1.0, "el canal digital tiene que seguir siendo exacto");
+    // El canal digital tiene que seguir siendo exacto por las dos vías.
+    assert_eq!(resultados[0].1, 1.0, "lectura directa de una imagen limpia");
+    assert_eq!(resultados[0].2, 1.0, "el registro no puede empeorar lo limpio");
 
-    let desplazada = resultados[1].1;
+    // LO QUE EL REGISTRO YA RESUELVE. Desplazamiento y umbral: de 17 % a 100 %,
+    // y de 82,7 % a 100 % con la luz caída. Si algún día bajan, se rompió algo.
+    let por_nombre = |n: &str| resultados.iter().find(|r| r.0 == n).unwrap().2;
+    assert_eq!(por_nombre("desplazada 1 px"), 1.0);
+    assert_eq!(por_nombre("desplazada 2 px"), 1.0);
+    assert_eq!(por_nombre("luz lateral 60 %"), 1.0);
+
+    // LO QUE NO. La rotación sigue abierta y el número queda fijado para que se
+    // note cuando mejore.
+    //
+    // El motivo está medido: la tira mide 18 px de alto por más de mil de
+    // ancho. Con esa proporción, un error residual de 0,25° —el paso de
+    // búsqueda del estimador— desplaza los extremos casi cuatro píxeles en
+    // vertical, y eso ya saca las celdas de su sitio. No hace falta un
+    // clasificador mejor: hace falta estimar el ángulo por AJUSTE de la línea
+    // base (mínimos cuadrados sobre los centroides de columna), que da una
+    // respuesta continua, en vez de por búsqueda a pasos.
+    let rotada = por_nombre("rotada 0,5°");
     assert!(
-        desplazada < 0.5,
-        "el reconocedor ya tolera desplazamiento ({:.1} %): sube el umbral de \
-         esta prueba y actualiza la tarea #26",
-        desplazada * 100.0
+        rotada < 0.5,
+        "la rotación ya se resuelve ({:.1} %): sube este umbral y cierra esa \
+         parte de #26",
+        rotada * 100.0
     );
 }
