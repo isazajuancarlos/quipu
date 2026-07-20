@@ -99,11 +99,15 @@ func TestRecipientRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pk) != 1600 {
-		t.Fatalf("public key size = %d, want 1600", len(pk))
+	// X25519 (32) + ML-KEM-1024: la pública es la expandida (1568), la secreta
+	// es la semilla de 64 bytes desde ml-kem 0.3. Ver SPEC.md §7.1.
+	const publicKeyLen = 1600
+	const secretKeyLen = 96
+	if len(pk) != publicKeyLen {
+		t.Fatalf("public key size = %d, want %d", len(pk), publicKeyLen)
 	}
-	if len(sk) != 3200 {
-		t.Fatalf("secret key size = %d, want 3200", len(sk))
+	if len(sk) != secretKeyLen {
+		t.Fatalf("secret key size = %d, want %d", len(sk), secretKeyLen)
 	}
 
 	msg := []byte("to the recipient")

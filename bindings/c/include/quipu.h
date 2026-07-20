@@ -19,11 +19,11 @@ enum quipu_status
     QUIPU_ERR_KEY = -3,
     QUIPU_ERR_CHUNK = -4,
     QUIPU_ERR_INTERNAL = -5,
-    /* The OS could not provide randomness. NO key was generated and nothing
-       was encrypted: Quipu never substitutes a weaker source. Usually
-       deterministic and caused by the deployment (seccomp blocking getrandom,
-       a chroot without /dev/urandom, a target with no entropy source), so
-       retrying rarely helps. */
+    // The operating system could not provide randomness. **No key was
+    // generated and nothing was encrypted**: Quipu never substitutes a weaker
+    // source. Usually deterministic and caused by the deployment — a seccomp
+    // policy blocking `getrandom`, a chroot without `/dev/urandom`, or a
+    // target with no entropy source — so retrying rarely helps.
     QUIPU_ERR_NO_ENTROPY = -6,
 };
 #ifndef __cplusplus
@@ -108,7 +108,7 @@ int32_t quipu_decode(const char *symbols,
                      uintptr_t *out_len);
 
 // Generates a hybrid post-quantum keypair (X25519 + ML-KEM-1024). Writes the
-// public key (1600 B) and secret key (3200 B) as freshly allocated buffers.
+// public key (1600 B) and secret key (96 B) as freshly allocated buffers.
 //
 // # Safety
 // All four out-pointers must be valid, writable pointers.
@@ -125,7 +125,8 @@ int32_t quipu_encrypt_to_recipient(const uint8_t *data,
                                    uintptr_t pk_len,
                                    char **out);
 
-// Decrypts recipient symbols with the hybrid secret key (`sk`, 3200 B). On
+// Decrypts recipient symbols with the hybrid secret key (`sk`, 96 B; the
+// 3200 B keys written by earlier versions are still accepted). On
 // success writes plaintext to `*out`/`*out_len`.
 //
 // # Safety

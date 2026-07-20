@@ -348,7 +348,7 @@ pub unsafe extern "C" fn quipu_decode(
 }
 
 /// Generates a hybrid post-quantum keypair (X25519 + ML-KEM-1024). Writes the
-/// public key (1600 B) and secret key (3200 B) as freshly allocated buffers.
+/// public key (1600 B) and secret key (96 B) as freshly allocated buffers.
 ///
 /// # Safety
 /// All four out-pointers must be valid, writable pointers.
@@ -414,7 +414,8 @@ pub unsafe extern "C" fn quipu_encrypt_to_recipient(
     })
 }
 
-/// Decrypts recipient symbols with the hybrid secret key (`sk`, 3200 B). On
+/// Decrypts recipient symbols with the hybrid secret key (`sk`, 96 B; the
+/// 3200 B keys written by earlier versions are still accepted). On
 /// success writes plaintext to `*out`/`*out_len`.
 ///
 /// # Safety
@@ -868,8 +869,8 @@ mod tests {
         let (mut sk, mut sk_len) = (std::ptr::null_mut(), 0usize);
         let rc = unsafe { quipu_generate_keypair(&mut pk, &mut pk_len, &mut sk, &mut sk_len) };
         assert_eq!(rc, QUIPU_OK as i32);
-        assert_eq!(pk_len, 1600);
-        assert_eq!(sk_len, 3200);
+        assert_eq!(pk_len, quipu::pqhybrid::PUBLIC_KEY_LEN);
+        assert_eq!(sk_len, quipu::pqhybrid::SECRET_KEY_LEN);
 
         let msg = b"for your eyes only";
         let mut sym: *mut c_char = std::ptr::null_mut();
