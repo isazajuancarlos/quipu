@@ -5,8 +5,12 @@ SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 
 # Export control notice — Quipu
 
-**Status: notification DRAFTED, not yet sent.** Sending requires an explicit
-decision by the copyright holder (see §5).
+**Status: notification SENT on 2026-07-20**, from the copyright holder's own
+address, to both `crypt@bis.doc.gov` and `enc@nsa.gov`.
+
+The §742.15(b) exclusion is therefore perfected. It must be **re-sent when the
+cryptographic functionality changes** — §3 says what does and does not trigger
+that.
 
 Quipu is published on GitHub, crates.io, PyPI and npm — all US infrastructure —
 so the US Export Administration Regulations (EAR) are the relevant regime,
@@ -142,13 +146,11 @@ recognition, anything in the `lab` feature (which is never shipped).
 
 ---
 
-## 5. Before sending — decisions for the copyright holder
+## 5. What was settled before sending
 
-Sending this email is **irreversible and outward-facing**. It is a filing with a
-US government agency under the author's own name, and it publicly and
-permanently associates that name with the project.
-
-Confirm before sending:
+Sending was irreversible and outward-facing: a filing with a US government
+agency under the author's own name. These points were decided first, and are
+recorded because any re-notification has to hold to the same choices:
 
 1. **The name and address.** The notification is filed as Isaza Arenas, the
    natural person — Xiliux is not a legal entity and must not appear as filer.
@@ -162,5 +164,7 @@ Confirm before sending:
 4. **Keep the sent copy.** Archive the email with its date. The filing is the
    evidence; there is no acknowledgement to rely on.
 
-Once sent, record the date at the top of this document and add a
-`SECURITY.md` cross-reference.
+Sent 2026-07-20. Cross-referenced from `SECURITY.md`.
+
+**Keep the sent copy archived.** Neither agency acknowledges receipt: the filing
+itself is the evidence.
