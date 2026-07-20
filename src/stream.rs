@@ -216,8 +216,8 @@ pub fn encrypt_stream<R: Read, W: Write>(
     }
     let mut salt = [0u8; SALT_LEN];
     let mut prefix = [0u8; NONCE_PREFIX_LEN];
-    getrandom::getrandom(&mut salt).expect("RNG del sistema");
-    getrandom::getrandom(&mut prefix).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut salt).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut prefix).expect("RNG del sistema");
 
     let header = StreamHeader {
         kdf_params: opts.kdf_params,

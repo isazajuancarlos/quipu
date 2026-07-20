@@ -15,7 +15,7 @@ use quipu::kdf::KdfParams;
 
 fn rand_bytes(n: usize) -> Vec<u8> {
     let mut v = vec![0u8; n];
-    getrandom::getrandom(&mut v).expect("RNG");
+    quipu::aleatorio::llenar(&mut v).expect("RNG del sistema");
     v
 }
 

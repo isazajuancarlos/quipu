@@ -64,7 +64,6 @@
 //! ```
 
 use crate::antihacker::ct_eq;
-use rand_core::{OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -113,6 +112,10 @@ pub enum ShamirError {
     VerificationFailed,
     /// Los bytes no son una compartición válida.
     Malformed,
+    /// El sistema no entregó aleatoriedad. **No se repartió nada**: un reparto
+    /// con coeficientes predecibles se reconstruye con menos comparticiones de
+    /// las que dice el umbral, y eso no se nota mirando las comparticiones.
+    SinEntropia(crate::aleatorio::SinEntropia),
 }
 
 impl core::fmt::Display for ShamirError {
@@ -126,6 +129,7 @@ impl core::fmt::Display for ShamirError {
             Self::Inconsistent => write!(f, "las comparticiones no son del mismo reparto"),
             Self::VerificationFailed => write!(f, "la reconstrucción no supera el verificador"),
             Self::Malformed => write!(f, "compartición mal formada"),
+            Self::SinEntropia(e) => write!(f, "no se pudo repartir: {e}"),
         }
     }
 }
@@ -308,7 +312,7 @@ pub fn split(secret: &[u8], threshold: u8, shares: u8) -> Result<Vec<Share>, Sha
     // con término independiente igual al byte y el resto aleatorio.
     let mut coeficientes = vec![0u8; threshold as usize - 1];
     for &byte in payload.iter() {
-        OsRng.fill_bytes(&mut coeficientes);
+        crate::aleatorio::llenar(&mut coeficientes).map_err(ShamirError::SinEntropia)?;
         for compartición in fuera.iter_mut() {
             let x = compartición.index;
             // Horner de mayor a menor grado, terminando en el término

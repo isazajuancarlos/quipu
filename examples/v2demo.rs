@@ -25,12 +25,12 @@ fn main() {
 
     // (1) Híbrido post-cuántico (X25519 + ML-KEM-1024).
     println!("[1] Cifrado híbrido post-cuántico a clave pública");
-    let (pk, sk) = pqhybrid::generate_keypair();
+    let (pk, sk) = pqhybrid::generate_keypair().unwrap();
     println!("    clave pública: {} bytes  | secreta: {} bytes",
         pqhybrid::PUBLIC_KEY_LEN, pqhybrid::SECRET_KEY_LEN);
     let dict = dictionaries::flagship();
     let mensaje = b"Solo el dueno de la clave secreta puede leer esto.";
-    let cifrado = encode_to_recipient(mensaje, &pk, &dict);
+    let cifrado = encode_to_recipient(mensaje, &pk, &dict).unwrap();
     println!("    cifrado ({} glifos): {}...", cifrado.chars().count(),
         cifrado.chars().take(24).collect::<String>());
     let recuperado = decode_as_recipient(&cifrado, &sk, &dict).unwrap();
