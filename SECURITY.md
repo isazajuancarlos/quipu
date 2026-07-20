@@ -4,8 +4,9 @@
 
 Quipu is `v0.8.0`. It composes only vetted cryptographic primitives and never
 invents its own, but the **composition has not yet been reviewed by an
-independent third party**. An external audit is the project's top priority (a
-free audit has been requested through OTF's Security Lab).
+independent third party**. An external audit is the project's top priority: a
+free audit was requested through the Open Technology Fund's Security Lab in
+**June 2026** (request #22572), and is currently in their queue.
 
 **Do not use Quipu to protect real, high-value secrets until it has an
 independent security audit.** Until then, treat it as pre-release software for
