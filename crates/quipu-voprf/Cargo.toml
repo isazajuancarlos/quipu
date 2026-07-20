@@ -1,6 +1,6 @@
 [package]
 name = "quipu-voprf"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.85"
 description = "Cliente y servidor VOPRF sobre ristretto255 con pruebas DLEQ. Primitivas del servicio Quipu OPRF."
@@ -38,4 +38,4 @@ python = ["dep:pyo3"]
 pyo3 = { version = "0.29", optional = true, features = ["extension-module", "abi3-py39"] }
 curve25519-dalek = { version = "5", features = ["digest"] }
 sha2 = "0.11"
-getrandom = "0.2"
+getrandom = { version = "0.4", features = ["std"] }
