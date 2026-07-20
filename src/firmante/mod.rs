@@ -39,6 +39,11 @@ use crate::pqsign::{
     build_preimage, SigningKey, VerifyingKey, ED25519_SIG_LEN, MLDSA_SIG_LEN, SIGNATURE_LEN,
 };
 
+/// Custodio respaldado por un dispositivo PKCS#11 (HSM, token, tarjeta). Tras
+/// la feature `hsm` porque arrastra `cryptoki` y su cadena de FFI.
+#[cfg(feature = "hsm")]
+pub mod pkcs11;
+
 /// Por qué no se pudo firmar.
 ///
 /// No lleva variante «clave incorrecta»: eso es un fallo de programación, no un

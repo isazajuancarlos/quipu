@@ -51,8 +51,22 @@ escrow = []
 # de punta a punta en CI. Nunca en un build publicado: haría que la librería se
 # negara a operar siempre.
 selftest-fault = []
+# Custodia de la clave de firma en un dispositivo PKCS#11 (HSM, token, tarjeta).
+# NO-default por dos razones: arrastra `cryptoki` y su cadena de FFI, y la
+# inmensa mayoría de los despliegues firma en memoria y hace bien.
+#
+# Es lo que responde a la primera pregunta de todo comité de seguridad: la
+# clave privada no sale del dispositivo. Lo demás del módulo `firmante` no
+# necesita esta feature.
+hsm = ["dep:cryptoki"]
 
 [dependencies]
+# Enlace PKCS#11. La 0.12 es la primera que expone los mecanismos
+# post-cuánticos (ML_DSA, ML_KEM, SLH_DSA) además de EDDSA, que es lo que hace
+# falta para meter las DOS mitades de la firma híbrida dentro del dispositivo.
+# Es además la versión con la que `kryoptic` —el token contra el que se prueba—
+# se prueba a sí mismo.
+cryptoki = { version = "0.12", optional = true }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
 num-bigint = "0.5"
 num-traits = "0.2"
