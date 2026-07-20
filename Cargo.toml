@@ -57,6 +57,12 @@ pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optiona
 num-bigint = "0.5"
 num-traits = "0.2"
 chacha20poly1305 = "0.11"
+# Arrastra `rand_core` 0.6 al arbol, y NO se puede evitar: `hash_password_into`
+# —lo unico que Quipu llama— exige la feature `alloc`, que exige `password-hash`,
+# que trae `rand_core` por defecto. Soltarla obligaria a gestionar a mano el
+# bloque de 64 MiB de Argon2 en la ruta de derivacion de claves, y no compensa:
+# esa `rand_core` solo sirve para que argon2 genere sales por su cuenta, cosa
+# que aqui nunca ocurre —el salt sale de `aleatorio`—. Enlazada, no ejecutada.
 argon2 = "0.5"
 hkdf = "0.13"
 sha2 = "0.11"
