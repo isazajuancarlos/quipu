@@ -36,7 +36,7 @@ use crate::pqsign::{VerifyingKey, ED25519_PUB_LEN, MLDSA_VK_LEN, VERIFYING_KEY_L
 use cryptoki::mechanism::dsa::{HedgeType, SignAdditionalContext};
 use cryptoki::mechanism::eddsa::{EddsaParams, EddsaSignatureScheme};
 use cryptoki::mechanism::Mechanism;
-use cryptoki::object::{Attribute, AttributeType, ObjectHandle};
+use cryptoki::object::{Attribute, AttributeType, ObjectClass, ObjectHandle};
 use cryptoki::session::Session;
 
 /// Convierte cualquier fallo de la capa PKCS#11 en el error del módulo,
@@ -106,6 +106,57 @@ impl CustodioPkcs11 {
         })?;
 
         Ok(Self { sesion, clave_ed25519, clave_mldsa, verificacion })
+    }
+
+    /// Construye el custodio localizando las claves por su etiqueta
+    /// (`CKA_LABEL`), en vez de exigir manejadores crudos.
+    ///
+    /// Es el camino cómodo para quien integra: nombra las dos claves al
+    /// crearlas y aquí las busca por ese nombre. Cada etiqueta debe apuntar a
+    /// una clave privada y su pública correspondiente, y a una sola: si hay
+    /// ambigüedad, falla en vez de firmar con la que no era.
+    pub fn por_etiqueta(
+        sesion: Session,
+        etiqueta_ed25519: &str,
+        etiqueta_mldsa: &str,
+    ) -> Result<Self, ErrorDeFirma> {
+        let (ed_priv, ed_pub) = buscar_par(&sesion, etiqueta_ed25519)?;
+        let (ml_priv, ml_pub) = buscar_par(&sesion, etiqueta_mldsa)?;
+        Self::nuevo(sesion, ed_priv, ed_pub, ml_priv, ml_pub)
+    }
+}
+
+/// Encuentra el par (privada, pública) con una etiqueta dada, exigiendo que
+/// haya exactamente una de cada.
+fn buscar_par(
+    sesion: &Session,
+    etiqueta: &str,
+) -> Result<(ObjectHandle, ObjectHandle), ErrorDeFirma> {
+    let priv_ = buscar_uno(sesion, etiqueta, ObjectClass::PRIVATE_KEY, "privada")?;
+    let pub_ = buscar_uno(sesion, etiqueta, ObjectClass::PUBLIC_KEY, "pública")?;
+    Ok((priv_, pub_))
+}
+
+fn buscar_uno(
+    sesion: &Session,
+    etiqueta: &str,
+    clase: ObjectClass,
+    cual: &str,
+) -> Result<ObjectHandle, ErrorDeFirma> {
+    let encontrados = sesion
+        .find_objects(&[
+            Attribute::Label(etiqueta.as_bytes().to_vec()),
+            Attribute::Class(clase),
+        ])
+        .map_err(|e| traducir(&format!("buscar la clave {cual} «{etiqueta}»"), e))?;
+    match encontrados.len() {
+        1 => Ok(encontrados[0]),
+        0 => Err(ErrorDeFirma::OperacionRechazada(format!(
+            "no hay clave {cual} con etiqueta «{etiqueta}»"
+        ))),
+        n => Err(ErrorDeFirma::OperacionRechazada(format!(
+            "hay {n} claves {cual} con etiqueta «{etiqueta}»: la etiqueta debe ser única"
+        ))),
     }
 }
 

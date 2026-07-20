@@ -484,15 +484,36 @@ pub fn decode_verified_triple(
 /// mensaje. Da autenticidad, integridad y no-repudio; NO da confidencialidad (si
 /// necesitas ocultar el contenido, usa además un modo de cifrado).
 pub fn encode_signed(data: &[u8], signer: &pqsign::SigningKey, dict: &Dictionary) -> String {
-    let signature = signer.sign(data);
+    armar_firmado(data, &signer.sign(data), dict)
+}
 
+/// Como [`encode_signed`], pero firma contra un [`Custodio`](crate::firmante::Custodio)
+/// —memoria, comparticiones o un dispositivo PKCS#11— en vez de una clave en
+/// claro.
+///
+/// El artefacto es IDÉNTICo al de [`encode_signed`]: [`firmar`](crate::firmante::firmar)
+/// produce la misma firma, y lo verifica el mismo [`decode_verified`]. La única
+/// diferencia es de dónde salió la firma, y ese es justo el punto: la clave pudo
+/// no salir nunca de un HSM.
+pub fn encode_signed_con_custodio<C: crate::firmante::Custodio + ?Sized>(
+    data: &[u8],
+    custodio: &C,
+    dict: &Dictionary,
+) -> Result<String, crate::firmante::ErrorDeFirma> {
+    let signature = crate::firmante::firmar(custodio, data)?;
+    Ok(armar_firmado(data, &signature, dict))
+}
+
+/// Arma el contenedor firmado a partir del mensaje y su firma ya calculada.
+/// Único sitio donde vive el formato en cable de [`encode_signed`].
+fn armar_firmado(data: &[u8], signature: &[u8], dict: &Dictionary) -> String {
     let mut blob = Vec::with_capacity(SIGNED_PREFIX + data.len() + signature.len());
     blob.extend_from_slice(&SIGNED_MAGIC);
     blob.push(SIGNED_VERSION);
     blob.push(0u8); // flags
     blob.extend_from_slice(&(data.len() as u32).to_be_bytes());
     blob.extend_from_slice(data);
-    blob.extend_from_slice(&signature);
+    blob.extend_from_slice(signature);
 
     let indices = codec::encode_base_n(&blob, dict.base());
     dict.encode(&indices)
