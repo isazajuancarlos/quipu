@@ -20,6 +20,7 @@ pub mod dictionary;
 pub mod ecc;
 pub mod glyphfont;
 pub mod glyphopt;
+pub mod glyphscan;
 pub mod hackerbot;
 /// Honey Encryption (modo con señuelos, opt-in). Ver el modelo de amenaza del
 /// módulo: **sin autenticación** por diseño, solo para secretos uniformes de

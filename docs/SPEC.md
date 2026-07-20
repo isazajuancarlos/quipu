@@ -44,6 +44,14 @@ plaintext
 | OPRF group | ristretto255 | `curve25519-dalek` |
 | Normalization | Unicode NFKC | `unicode-normalization` |
 
+**CNSA 2.0.** The post-quantum choices above (ML-KEM-1024, ML-DSA-87) match the
+CNSA 2.0 suite; the symmetric ones deliberately do not — CNSA 2.0 mandates
+AES-256 and SHA-384/512. The reasoning, the cost of a compliant profile, and the
+conditions under which it would be built are in [CNSA.md](CNSA.md). Short
+version: ChaCha20 is constant-time by construction on any CPU, AES is not
+without hardware acceleration, and algorithm alignment is not the same thing as
+FIPS validation.
+
 ## 3. Symmetric mode
 
 ### 3.1 Key derivation
