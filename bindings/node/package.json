@@ -1,6 +1,6 @@
 {
   "name": "quipu-crypto",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Node.js bindings for Quipu — hybrid post-quantum crypto for data at rest (over the C ABI).",
   "type": "module",
   "main": "src/index.js",
