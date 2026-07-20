@@ -44,7 +44,7 @@ fn load_or_create_seed(path: &str) -> [u8; 32] {
         return s;
     }
     let mut seed = [0u8; 32];
-    getrandom::getrandom(&mut seed).expect("RNG del sistema");
+    quipu::aleatorio::llenar(&mut seed).expect("RNG del sistema");
     std::fs::write(path, seed).expect("escribir semilla");
     #[cfg(unix)]
     {

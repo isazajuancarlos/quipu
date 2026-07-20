@@ -10,7 +10,16 @@
 //!
 //! Construir con:  maturin develop --features python
 
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyOSError, PyValueError};
+
+/// El fallo de entropía se traduce a `OSError` y no a `ValueError`: no es que
+/// el llamante haya pasado algo mal, es que el sistema no pudo cumplir. En
+/// Python esa distinción decide si el `except` correcto está en el código de
+/// aplicación o en el de despliegue.
+fn sin_entropia(e: quipu_aleatorio::SinEntropia) -> pyo3::PyErr {
+    PyOSError::new_err(e.to_string())
+}
+use crate::aleatorio as quipu_aleatorio;
 use pyo3::prelude::*;
 use pyo3::types::{PyByteArray, PyBytes};
 
@@ -69,12 +78,12 @@ fn decode<'py>(
 /// Genera un par de claves híbrido post-cuántico. Devuelve `(public, secret)`
 /// como bytes.
 #[pyfunction]
-fn generate_keypair(py: Python<'_>) -> (Bound<'_, PyBytes>, Bound<'_, PyBytes>) {
-    let (pk, sk) = pqhybrid::generate_keypair();
-    (
+fn generate_keypair(py: Python<'_>) -> PyResult<(Bound<'_, PyBytes>, Bound<'_, PyBytes>)> {
+    let (pk, sk) = pqhybrid::generate_keypair().map_err(sin_entropia)?;
+    Ok((
         PyBytes::new(py, &pk.to_bytes()),
         PyBytes::new(py, &sk.to_bytes()),
-    )
+    ))
 }
 
 /// Cifra `data` hacia la clave pública híbrida del destinatario (post-cuántico).
@@ -82,7 +91,7 @@ fn generate_keypair(py: Python<'_>) -> (Bound<'_, PyBytes>, Bound<'_, PyBytes>) 
 fn encode_to_recipient(data: &[u8], public_key: &[u8]) -> PyResult<String> {
     let pk = pqhybrid::PublicKey::from_bytes(public_key)
         .ok_or_else(|| PyValueError::new_err("clave pública inválida"))?;
-    Ok(core_encode_pq(data, &pk, &default_dict()))
+    core_encode_pq(data, &pk, &default_dict()).map_err(sin_entropia)
 }
 
 /// Descifra con la clave secreta híbrida del destinatario.

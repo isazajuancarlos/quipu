@@ -107,8 +107,8 @@ pub fn encode_to_blob(
 ) -> Vec<u8> {
     let mut salt = [0u8; SALT_LEN];
     let mut nonce = [0u8; NONCE_LEN];
-    getrandom::getrandom(&mut salt).expect("RNG del sistema");
-    getrandom::getrandom(&mut nonce).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut salt).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut nonce).expect("RNG del sistema");
 
     let mut master = kdf::derive_master_key(passphrase, &salt, opts.pepper, &opts.kdf_params);
     let mut cipher_key = kdf::derive_subkey(&master, CIPHER_SUBKEY_INFO);
@@ -332,10 +332,10 @@ pub fn encode_to_recipient(
     data: &[u8],
     recipient: &pqhybrid::PublicKey,
     dict: &Dictionary,
-) -> String {
-    let (mut content_key, encapsulation) = pqhybrid::encapsulate(recipient);
+) -> Result<String, crate::aleatorio::SinEntropia> {
+    let (mut content_key, encapsulation) = pqhybrid::encapsulate(recipient)?;
     let mut nonce = [0u8; NONCE_LEN];
-    getrandom::getrandom(&mut nonce).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut nonce)?;
 
     // Cabecera (AAD): magic | version | flags | nonce | encapsulación.
     let mut header = Vec::with_capacity(HYBRID_PREFIX + encapsulation.len());
@@ -353,8 +353,9 @@ pub fn encode_to_recipient(
     let mut blob = header;
     blob.extend_from_slice(&ciphertext);
     let indices = codec::encode_base_n(&blob, dict.base());
-    dict.encode(&indices)
-        .expect("los índices del codec están en [0, base)")
+    Ok(dict
+        .encode(&indices)
+        .expect("los índices del codec están en [0, base)"))
 }
 
 /// Descifra con la clave secreta híbrida del destinatario.
@@ -773,19 +774,19 @@ mod tests {
 
     #[test]
     fn hybrid_round_trips_to_recipient() {
-        let (pk, sk) = pqhybrid::generate_keypair();
+        let (pk, sk) = pqhybrid::generate_keypair().unwrap();
         let dict = ascii_dict();
         let data = b"secreto resistente a cuantica";
-        let symbols = encode_to_recipient(data, &pk, &dict);
+        let symbols = encode_to_recipient(data, &pk, &dict).unwrap();
         assert_eq!(decode_as_recipient(&symbols, &sk, &dict).unwrap(), data);
     }
 
     #[test]
     fn hybrid_wrong_recipient_fails() {
-        let (pk, _sk) = pqhybrid::generate_keypair();
-        let (_pk2, sk2) = pqhybrid::generate_keypair();
+        let (pk, _sk) = pqhybrid::generate_keypair().unwrap();
+        let (_pk2, sk2) = pqhybrid::generate_keypair().unwrap();
         let dict = ascii_dict();
-        let symbols = encode_to_recipient(b"datos", &pk, &dict);
+        let symbols = encode_to_recipient(b"datos", &pk, &dict).unwrap();
         assert!(decode_as_recipient(&symbols, &sk2, &dict).is_err());
     }
 

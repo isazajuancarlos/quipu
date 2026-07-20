@@ -10,6 +10,7 @@
 //! Nunca inventa ni sustituye primitivas: compone las existentes y ataca a Quipu.
 
 pub mod corpus;
+pub mod distinguidor;
 pub mod engine;
 pub mod forge;
 #[cfg(feature = "slh")]

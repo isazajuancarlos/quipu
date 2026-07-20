@@ -4,8 +4,9 @@
 
 Quipu is `v0.8.0`. It composes only vetted cryptographic primitives and never
 invents its own, but the **composition has not yet been reviewed by an
-independent third party**. An external audit is the project's top priority (a
-free audit has been requested through OTF's Security Lab).
+independent third party**. An external audit is the project's top priority: a
+free audit was requested through the Open Technology Fund's Security Lab in
+**June 2026** (request #22572), and is currently in their queue.
 
 **Do not use Quipu to protect real, high-value secrets until it has an
 independent security audit.** Until then, treat it as pre-release software for
@@ -54,3 +55,10 @@ on the representation being secret is not a vulnerability by design.
 
 See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the full threat model and
 [`docs/PRE_AUDIT.md`](docs/PRE_AUDIT.md) for the internal pre-audit.
+
+## Export control
+
+Quipu is publicly available encryption source code, ECCN 5D002, excluded from
+the EAR under 15 CFR §742.15(b). The classification, the reasoning — including
+why the case is arguable rather than obvious — and the notification itself are
+in [`docs/EXPORT.md`](docs/EXPORT.md).

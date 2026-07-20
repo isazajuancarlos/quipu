@@ -93,8 +93,8 @@ pub fn generate_keypair() -> (VerifyingKey, SigningKey) {
 pub(crate) fn generate_keypair_unchecked() -> (VerifyingKey, SigningKey) {
     let mut ed_seed = [0u8; ED25519_SEED_LEN];
     let mut ml_seed = [0u8; MLDSA_SEED_LEN];
-    getrandom::getrandom(&mut ed_seed).expect("RNG del sistema");
-    getrandom::getrandom(&mut ml_seed).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut ed_seed).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut ml_seed).expect("RNG del sistema");
     let sk = SigningKey {
         ed_seed: Zeroizing::new(ed_seed),
         ml_seed: Zeroizing::new(ml_seed),
@@ -384,8 +384,8 @@ pub struct TripleSigningKey {
 pub fn generate_triple_keypair() -> (TripleVerifyingKey, TripleSigningKey) {
     let mut ed_seed = [0u8; ED25519_SEED_LEN];
     let mut ml_seed = [0u8; MLDSA_SEED_LEN];
-    getrandom::getrandom(&mut ed_seed).expect("RNG del sistema");
-    getrandom::getrandom(&mut ml_seed).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut ed_seed).expect("RNG del sistema");
+    crate::aleatorio::llenar(&mut ml_seed).expect("RNG del sistema");
 
     let (_slh_pk, slh_priv) = slh_dsa_sha2_256s::try_keygen().expect("keygen SLH-DSA");
     let slh_sk = slh_priv.into_bytes();

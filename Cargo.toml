@@ -57,18 +57,29 @@ pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optiona
 num-bigint = "0.5"
 num-traits = "0.2"
 chacha20poly1305 = "0.11"
+# Arrastra `rand_core` 0.6 al arbol, y NO se puede evitar: `hash_password_into`
+# —lo unico que Quipu llama— exige la feature `alloc`, que exige `password-hash`,
+# que trae `rand_core` por defecto. Soltarla obligaria a gestionar a mano el
+# bloque de 64 MiB de Argon2 en la ruta de derivacion de claves, y no compensa:
+# esa `rand_core` solo sirve para que argon2 genere sales por su cuenta, cosa
+# que aqui nunca ocurre —el salt sale de `aleatorio`—. Enlazada, no ejecutada.
 argon2 = "0.5"
 hkdf = "0.13"
 sha2 = "0.11"
 unicode-normalization = "0.1"
-getrandom = "0.2"
+getrandom = { version = "0.4", features = ["std"] }
 zeroize = "1"
 subtle = "2"
-ml-kem = "0.2"
+ml-kem = "0.3"
 ml-dsa = "0.1.1"
 ed25519-dalek = "3"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
-rand_core = { version = "0.6", features = ["getrandom"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
+rand_core = "0.10"
+# Expande una semilla del sistema en el flujo que exigen los traits
+# INFALIBLES de rand_core. La alternativa era escribir ese pegamento a mano
+# sobre `chacha20` —quince lineas de criptografia propia— y `stream.rs` ya
+# fija la regla: no se inventan primitivas. Ver `aleatorio.rs`.
+rand_chacha = "0.10"
 curve25519-dalek = { version = "5", features = ["digest"] }
 # Primitivas VOPRF, en su propio crate Apache-2.0: es lo unico que un cliente
 # del servicio OPRF debe enlazar, y no puede arrastrar esta AGPL. Apache fluye

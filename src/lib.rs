@@ -10,6 +10,7 @@
 //! representación (la "oruga"): no aportan seguridad, solo forma.
 
 pub mod antihacker;
+pub mod aleatorio;
 pub mod api;
 pub mod cipher;
 pub mod codec;

@@ -31,7 +31,9 @@ test('symmetric codec roundtrip (string symbols)', () => {
 test('post-quantum recipient roundtrip', () => {
   const { publicKey, secretKey } = quipu.generateKeypair();
   assert.equal(publicKey.length, 1600);
-  assert.equal(secretKey.length, 3200);
+  // X25519 (32) + la semilla de 64 bytes de ML-KEM-1024, no la forma
+  // expandida de 3168 que se serializaba antes de ml-kem 0.3. Ver SPEC.md §7.1.
+  assert.equal(secretKey.length, 96);
   const msg = Buffer.from('for your eyes only');
   const sym = quipu.encryptToRecipient(msg, publicKey);
   assert.deepEqual(quipu.decryptAsRecipient(sym, secretKey), msg);

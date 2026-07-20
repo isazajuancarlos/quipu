@@ -53,7 +53,6 @@ use crate::cipher;
 use crate::kdf::{self, KdfParams};
 use crate::{pqhybrid, pqsign};
 use hkdf::Hkdf;
-use rand_core::{OsRng, RngCore};
 use sha2::Sha256;
 use std::sync::OnceLock;
 
@@ -240,8 +239,14 @@ fn check_aead_rejects_wrong_aad() -> bool {
 /// Consistencia de par de claves ML-KEM-1024 (lo que FIPS 140-3 llama PCT):
 /// la encapsulación y la decapsulación coinciden sobre un par recién generado.
 fn check_mlkem_pairwise() -> bool {
-    let (pk, sk) = pqhybrid::generate_keypair_unchecked();
-    let (k1, enc) = pqhybrid::encapsulate(&pk);
+    // Sin entropía la comprobación no puede correr, y eso NO es «pasa»: es una
+    // autoprueba que no se pudo hacer. `check_rng_health` dirá por qué.
+    let (Ok((pk, sk)), ) = (pqhybrid::generate_keypair_unchecked(), ) else {
+        return false;
+    };
+    let Ok((k1, enc)) = pqhybrid::encapsulate(&pk) else {
+        return false;
+    };
     match pqhybrid::decapsulate(&sk, &enc) {
         Some(k2) => ct_eq(&k1, &k2),
         None => false,
@@ -251,9 +256,15 @@ fn check_mlkem_pairwise() -> bool {
 /// PRUEBA NEGATIVA: decapsular con la clave equivocada NO puede dar la misma
 /// clave de contenido (rechazo implícito de ML-KEM).
 fn check_mlkem_wrong_key_differs() -> bool {
-    let (pk, _sk) = pqhybrid::generate_keypair_unchecked();
-    let (_pk2, sk2) = pqhybrid::generate_keypair_unchecked();
-    let (k1, enc) = pqhybrid::encapsulate(&pk);
+    let (Ok((pk, _sk)), Ok((_pk2, sk2))) = (
+        pqhybrid::generate_keypair_unchecked(),
+        pqhybrid::generate_keypair_unchecked(),
+    ) else {
+        return false;
+    };
+    let Ok((k1, enc)) = pqhybrid::encapsulate(&pk) else {
+        return false;
+    };
     match pqhybrid::decapsulate(&sk2, &enc) {
         Some(k2) => !ct_eq(&k1, &k2),
         None => true,
@@ -288,10 +299,19 @@ fn check_signature_rejects_wrong_message() -> bool {
 /// fallo más silencioso posible: todo "funciona", y todas las claves son la
 /// misma.
 fn check_rng_health() -> bool {
-    let mut a = [0u8; 32];
-    let mut b = [0u8; 32];
-    OsRng.fill_bytes(&mut a);
-    OsRng.fill_bytes(&mut b);
+    // Si el sistema no entrega entropía, esta comprobación FALLA en vez de
+    // matar el proceso. Es la diferencia que más vale de toda la migración:
+    // las causas reales —seccomp que bloquea la llamada, un chroot sin
+    // /dev/urandom, un objetivo sin fuente— son DETERMINISTAS y propias del
+    // despliegue, así que aparecen siempre, y aparecen aquí, al arrancar.
+    //
+    // Antes esto entraba en pánico: la comprobación que debía avisar al
+    // desplegar era la que tumbaba el proceso. Ahora el operador se entera
+    // durante el despliegue y no en mitad de un cierre de mes.
+    let (Ok(a), Ok(b)) = (crate::aleatorio::bytes::<32>(), crate::aleatorio::bytes::<32>())
+    else {
+        return false;
+    };
     a != b && a != [0u8; 32] && b != [0u8; 32]
 }
 
