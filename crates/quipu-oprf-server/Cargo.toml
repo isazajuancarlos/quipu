@@ -15,11 +15,19 @@ publish = false
 [dependencies]
 # El servidor comparte la MISMA primitiva que el cliente.
 quipu = { path = "../.." }
-rusqlite = { version = "0.32", features = ["bundled"] }
+# `default-features = false` a propósito: la 0.40 activa por defecto
+# `ffi-sqlite-wasm-rs`, un backend para wasm32 que arrastra wasm-bindgen, js-sys
+# y bumpalo. Está acotado por target y aquí nunca se compila, pero SÍ entra al
+# lock y a la superficie que audita cargo-vet. El servidor corre en un VPS
+# Linux: no se firma lo que no se usa. `cache` sí se conserva (sentencias
+# preparadas, que es lo que el bucle de verificación de API keys ejercita).
+rusqlite = { version = "0.40", default-features = false, features = ["bundled", "cache"] }
 tiny_http = "0.12"
 sha2 = "0.10"
 subtle = "2"
-getrandom = "0.2"
+# Misma línea que el núcleo y que quipu-voprf: una sola `getrandom` en el árbol.
+# La 0.4 renombró `getrandom()` a `fill()`.
+getrandom = "0.4"
 
 [dev-dependencies]
 # El test de integración construye una `voprf::Server` y verifica el resultado

@@ -18,10 +18,6 @@ criteria = "safe-to-deploy"
 version = "0.6.1"
 criteria = "safe-to-deploy"
 
-[[exemptions.ahash]]
-version = "0.8.12"
-criteria = "safe-to-deploy"
-
 [[exemptions.argon2]]
 version = "0.5.3"
 criteria = "safe-to-deploy"
@@ -206,6 +202,10 @@ criteria = "safe-to-deploy"
 version = "1.0.7"
 criteria = "safe-to-run"
 
+[[exemptions.foldhash]]
+version = "0.2.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.generic-array]]
 version = "0.14.7"
 criteria = "safe-to-deploy"
@@ -223,11 +223,11 @@ version = "0.4.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.hashbrown]]
-version = "0.14.5"
+version = "0.17.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.hashlink]]
-version = "0.9.1"
+version = "0.12.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.heck]]
@@ -283,7 +283,7 @@ version = "0.8.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.libsqlite3-sys]]
-version = "0.30.1"
+version = "0.38.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.linux-raw-sys]]
@@ -451,7 +451,7 @@ version = "0.8.11"
 criteria = "safe-to-run"
 
 [[exemptions.rusqlite]]
-version = "0.32.1"
+version = "0.40.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustc_version]]
@@ -487,7 +487,7 @@ version = "1.0.228"
 criteria = "safe-to-run"
 
 [[exemptions.serde_json]]
-version = "1.0.150"
+version = "1.0.151"
 criteria = "safe-to-run"
 
 [[exemptions.sha2]]
@@ -605,10 +605,6 @@ criteria = "safe-to-run"
 [[exemptions.windows-link]]
 version = "0.2.1"
 criteria = "safe-to-deploy"
-
-[[exemptions.windows-link]]
-version = "0.2.1"
-criteria = "safe-to-run"
 
 [[exemptions.windows-sys]]
 version = "0.61.2"
