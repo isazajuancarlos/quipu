@@ -34,7 +34,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
       - name: Build wheels (maturin, feature python)
@@ -105,7 +105,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
       # `manylinux: auto` construye en contenedor contra una glibc vieja. Sin
@@ -170,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
       - name: Build wheel + sdist
@@ -234,7 +234,7 @@ jobs:
       # Publica un GitHub Release con las ruedas/sdist Y sus bundles .sigstore,
       # para que cualquiera pueda `cosign verify-blob --bundle` según docs/RELEASES.md.
       - name: Create GitHub Release with signed artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.whl

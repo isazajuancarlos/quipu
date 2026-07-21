@@ -35,14 +35,14 @@ fn sha256(data: &[u8]) -> [u8; 32] {
 /// Un identificador aleatorio de 128 bits en hex (para customer/key ids).
 pub fn random_id() -> String {
     let mut raw = [0u8; 16];
-    getrandom::getrandom(&mut raw).expect("RNG del sistema");
+    getrandom::fill(&mut raw).expect("RNG del sistema");
     to_hex(&raw)
 }
 
 /// Genera una API key nueva.
 pub fn generate() -> GeneratedKey {
     let mut raw = [0u8; 32];
-    getrandom::getrandom(&mut raw).expect("RNG del sistema");
+    getrandom::fill(&mut raw).expect("RNG del sistema");
     let hex = to_hex(&raw);
     let secret = format!("{KEY_TAG}{hex}");
     let prefix = format!("{KEY_TAG}{}", &hex[..PREFIX_HEX_LEN]);

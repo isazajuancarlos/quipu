@@ -60,7 +60,7 @@ fn load_server_key() -> voprf::Server {
          endurecidos. Genera uno con: openssl rand -hex 32"
     );
     let mut seed = [0u8; 32];
-    getrandom::getrandom(&mut seed).expect("RNG del sistema");
+    getrandom::fill(&mut seed).expect("RNG del sistema");
     voprf::Server::from_seed(&seed, DERIVE_INFO).expect("DeriveKeyPair con seed aleatorio")
 }
 
