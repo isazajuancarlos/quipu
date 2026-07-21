@@ -18,6 +18,14 @@ criteria = "safe-to-deploy"
 version = "0.6.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.aes]]
+version = "0.9.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.aes-gcm]]
+version = "0.11.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.argon2]]
 version = "0.5.3"
 criteria = "safe-to-deploy"
@@ -98,6 +106,10 @@ criteria = "safe-to-deploy"
 version = "0.10.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.cpubits]]
+version = "0.1.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.cpufeatures]]
 version = "0.2.17"
 criteria = "safe-to-deploy"
@@ -124,6 +136,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.cryptoki-sys]]
 version = "0.5.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.ctr]]
+version = "0.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.ctutils]]
@@ -220,6 +236,10 @@ criteria = "safe-to-run"
 
 [[exemptions.getrandom]]
 version = "0.4.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.ghash]]
+version = "0.6.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.hashbrown]]
@@ -352,6 +372,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.poly1305]]
 version = "0.9.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.polyval]]
+version = "0.7.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.portable-atomic]]

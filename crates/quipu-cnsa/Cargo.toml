@@ -1,0 +1,42 @@
+[package]
+name = "quipu-cnsa"
+version = "0.1.0"
+edition = "2024"
+description = "Perfil de Quipu alineado con los algoritmos de CNSA 2.0: AES-256-GCM, HKDF-SHA-384 y ML-KEM-1024. NO validado FIPS 140-3."
+authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
+license = "AGPL-3.0-or-later"
+keywords = ["cryptography", "post-quantum", "cnsa", "aes-gcm", "fips"]
+categories = ["cryptography"]
+readme = "README.md"
+repository = "https://github.com/isazajuancarlos/quipu"
+homepage = "https://github.com/isazajuancarlos/quipu"
+documentation = "https://docs.rs/quipu-cnsa"
+
+[dependencies]
+# Formato, contenedor, codec y canal visual: COMPARTIDOS con `quipu`. Es la
+# razón de existir de ese crate — un fallo de formato se arregla una vez, no
+# dos. Ver crates/quipu-nucleo.
+quipu-nucleo = { version = "0.1.0", path = "../quipu-nucleo" }
+
+# --- Lo que CAMBIA respecto de `quipu`: las primitivas ---
+# AEAD: AES-256-GCM en lugar de XChaCha20-Poly1305 (CNSA 2.0).
+aes-gcm = "0.11"
+# SHA-384 para HKDF y para la huella del codebook (CNSA 2.0 pide SHA-384 como
+# mínimo; SHA-256 no basta).
+sha2 = "0.11"
+hkdf = "0.13"
+
+# --- Lo que NO cambia, y es deliberado ---
+# CNSA 2.0 NO se pronuncia sobre derivación desde CONTRASEÑA. Cambiar Argon2id
+# por PBKDF2 para «parecer conforme» debilitaría el sistema por estética
+# normativa: PBKDF2 no tiene coste en memoria y es mucho más barato de atacar
+# con hardware dedicado. Se mantiene Argon2id y se declara en el README.
+argon2 = "0.5"
+
+unicode-normalization = "0.1"
+getrandom = { version = "0.4", features = ["std"] }
+zeroize = "1"
+subtle = "2"
+
+[dev-dependencies]
+proptest = "1"
