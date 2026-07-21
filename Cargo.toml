@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "bindings/c", "crates/quipu-nucleo", "crates/quipu-voprf", "crates/quipu-oprf-server"]
+members = [".", "bindings/c", "crates/quipu-nucleo", "crates/quipu-cnsa", "crates/quipu-voprf", "crates/quipu-oprf-server"]
 resolver = "2"
 
 [package]
