@@ -55,3 +55,9 @@ integrations/*/build/
 integrations/*/dist/
 integrations/*/*.egg-info/
 integrations/*/.pytest_cache/
+
+# Instrucciones locales para Claude Code. NO se versiona: es configuración de mi
+# entorno de trabajo, no del proyecto, y se coló dos veces en un `git add -A`
+# antes de estar aquí (2026-07-18 y 2026-07-19). Ponerlo en .gitignore es más
+# barato que acordarse de desestacionarlo cada vez (directiva 6).
+CLAUDE.md
