@@ -168,26 +168,37 @@ def leer_json(url: str):
 # Features declaradas: se LEEN, no se repiten.
 # --------------------------------------------------------------------------
 
+def _leer_toml(ruta: Path) -> dict:
+    """Lee un TOML, o REVIENTA.
+
+    La primera versión devolvía `[]` si faltaba `tomllib` (Python < 3.11). Eso
+    convertía «no pude leer las features» en «no hay features», y la
+    comprobación pasaba sin comprobar nada — un aprobado por ausencia de datos,
+    que es el defecto que esta herramienta entera existe para impedir
+    (directiva 20: ante un dato ausente, fallar ruidosamente).
+    """
+    try:
+        import tomllib
+    except ModuleNotFoundError as e:  # Python < 3.11
+        raise SystemExit(
+            "verificar.py necesita Python 3.11+ (tomllib) para leer los "
+            "manifiestos. Sin eso no puede comprobar las features, y prefiere "
+            "no arrancar antes que aprobar sin mirar."
+        ) from e
+    return tomllib.loads(ruta.read_text(encoding="utf-8"))
+
+
 def features_del_manifiesto() -> list[str]:
     """Todas las features declaradas en Cargo.toml, leídas del propio archivo.
 
     Repetir esta lista a mano es lo que dejó la rueda 0.9.0 sin `hsm`.
     """
-    try:
-        import tomllib
-    except ModuleNotFoundError:  # Python < 3.11
-        return []
-    datos = tomllib.loads((RAIZ / "Cargo.toml").read_text(encoding="utf-8"))
-    return sorted(datos.get("features", {}).keys())
+    return sorted(_leer_toml(RAIZ / "Cargo.toml").get("features", {}).keys())
 
 
 def features_de_la_rueda() -> list[str]:
     """Las features con las que se construye la rueda de PyPI."""
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        return []
-    datos = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))
+    datos = _leer_toml(RAIZ / "pyproject.toml")
     return datos.get("tool", {}).get("maturin", {}).get("features", [])
 
 

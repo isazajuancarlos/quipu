@@ -41,6 +41,13 @@ jobs:
       # llevaba desde siempre sin ejecutar uno solo.
       - name: Doctests (los ejemplos de la documentación deben compilar)
         run: cargo test --workspace --doc
+      # El banco de `herramientas/verificar.py`. NO se corre `verificar.py
+      # local` entero: duplicaría las pruebas de arriba y triplicaría el tiempo
+      # del job. Lo que sí protege esto son sus comprobaciones estructurales —
+      # entre ellas que `release.yml` no vuelva a repetir la lista de features,
+      # que es lo que dejó la rueda 0.9.0 sin `hsm`.
+      - name: Banco del verificador
+        run: python3 herramientas/probar_verificar.py
       - name: Tests (slh feature, release — SLH-DSA signing is slow in debug)
         run: cargo test --features slh --release
       - name: Clippy (slh feature, deny warnings)
