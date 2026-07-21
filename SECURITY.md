@@ -2,7 +2,7 @@
 
 ## Status: not yet independently audited
 
-Quipu is `v0.9.0`. It composes only vetted cryptographic primitives and never
+Quipu is `v0.9.1`. It composes only vetted cryptographic primitives and never
 invents its own, but the **composition has not yet been reviewed by an
 independent third party**. An external audit is the project's top priority: a
 free audit was requested through the Open Technology Fund's Security Lab in

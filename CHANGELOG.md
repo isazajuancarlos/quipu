@@ -11,6 +11,19 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A non-blocking `worker_threads` wrapper for the Node.js bindings.
 - Reference deployment of the online VOPRF hardening server.
 
+## [0.9.1] — 2026-07-20
+
+### Fixed
+- **The PyPI wheel now ships the `hsm` feature.** The 0.9.0 wheel was built by
+  the release workflow with `--features python,escrow` only, so `CustodioHsm` —
+  the PKCS#11 custody advertised in the README — was missing from the published
+  package, even though `pyproject.toml` requested it. The feature set was pinned
+  in two places (`pyproject.toml` and `release.yml`) and only one was updated.
+  Caught by installing 0.9.0 from PyPI in a clean environment and checking for
+  the symbol, not by trusting the workflow's green status. No code changed
+  between 0.9.0 and 0.9.1; the crate on crates.io and the Rust API are identical.
+  0.9.0 is yanked from PyPI.
+
 ## [0.9.0] — 2026-07-20
 
 ### Added

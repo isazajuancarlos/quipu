@@ -228,7 +228,7 @@ La API es **síncrona** (corre Argon2id; para servidores, invócala desde un
 ## Uso (Go)
 
 ```bash
-go get github.com/isazajuancarlos/quipu/bindings/go@v0.9.0   # cgo: requiere CGO_ENABLED=1 y un compilador de C
+go get github.com/isazajuancarlos/quipu/bindings/go@v0.9.1   # cgo: requiere CGO_ENABLED=1 y un compilador de C
 ```
 
 ```go
