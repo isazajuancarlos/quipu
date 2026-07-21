@@ -24,7 +24,7 @@
 //! Y se contrasta contra la cota de Plotkin, que es la que manda cuando la
 //! distancia relativa pasa de la mitad de la longitud.
 
-use quipu::glyphopt;
+use quipu_nucleo::glyphopt;
 
 const LADO: usize = 16;
 const BITS: usize = LADO * LADO;

@@ -23,12 +23,24 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # `--workspace` NO es decorativo. Sin él, y con un `[package]` en la raíz
+      # del workspace, cargo prueba SOLO `quipu`: 137 pruebas de las 235 que
+      # existen. Quedaban fuera los vectores RFC 9497 de `quipu-voprf`, el e2e
+      # del servidor OPRF, el ABI de C y —desde que se extrajo el núcleo— los
+      # bancos de glifos. Medido el 2026-07-21: el job pasó de 37 minutos a 4
+      # al mudarse esas pruebas de crate, y el CI lo reportó como verde.
       - name: Build
-        run: cargo build --all-targets
+        run: cargo build --workspace --all-targets
       - name: Tests
-        run: cargo test --all-targets
+        run: cargo test --workspace --all-targets
       - name: Clippy (deny warnings)
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      # `--all-targets` EXCLUYE los doctests, pese al nombre. Sin este paso, los
+      # ejemplos de la documentación no se compilan nunca — documentación que no
+      # se ejecuta es documentación que miente. Comprobado el 2026-07-21: el CI
+      # llevaba desde siempre sin ejecutar uno solo.
+      - name: Doctests (los ejemplos de la documentación deben compilar)
+        run: cargo test --workspace --doc
       - name: Tests (slh feature, release — SLH-DSA signing is slow in debug)
         run: cargo test --features slh --release
       - name: Clippy (slh feature, deny warnings)
