@@ -33,6 +33,8 @@
 //! no de confidencialidad.
 
 pub mod codec;
+pub mod container;
+pub mod dictionary;
 pub mod ecc;
 pub mod glyphfont;
 pub mod glyphopt;

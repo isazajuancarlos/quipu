@@ -11,7 +11,9 @@
 use crate::cipher::{self, NONCE_LEN};
 use crate::codec;
 use crate::container::{self, ContainerError, Header, VERSION};
-use crate::dictionary::{Dictionary, DictionaryError};
+// `HuellaDeCodebook` da el `.fingerprint()` de ESTE perfil (SHA-256 truncado).
+// El codebook en sí es agnóstico y vive en `quipu-nucleo`; el hash no.
+use crate::dictionary::{Dictionary, DictionaryError, HuellaDeCodebook};
 use crate::kdf::{self, KdfParams, SALT_LEN};
 use crate::antihacker;
 use crate::oprf_net;
