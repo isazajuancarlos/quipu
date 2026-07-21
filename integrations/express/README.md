@@ -18,7 +18,7 @@ result: it returns a DLEQ proof, verified against a public key **you pinned**.
 npm install quipu-oprf-express
 ```
 
-> **Not published yet.** It depends on `quipu-crypto` >= 0.9.0, which does not
+> **Not published yet.** It depends on `quipu-crypto` >= 0.9.1, which does not
 > exist on npm — `voprfBlind`/`voprfFinalize` live in the repo, unreleased. The
 > binding ships first. The licence is also unresolved (see `package.json`).
 

@@ -9,7 +9,7 @@ so a built binary needs no runtime shared library.
 The module is versioned and go-gettable at:
 
 ```sh
-go get github.com/isazajuancarlos/quipu/bindings/go@v0.9.0
+go get github.com/isazajuancarlos/quipu/bindings/go@v0.9.1
 ```
 
 > **Note:** linking currently requires a repo checkout. The cgo directives link
