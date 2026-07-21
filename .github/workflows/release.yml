@@ -37,11 +37,27 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
-      - name: Build wheels (maturin, feature python)
+      # SIN `--features`: maturin lee `[tool.maturin] features` de
+      # pyproject.toml y lo anuncia en el log («Using build options features
+      # from pyproject.toml»).
+      #
+      # Aquí ESTABA repetida la lista, y por eso la rueda 0.9.0 salió a PyPI sin
+      # `hsm`: se añadió la feature a pyproject.toml y nadie tocó este archivo.
+      # Un usuario instalaba, importaba `CustodioHsm` y no estaba.
+      #
+      # La solución no es comprobar que los dos archivos coincidan —eso es un
+      # mecanismo para contener lo que creó otro— sino que solo haya UNO. Así la
+      # divergencia no se detecta: deja de ser posible.
+      #
+      # Verificado el 2026-07-21 construyendo la rueda sin la bandera e
+      # instalándola en un venv limpio: `encode`, `decode`, `split_secret`,
+      # `combine_secret` y `CustodioHsm` están todos. Comprobado contra el
+      # ARTEFACTO, no contra el mensaje del log.
+      - name: Build wheels (maturin; las features salen de pyproject.toml)
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --features python,escrow,hsm --out dist
+          args: --release --out dist
           sccache: "true"
           manylinux: auto
       - uses: actions/upload-artifact@v7
@@ -115,7 +131,8 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --features python --out dist -m crates/quipu-voprf/Cargo.toml
+          # Sin `--features`: salen de crates/quipu-voprf/pyproject.toml.
+          args: --release --out dist -m crates/quipu-voprf/Cargo.toml
           sccache: "true"
           manylinux: auto
       - uses: actions/upload-artifact@v7

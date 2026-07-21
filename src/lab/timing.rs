@@ -240,8 +240,11 @@ pub fn dudect_ct_eq(samples: usize) -> DudectReport {
 /// El par de claves se genera UNA vez, fuera del bucle: generar claves es órdenes
 /// de magnitud más caro que decapsular y ahogaría la señal.
 pub fn dudect_decapsulate_valid_vs_corrupt(samples: usize) -> DudectReport {
-    let (pk, sk) = crate::pqhybrid::generate_keypair();
-    let (_key, valida) = crate::pqhybrid::encapsulate(&pk);
+    // `expect` y no un camino permisivo: sin entropía del sistema, una medición
+    // de canal lateral no es una medición peor, es un número sin significado.
+    // Mejor caerse aquí que publicar una cifra inventada (directiva 20).
+    let (pk, sk) = crate::pqhybrid::generate_keypair().expect("el laboratorio exige entropía");
+    let (_key, valida) = crate::pqhybrid::encapsulate(&pk).expect("el laboratorio exige entropía");
 
     // Corrompe la parte ML-KEM, no la X25519: es el rechazo implícito de ML-KEM
     // lo que se está midiendo.
@@ -274,9 +277,9 @@ pub fn dudect_decapsulate_valid_vs_corrupt(samples: usize) -> DudectReport {
 /// decapsular con `sk1` tarda sistemáticamente distinto que con `sk2`, el tiempo
 /// está correlacionado con el material secreto.
 pub fn dudect_decapsulate_two_keys(samples: usize) -> DudectReport {
-    let (pk, sk1) = crate::pqhybrid::generate_keypair();
-    let (_pk2, sk2) = crate::pqhybrid::generate_keypair();
-    let (_key, enc) = crate::pqhybrid::encapsulate(&pk);
+    let (pk, sk1) = crate::pqhybrid::generate_keypair().expect("el laboratorio exige entropía");
+    let (_pk2, sk2) = crate::pqhybrid::generate_keypair().expect("el laboratorio exige entropía");
+    let (_key, enc) = crate::pqhybrid::encapsulate(&pk).expect("el laboratorio exige entropía");
 
     let (a, b) = sample_two_classes_interleaved(
         samples,

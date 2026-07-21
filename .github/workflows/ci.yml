@@ -139,6 +139,59 @@ jobs:
       - name: Vet dependencies
         run: cargo vet --locked
 
+  # Cada feature declarada, compilada por separado, más todas juntas.
+  #
+  # Existe porque el 2026-07-21 se descubrió que `lab-offline` llevaba sin
+  # compilar desde 0.9.0 — y no solo en el repositorio: el `.crate` publicado en
+  # crates.io tampoco compilaba. Nadie lo vio porque el job `test + clippy`
+  # prueba las features de una en una pero NUNCA `lab-offline` ni todas juntas.
+  #
+  # La lista se DERIVA de Cargo.toml, no se escribe a mano. Una lista repetida
+  # es una lista que diverge: fue exactamente así como la rueda de PyPI 0.9.0
+  # salió sin la feature `hsm`.
+  #
+  # Solo compila, no prueba: el banco offline tarda demasiado para cada PR, y lo
+  # que esta clase de defecto rompe es la compilación.
+  features:
+    name: matriz de features (compila todas)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compilar cada feature declarada en Cargo.toml
+        run: |
+          set -o pipefail
+          features=$(python3 -c "
+          import tomllib
+          with open('Cargo.toml','rb') as f:
+              print(' '.join(sorted(tomllib.load(f).get('features', {}))))
+          ")
+          echo "Features declaradas: $features"
+          fallos=0
+          for f in $features; do
+            echo "::group::--features $f"
+            if cargo build --workspace --all-targets --features "$f"; then
+              echo "OK: $f"
+            else
+              echo "::error::la feature '$f' NO compila"
+              fallos=$((fallos + 1))
+            fi
+            echo "::endgroup::"
+          done
+          echo "::group::--all-features"
+          if cargo build --workspace --all-targets --all-features; then
+            echo "OK: todas juntas"
+          else
+            echo "::error::--all-features NO compila"
+            fallos=$((fallos + 1))
+          fi
+          echo "::endgroup::"
+          if [ "$fallos" -gt 0 ]; then
+            echo "$fallos combinación(es) de features no compilan."
+            exit 1
+          fi
+
   fuzz:
     name: fuzz (smoke, nightly)
     runs-on: ubuntu-latest
