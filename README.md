@@ -296,7 +296,7 @@ python tests/python/test_quipu.py
 
 v1 + v1.1 + v2 + streaming AEAD (`QST1`) + honey (`QHNY`) + firmas (híbrida
 Ed25519+ML-DSA-87 y triple con SLH-DSA) implementados con TDD estricto.
-**207 tests Rust + Wycheproof + 15 Python** verdes, clippy limpio, fuzzing sin
+**267 tests Rust + Wycheproof + 15 Python** verdes, clippy limpio, fuzzing sin
 crashes, Miri sin UB. Bindings multi-lenguaje sobre la C ABI, cada uno con
 interop cross-language: **10 tests de ABI + integración C, 12 Node, 12 Go**.
 Parámetros post-cuánticos en **categoría de seguridad NIST 5 (CNSA 2.0)**:
@@ -311,6 +311,27 @@ ML-DSA-87** (combinador AND), y
 > ⚠️ Proyecto en desarrollo. La pre-auditoría interna NO sustituye una auditoría
 > criptográfica **independiente**: no usar para proteger datos críticos reales
 > hasta ese sello externo.
+
+## La familia: un núcleo, dos perfiles
+
+Quipu no es un crate: es un **núcleo agnóstico de primitivas** y perfiles finos
+encima que declaran con qué criptografía se comprometen.
+
+| Crate | Qué es |
+|---|---|
+| [`crates/quipu-nucleo`](crates/quipu-nucleo) | Todo lo que **no** es criptografía: formato del contenedor, codec base-N, Reed-Solomon, canal visual de glifos, relleno Padmé. **Cero primitivas.** |
+| `quipu` (este crate) | El perfil por defecto: **XChaCha20-Poly1305**, HKDF-SHA-256, nonce extendido de 192 bits. |
+| [`crates/quipu-cnsa`](crates/quipu-cnsa) | El perfil alineado con **CNSA 2.0**: AES-256-GCM, HKDF-SHA-384, nonce de 96 bits. **NO validado FIPS 140-3.** |
+
+La relación es la de Devuan con Debian: no una rama de mantenimiento, sino un
+**compromiso declarado** que comparte casi todo. El formato, el codec y el canal
+visual viven una sola vez en el núcleo, así que **un fallo se arregla una vez** —
+no dos ramas divergiendo hasta que una recibe el parche y la otra no.
+
+**Si puedes elegir, usa `quipu`.** El perfil CNSA existe para quien tiene un
+mandato normativo: en hardware sin aceleración AES, AES-GCM es una *regresión*
+—más lento y más difícil de escribir en tiempo constante, por sus tablas de
+sustitución—. ChaCha20 no tiene tablas y es constante por construcción.
 
 ## Endurecimiento de contraseñas (servicio OPRF)
 
@@ -367,6 +388,8 @@ que un cliente del servicio OPRF enlaza dentro de su propio servidor es permisiv
 | Componente | Licencia |
 |---|---|
 | `quipu` (núcleo) y sus bindings | `AGPL-3.0-or-later` (ver `LICENSE`) |
+| `crates/quipu-nucleo` (formato y canal visual) | `AGPL-3.0-or-later` / comercial |
+| `crates/quipu-cnsa` (perfil CNSA 2.0) | `AGPL-3.0-or-later` / comercial |
 | `crates/quipu-voprf` → [`quipu-voprf`](https://pypi.org/project/quipu-voprf/) | **`Apache-2.0`** |
 | `integrations/django` → [`quipu-oprf-django`](https://pypi.org/project/quipu-oprf-django/) | **`Apache-2.0`** |
 | `crates/quipu-oprf-server` | `AGPL-3.0-or-later` / comercial |
