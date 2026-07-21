@@ -234,7 +234,7 @@ jobs:
       # Publica un GitHub Release con las ruedas/sdist Y sus bundles .sigstore,
       # para que cualquiera pueda `cosign verify-blob --bundle` según docs/RELEASES.md.
       - name: Create GitHub Release with signed artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.whl
