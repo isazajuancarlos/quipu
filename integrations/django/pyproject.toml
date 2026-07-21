@@ -4,7 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quipu-oprf-django"
-version = "0.1.0"
+# 0.1.1: solo metadatos (clasificadores de PyPI). Hay que subir el número
+# aunque el código no cambie — PyPI NO deja resubir una versión, y el job de
+# publicación usa `skip-existing: true`, así que etiquetar sin subir versión
+# no falla: no hace NADA en silencio.
+version = "0.1.1"
 description = "Endurecimiento de contraseñas con VOPRF para Django: una base de datos robada no se puede crackear offline."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -16,6 +20,11 @@ keywords = ["django", "password", "oprf", "voprf", "argon2", "authentication"]
 # keywords no sustituyen a los clasificadores: la navegación por facetas de
 # PyPI solo usa estos.
 #
+# NO se incluye «License :: OSI Approved :: Apache Software License»:
+# PEP 639 sustituyó los clasificadores de licencia por expresiones SPDX, y
+# setuptools RECHAZA la construcción si conviven con `license = "Apache-2.0"`.
+# Existe en la lista de PyPI —lo comprobé— pero existir no es lo mismo que
+# poder usarse aquí. Se descubrió construyendo el paquete, no leyendo la lista.
 # Verificados uno a uno contra https://pypi.org/pypi?:action=list_classifiers
 # el 2026-07-21: un clasificador inválido hace que PyPI rechace la subida
 # ENTERA, y eso se descubriría en mitad de un release.
@@ -27,7 +36,6 @@ classifiers = [
     "Framework :: Django :: 5.1",
     "Framework :: Django :: 5.2",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Topic :: Internet :: WWW/HTTP :: Session",
     "Topic :: Security :: Cryptography",

@@ -66,9 +66,21 @@
 //!
 //! # Lo que TODAVÍA no cubre
 //!
-//! CNSA 2.0 exige **LMS o XMSS (SP 800-208)** para firma de software. SLH-DSA
-//! **no** cubre ese renglón: es FIPS-205, otro documento y otro uso. Es un
-//! desajuste real, no una elección de diseño, y está pendiente.
+//! **No hay firma.** Este perfil solo cifra y descifra. Faltan también el modo
+//! streaming, el canal de destinatario (ML-KEM) y los enlaces para otros
+//! lenguajes.
+//!
+//! Sobre LMS/XMSS, con el matiz correcto —lo escribimos mal en una versión
+//! previa de este doc—: **ML-DSA-87 está aprobado para cualquier uso**, incluida
+//! la firma de software y firmware. LMS y XMSS (SP 800-208) están aprobados
+//! **exclusivamente** para ese renglón, y la NSA los priorizó ahí por razones
+//! prácticas, no porque ML-DSA no sirva. SLH-DSA, en cambio, **no está en CNSA
+//! 2.0** en absoluto.
+//!
+//! Consecuencia: cuando se añada firma aquí, **ML-DSA-87 basta para estar
+//! alineados**. LMS/XMSS sería una opción adicional para firmar firmware, con un
+//! coste operativo serio: son esquemas CON ESTADO y reutilizar el contador es
+//! catastrófico.
 
 #![forbid(unsafe_code)]
 
