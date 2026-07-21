@@ -15,7 +15,7 @@ publish = false
 [dependencies]
 # El servidor comparte la MISMA primitiva que el cliente.
 quipu = { path = "../.." }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 tiny_http = "0.12"
 sha2 = "0.10"
 subtle = "2"
