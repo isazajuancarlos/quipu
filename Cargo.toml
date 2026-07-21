@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "bindings/c", "crates/quipu-voprf", "crates/quipu-oprf-server"]
+members = [".", "bindings/c", "crates/quipu-nucleo", "crates/quipu-voprf", "crates/quipu-oprf-server"]
 resolver = "2"
 
 [package]
@@ -68,8 +68,11 @@ hsm = ["dep:cryptoki"]
 # se prueba a sí mismo.
 cryptoki = { version = "0.12", optional = true }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
-num-bigint = "0.5"
-num-traits = "0.2"
+# Núcleo agnóstico de primitivas: formato, contenedor, codec base-N, ECC y
+# canal visual. Se separó para que `quipu` y su hermana `quipu-cnsa` compartan
+# UNA sola implementación de todo lo que no es criptografía — un fallo se
+# arregla una vez. Ver el doc del crate y la tarea #92.
+quipu-nucleo = { version = "0.1.0", path = "crates/quipu-nucleo" }
 chacha20poly1305 = "0.11"
 # Arrastra `rand_core` 0.6 al arbol, y NO se puede evitar: `hash_password_into`
 # —lo unico que Quipu llama— exige la feature `alloc`, que exige `password-hash`,
@@ -99,8 +102,6 @@ curve25519-dalek = { version = "5", features = ["digest"] }
 # del servicio OPRF debe enlazar, y no puede arrastrar esta AGPL. Apache fluye
 # hacia AGPL, asi que el nucleo puede usarlo sin friccion.
 quipu-voprf = { version = "0.2.2", path = "crates/quipu-voprf" }
-image = { version = "0.25", default-features = false, features = ["png"] }
-reed-solomon = "0.2"
 fips205 = { version = "0.4.1", optional = true, default-features = false, features = ["slh_dsa_sha2_256s", "default-rng"] }
 
 [dev-dependencies]

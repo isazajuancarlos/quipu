@@ -19,7 +19,7 @@
 //! tiene por qué viajar en la biblioteca.
 
 use image::{GrayImage, Luma};
-use quipu::glyphfont;
+use quipu_nucleo::glyphfont;
 
 /// Los índices de prueba: el alfabeto entero más algunos repetidos.
 fn indices() -> Vec<u32> {
@@ -173,7 +173,7 @@ fn acierto_registrado(degradar: impl Fn(&GrayImage) -> GrayImage) -> f32 {
     let font = glyphfont::standard();
     let esperados = indices();
     let degradada = degradar(&png_a_gris(&font.render(&esperados)));
-    match quipu::glyphscan::normalizar(&degradada, 16, 1) {
+    match quipu_nucleo::glyphscan::normalizar(&degradada, 16, 1) {
         None => 0.0,
         Some((normalizada, _)) => {
             compara(font.recognize(&gris_a_png(&normalizada)), &esperados)
@@ -321,7 +321,7 @@ fn el_desenfoque_a_escala_realista() {
         let borrosa = desenfocar_caja(&grande, radio);
         // `normalizar` remuestrea de vuelta a la geometría de 16×16: es el paso
         // que en el mundo real hace el propio reconocedor.
-        let acierto = match quipu::glyphscan::normalizar(&borrosa, 16, 1) {
+        let acierto = match quipu_nucleo::glyphscan::normalizar(&borrosa, 16, 1) {
             None => 0.0,
             Some((n, _)) => compara(font.recognize(&gris_a_png(&n)), &esperados),
         };

@@ -1,0 +1,30 @@
+[package]
+name = "quipu-nucleo"
+version = "0.1.0"
+edition = "2024"
+description = "Núcleo agnóstico de primitivas de Quipu: formato, contenedor, codec base-N, ECC y canal visual de glifos. No contiene criptografía."
+authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
+license = "AGPL-3.0-or-later"
+keywords = ["encoding", "codec", "reed-solomon", "container"]
+categories = ["encoding"]
+readme = "README.md"
+repository = "https://github.com/isazajuancarlos/quipu"
+homepage = "https://github.com/isazajuancarlos/quipu"
+documentation = "https://docs.rs/quipu-nucleo"
+
+[dependencies]
+# Aritmética de precisión arbitraria para el codec base-N.
+num-bigint = "0.5"
+num-traits = "0.2"
+# Corrección de errores del canal visual (un glifo mal leído no debe perder el
+# mensaje).
+reed-solomon = "0.2"
+# Solo PNG: el canal visual no necesita más formatos, y cada decodificador extra
+# es superficie de ataque sobre entrada no confiable.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+proptest = "1"
+# `glifos_degradados` construye las imágenes degradadas del banco (desplazar,
+# rotar, emborronar) directamente sobre `GrayImage`.
+image = { version = "0.25", default-features = false, features = ["png"] }

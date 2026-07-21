@@ -900,17 +900,14 @@ dependencies = [
  "fips205",
  "getrandom 0.4.3",
  "hkdf",
- "image",
  "ml-dsa",
  "ml-kem",
- "num-bigint",
- "num-traits",
  "proptest",
  "pyo3",
+ "quipu-nucleo",
  "quipu-voprf",
  "rand_chacha 0.10.0",
  "rand_core 0.10.1",
- "reed-solomon",
  "serde_json",
  "sha2 0.11.0",
  "subtle",
@@ -926,6 +923,17 @@ version = "0.9.1"
 dependencies = [
  "quipu",
  "zeroize",
+]
+
+[[package]]
+name = "quipu-nucleo"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "num-bigint",
+ "num-traits",
+ "proptest",
+ "reed-solomon",
 ]
 
 [[package]]
