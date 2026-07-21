@@ -56,7 +56,7 @@ DURANTE la operación, canal lateral físico local, o control del binario/SO.
  3. SUPUESTOS DE CONFIANZA
 --------------------------------------------------------------------------------
  S1. Los primitivos vetados son seguros: XChaCha20-Poly1305, Argon2id,
-     HKDF-SHA256, X25519, ML-KEM-768 (FIPS-203), ristretto255.
+     HKDF-SHA256, X25519, ML-KEM-1024 (FIPS-203), ristretto255.
  S2. El RNG del sistema (getrandom/OsRng) es criptográficamente seguro.
  S3. La passphrase tiene entropía suficiente Y/O se usa un coste Argon2id alto;
      una passphrase débil es rompible por T3 pese a todo (ver R1).
@@ -81,7 +81,7 @@ DURANTE la operación, canal lateral físico local, o control del binario/SO.
 
  MODO ASIMÉTRICO PQ HÍBRIDO (cifrar a una clave pública):
    - Confidencialidad frente a T1 y frente a T5: la clave de contenido combina
-     un secreto X25519 y uno ML-KEM-768 vía HKDF; romperla exige romper AMBOS.
+     un secreto X25519 y uno ML-KEM-1024 vía HKDF; romperla exige romper AMBOS.
    - El transcript liga la clave pública COMPLETA del destinatario (X25519 pub
      + ML-KEM ek) y la encapsulación (estilo X-Wing) -> resistente a ataques de
      re-encapsulación / sustitución de clave pública (cierra F2).
@@ -109,8 +109,11 @@ DURANTE la operación, canal lateral físico local, o control del binario/SO.
      con padding Padmé (length-hiding aproximado), no esteganografía plena.
  N2. Proteger contra un adversario que controla la máquina DURANTE la operación
      (malware con acceso a RAM viva, keylogger, binario troyanizado).
- N3. Canales laterales físicos locales (timing fino, potencia, EM). Se usa
-     comparación en tiempo constante donde aplica, pero no es el objetivo.
+ N3. Canales laterales FÍSICOS locales (potencia, EM, inyección de fallos).
+     Ninguna biblioteca de software sobre CPU de propósito general puede
+     defenderlos: exigen contramedidas en hardware (enmascaramiento, cómputo
+     redundante, blindaje, elemento seguro). El canal de TIEMPO no se agrupa
+     aquí: sí se ataca en software y sí se mitiga; ver R6.
  N4. Passphrases de baja entropía sin coste KDF alto (ver R1).
  N5. Disponibilidad del modo online si el servidor OPRF cae (ver R2).
  N6. Secreto de la representación/codebook (por diseño es público).
@@ -151,6 +154,17 @@ DURANTE la operación, canal lateral físico local, o control del binario/SO.
      cargo-audit en CI, pero un 0-day en una dependencia sigue siendo posible.
  R5. El modelo no cubre un endpoint comprometido (N2): si la máquina del
      usuario está tomada, la passphrase y el plaintext se filtran en claro.
+ R6. Canal lateral de TIEMPO. Distinto de N3: el timing SÍ es defendible en
+     software; potencia y EM no lo son. Postura: Quipu no compara material
+     secreto en código propio. Las comparaciones que importan (etiqueta AEAD,
+     verificación de firma) ocurren DENTRO de los primitivos vetados, que
+     responden por sus propias garantías de tiempo constante (ver S1 y R4).
+     Como utilidad preventiva se expone `antihacker::ct_eq` (sobre `subtle`),
+     verificada empíricamente con dudect (t de Welch) en `src/lab/timing.rs`
+     (aislado, `--network none`); hoy NO tiene consumidor en la ruta de
+     producción, y así debe declararse. Límite: esa verificación cubre código
+     propio; NO cubre los primitivos post-cuánticos (ML-KEM/ML-DSA), cuyo
+     comportamiento temporal es responsabilidad de la dependencia.
 
 --------------------------------------------------------------------------------
  8. TRAZABILIDAD A MITIGACIONES (resumen)
@@ -159,7 +173,7 @@ DURANTE la operación, canal lateral físico local, o control del binario/SO.
    T2 -> cabecera como AAD; validación is_sane de params KDF; guardas de parseo.
    T3 -> Argon2id (memory-hard) + pepper; modo online con rate-limit.
    T4 -> VOPRF con prueba DLEQ verificada contra clave pública fijada (F1).
-   T5 -> KEM híbrido X25519 + ML-KEM-768 (F2, transcript con ek ligada).
+   T5 -> KEM híbrido X25519 + ML-KEM-1024 (F2, transcript con ek ligada).
    T6 -> zeroization best-effort del material sensible (parcial; ver R3).
 
 ================================================================================

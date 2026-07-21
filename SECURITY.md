@@ -34,7 +34,7 @@ appreciated: please give a reasonable window to fix before public disclosure.
 Because the primitives are vetted crates and there is no `unsafe` in first-party
 code, the meaningful attack surface is the **composition**:
 
-- The hybrid post-quantum KEM combiner (X25519 + ML-KEM-768) and its transcript
+- The hybrid post-quantum KEM combiner (X25519 + ML-KEM-1024) and its transcript
   binding.
 - The verifiable OPRF (VOPRF) and its DLEQ proof, and the online protocol.
 - Parsing of untrusted input (container header, PNG/glyph decoders).
