@@ -10,8 +10,52 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Independent security audit and public remediation of findings.
 - A non-blocking `worker_threads` wrapper for the Node.js bindings.
 - Reference deployment of the online VOPRF hardening server.
-- Coupled primitives migration (`ml-kem` 0.3, `x25519-dalek` 3, `rand_core` 0.9)
-  — an API migration, not a bump; ships in 0.9.0.
+
+## [0.9.0] — 2026-07-20
+
+### Added
+- **Key custody in a PKCS#11 device (feature `hsm`).** The signing private key
+  can live in an HSM, token or smartcard and **never leave it**: both halves of
+  the hybrid signature (Ed25519 + ML-DSA-87) are generated and used *inside* the
+  device. The `firmante::Custodio` trait separates *who holds the key* from *how
+  the signature is assembled* — it asks for operations, never for the key
+  material. A signature made in a device and one made in memory are byte-for-byte
+  identical and verify with the same verifier. Exposed to Python as
+  `quipu.CustodioHsm`, shipped in the wheel. Tested end-to-end against a real
+  PKCS#11 token (128 concurrent signatures under a timeout).
+- **Threshold signing (`firmante::firmar_con_comparticiones`, feature `escrow`).**
+  Reconstructs a signing key from Shamir shares, signs, and drops it in a single
+  Rust call, so the key never crosses the FFI boundary into a binding.
+
+### Changed
+- **BREAKING — the RNG boundary is fallible.** When the OS cannot provide
+  randomness, Quipu no longer substitutes a weaker source and no longer panics:
+  it reports an actionable error, with a bounded retry for the one transient
+  cause. No key is ever born from a dead RNG (the Debian OpenSSL 2008 failure
+  mode, prevented by construction), and `Drop`/zeroize still runs on the failure
+  path. The functions that acquire randomness now return `Result`.
+- **BREAKING — hybrid secret-key serialization.** `ml-kem` 0.3 serializes the
+  decapsulation key as its 64-byte **seed** rather than the 3168-byte expanded
+  form, so the hybrid secret key is now **96 bytes** instead of 3200. **Both
+  formats are read; the new one is written** — keys created by 0.8.0 still
+  decrypt. Public keys and on-wire ciphertext are unchanged, so a 0.8.0 sender
+  can still encrypt to a 0.9.0 recipient. Verified across versions.
+- **Coupled primitives migration:** `ml-kem` 0.3, `x25519-dalek` 3,
+  `rand_core` 0.10, `getrandom` 0.4, `rand_chacha` 0.10. An API migration that
+  had to land as one block, not four separate bumps.
+
+### Security
+- **A trained adversary as evidence of indistinguishability (feature `lab`).**
+  `SPEC.md` claimed the ciphertext is indistinguishable from random by citing
+  XChaCha20-Poly1305; it is now measured against the implementation. A logistic
+  regression over twelve statistical features (not a neural net, so an auditor
+  can read it) finds no distinguisher: over 100 rounds the sigma is a standard
+  Gaussian. The lab never ships in a released build.
+- **Export-control notification** filed under EAR §742.15(b) (`docs/EXPORT.md`).
+
+### Fixed
+- **`quipu-voprf` moved from `getrandom` 0.2 to 0.4** — the last old version left
+  in the normal dependency tree. `cargo tree` now shows a single `getrandom`.
 
 ## [0.8.0] — 2026-07-18
 
