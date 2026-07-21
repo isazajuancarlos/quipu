@@ -84,12 +84,36 @@ un archivo de estado que corromper y sincronizar entre procesos.
 
 ## Lo que todavía NO cubre
 
-**CNSA 2.0 exige LMS o XMSS (SP 800-208) para firma de software.** SLH-DSA no
-cubre ese renglón: es FIPS-205, otro documento y otro uso. Es un desajuste real,
-no una elección de diseño, y está pendiente.
+**No hay firma todavía.** Este perfil solo cifra y descifra. El modo streaming,
+el canal de destinatario (ML-KEM) y los enlaces para otros lenguajes tampoco
+están. Llegan sobre el mismo núcleo.
 
-Tampoco están todavía: el modo streaming, el canal de destinatario (ML-KEM), la
-firma y los enlaces para otros lenguajes. Llegan sobre el mismo núcleo.
+### Sobre LMS/XMSS, con el matiz correcto
+
+Se lee a menudo —y nosotros mismos lo escribimos mal en una versión previa de
+este archivo— que *CNSA 2.0 exige LMS o XMSS (SP 800-208) para firma de
+software*. Es más preciso decirlo así:
+
+- **ML-DSA-87 está aprobado para cualquier uso**, incluida la firma de software
+  y firmware. Es el algoritmo de firma de CNSA 2.0.
+- **LMS y XMSS están aprobados EXCLUSIVAMENTE para firma de software y
+  firmware.** La NSA los priorizó ahí por razones prácticas —había
+  implementaciones validadas antes que las de ML-DSA, y una raíz de confianza en
+  firmware es dificilísima de actualizar una vez desplegada—, no porque ML-DSA
+  no sirva.
+- **SLH-DSA no está en CNSA 2.0.** Es FIPS-205 y `quipu` lo ofrece como refuerzo
+  propio, no como conformidad.
+
+Consecuencia para este perfil: cuando añadamos firma, **ML-DSA-87 basta para
+estar alineados**. LMS/XMSS sería una opción adicional para quien firme firmware,
+con un coste operativo serio: son esquemas **con estado**, cada clave produce un
+número finito de firmas y reutilizar el estado es catastrófico. Eso exige
+gestionar un contador persistente que sobreviva a caídas y no se duplique en un
+restore — un problema de infraestructura, no de criptografía.
+
+*(No pudimos confirmar en fuente primaria si SP 800-208 obliga a generar las
+firmas en hardware. Si lo hiciera, una librería de software puro no podría
+implementarlo de forma conforme, y habría que decirlo aquí.)*
 
 ## Estado
 

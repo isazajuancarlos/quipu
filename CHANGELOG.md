@@ -6,6 +6,55 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`crates/quipu-nucleo`** — the primitive-agnostic core: container format,
+  base-N codec, Reed-Solomon, Padmé padding and the visual glyph channel.
+  Contains **no cryptography at all**. Extracted so that `quipu` and its sibling
+  profile share one implementation of everything that isn't crypto: a bug there
+  is fixed once, not twice.
+- **`crates/quipu-cnsa`** — a sibling profile aligned with the **CNSA 2.0**
+  algorithms: AES-256-GCM, HKDF-SHA-384, SHA-384 codebook fingerprint, 96-bit
+  nonce, 56-byte header. Built *on top of* `quipu-nucleo`, not copied from
+  `quipu`. **It is NOT FIPS 140-3 validated**, and its README says so on the
+  first screen. Alpha: it encrypts and decrypts, nothing else.
+- **`herramientas/verificar.py`** — verifies the working tree *and the published
+  artifacts*: downloads the `.crate` from crates.io and compiles it feature by
+  feature, installs the wheel in a clean venv and checks the promised symbols
+  exist. Three outcomes, not two — pass, fail, and **NOT CHECKED**, with its own
+  exit code, because filing "I couldn't look" under "it passed" is the defect it
+  exists to prevent. Ships with a 37-check bench, proven against 4 mutations.
+- **CI: `matriz de features`** — compiles every declared feature and then
+  `--all-features`. The feature list is **derived from `Cargo.toml`**, not
+  written into the YAML: a duplicated list is a list that diverges.
+- **CI: doctests.** `--all-targets` excludes them despite the name, so they had
+  never run in this project's history.
+
+### Fixed
+- **`--features lab-offline` did not compile** — not just here: the published
+  `quipu` 0.9.1 on crates.io doesn't compile with it either. `src/lab/timing.rs`
+  destructured `pqhybrid::generate_keypair()` and `encapsulate()` as tuples;
+  they return `Result<_, SinEntropia>` since the fallible-RNG work. The other 8
+  feature paths were fine. It fails loudly at compile time and affects nobody
+  encrypting data, so it did not warrant an emergency release.
+- **The CI ran 137 of 235 tests.** `cargo test --all-targets` without
+  `--workspace` only tests the root package. `quipu-voprf`'s RFC 9497 vectors —
+  the evidence that the paid VOPRF service conforms to the standard — had never
+  run in CI. Neither had the OPRF server's e2e suite nor the C ABI tests.
+- **The wheel's feature list and version were each written in two places.**
+  `release.yml` no longer repeats `--features` (maturin reads them from
+  `pyproject.toml`), and both `pyproject.toml` files now take their version from
+  `Cargo.toml` via `dynamic = ["version"]`. They had already diverged:
+  `quipu-voprf` was 0.2.2 on crates.io and 0.2.1 on PyPI, so the next tag would
+  have built a wheel PyPI rejects as a duplicate.
+
+### Changed
+- **`Dictionary::fingerprint()` now comes from the `HuellaDeCodebook` trait**
+  and needs it in scope. The codebook itself is agnostic and moved to
+  `quipu-nucleo`; hashing is a profile decision. The wire format is unchanged —
+  `symmetric_container_is_byte_exact` still passes byte for byte.
+- `container::Header` is now generic over the salt and nonce lengths. `quipu`
+  pins `<16, 24>` behind a type alias, so nothing downstream changes.
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - A non-blocking `worker_threads` wrapper for the Node.js bindings.

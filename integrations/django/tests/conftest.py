@@ -43,10 +43,20 @@ def _fake_finalize(password, state, evaluated, proof, server_pub):
 
 @pytest.fixture(autouse=True)
 def quipu_doble(monkeypatch):
-    mod = types.ModuleType("quipu")
+    # OJO CON EL NOMBRE DEL MÓDULO: `client.py` importa `quipu_voprf` (el SDK
+    # Apache-2.0), NO `quipu` (el núcleo AGPL). Es toda la razón de ser del
+    # reparto de licencias: este plugin vive dentro del servidor de auth del
+    # cliente y no puede arrastrarle copyleft de red.
+    #
+    # Este doble parcheaba "quipu" y por tanto NO SE APLICABA: corría la
+    # librería real, que rechazaba —con razón— la prueba DLEQ de 32 bytes que
+    # fabrica este archivo. Once pruebas «pasaban» antes por no tener instalada
+    # la librería real, y fallaban en cuanto se instalaba. Nadie lo vio porque
+    # el CI no ejecutaba `integrations/`. Corregido el 2026-07-21.
+    mod = types.ModuleType("quipu_voprf")
     mod.voprf_blind = _fake_blind
     mod.voprf_finalize = _fake_finalize
-    monkeypatch.setitem(sys.modules, "quipu", mod)
+    monkeypatch.setitem(sys.modules, "quipu_voprf", mod)
     yield mod
 
 

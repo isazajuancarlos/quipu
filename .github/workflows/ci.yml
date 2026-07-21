@@ -199,6 +199,43 @@ jobs:
             exit 1
           fi
 
+  # Las pruebas de `integrations/django`, que el CI NUNCA había ejecutado.
+  #
+  # El coste de esa ausencia se vio el 2026-07-21: cuando `client.py` cambió de
+  # importar `quipu` (núcleo AGPL) a `quipu_voprf` (SDK Apache-2.0) —el reparto
+  # de licencias que hace vendible el plugin—, nadie actualizó el doble de
+  # pruebas del `conftest`, que seguía parcheando `quipu`. Once pruebas
+  # «pasaban» solo porque la librería real no estaba instalada, y fallaban en
+  # cuanto se instalaba. Es decir: pasaban por la razón equivocada.
+  #
+  # Se instala `quipu-voprf` DE VERDAD a propósito. Si el doble volviera a
+  # apuntar al módulo equivocado, estas pruebas lo delatan en vez de fingir.
+  integraciones:
+    name: integraciones (django)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+      - name: Instalar el paquete con sus dependencias reales
+        working-directory: integrations/django
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pytest django
+      - name: Pruebas
+        working-directory: integrations/django
+        run: python -m pytest -q
+      # Construir aquí también atrapa lo que un `pip install .` no ve: PEP 639
+      # rechaza los clasificadores de licencia junto a una expresión SPDX, y eso
+      # solo revienta al construir la distribución — o sea, en mitad del release.
+      - name: Construir la distribución (lo que hará el release)
+        working-directory: integrations/django
+        run: |
+          pip install build twine
+          python -m build --outdir dist
+          twine check dist/*
+
   fuzz:
     name: fuzz (smoke, nightly)
     runs-on: ubuntu-latest
