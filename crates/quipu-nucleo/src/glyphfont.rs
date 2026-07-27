@@ -146,7 +146,16 @@ fn build_font() -> (Vec<Bitmap>, Vec<Vec<u8>>) {
         }
     }
 
-    let idx = glyphopt::select_separable_subset(&cand_fp, ALPHABET);
+    // El papel en blanco y el borrón negro son las dos texturas que este canal
+    // encuentra SIEMPRE. Se pasan como huellas a evitar para que ningún glifo
+    // del alfabeto se les parezca: una hoja vacía no puede ser un mensaje.
+    let vacio = vec![0u8; SIZE * SIZE / 8];
+    let lleno = vec![0xFFu8; SIZE * SIZE / 8];
+    let idx = glyphopt::select_separable_subset_seeded(
+        &cand_fp,
+        ALPHABET,
+        &[vacio, lleno],
+    );
     let glyphs: Vec<Bitmap> = idx.iter().map(|&i| cand_bm[i]).collect();
     let fps: Vec<Vec<u8>> = idx.iter().map(|&i| cand_fp[i].clone()).collect();
     (glyphs, fps)
@@ -156,6 +165,10 @@ fn build_font() -> (Vec<Bitmap>, Vec<Vec<u8>>) {
 pub struct GlyphFont {
     glyphs: Vec<Bitmap>,
     fps: Vec<Vec<u8>>,
+    /// Radio de decodificación: `(d_min - 1) / 2`. Se calcula una vez al
+    /// construir el font, del propio alfabeto, para que un alfabeto distinto
+    /// traiga su propio umbral en vez de heredar una constante ajena.
+    radio: u32,
 }
 
 /// Devuelve el font estándar (construido una sola vez, determinista).
@@ -163,7 +176,11 @@ pub fn standard() -> &'static GlyphFont {
     static FONT: OnceLock<GlyphFont> = OnceLock::new();
     FONT.get_or_init(|| {
         let (glyphs, fps) = build_font();
-        GlyphFont { glyphs, fps }
+        // Radio clásico de decodificación por vecino más cercano: más allá de
+        // (d_min-1)/2 la lectura ya no es inequívoca, porque podría estar más
+        // cerca de otro símbolo. No es un número elegido: sale del alfabeto.
+        let radio = glyphopt::min_pairwise_distance(&fps).saturating_sub(1) / 2;
+        GlyphFont { glyphs, fps, radio }
     })
 }
 
@@ -171,6 +188,21 @@ impl GlyphFont {
     /// Tamaño del alfabeto (94).
     pub fn base(&self) -> u32 {
         self.glyphs.len() as u32
+    }
+
+    /// Distancia mínima entre dos glifos del alfabeto, en bits.
+    pub fn distancia_minima(&self) -> u32 {
+        glyphopt::min_pairwise_distance(&self.fps)
+    }
+
+    /// La huella de un glifo del alfabeto. Para diagnóstico y pruebas.
+    pub fn huella(&self, i: usize) -> &[u8] {
+        &self.fps[i]
+    }
+
+    /// Hasta qué distancia una lectura se considera un glifo y no basura.
+    pub fn radio_decodificacion(&self) -> u32 {
+        self.radio
     }
 
     /// Pinta una secuencia de índices como una tira de glifos (PNG).
@@ -196,6 +228,39 @@ impl GlyphFont {
         out
     }
 
+    /// Como [`GlyphFont::recognize`] pero MARCA los ilegibles en vez de
+    /// abandonar la lectura entera.
+    ///
+    /// `recognize` devuelve `None` si un solo glifo cae fuera del radio, y eso
+    /// es correcto para quien quiere todo o nada. Pero tira al suelo un
+    /// mensaje que Reed-Solomon podría reparar: sería como negarse a leer un
+    /// QR porque tiene una esquina manchada. Aquí cada posición vale por sí
+    /// misma y el corrector decide.
+    pub fn recognize_marcando(&self, png: &[u8]) -> Option<Vec<Option<u32>>> {
+        let img = crate::render::decode_png_luma(png)?;
+        let n = (img.width() as usize) / CELL;
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let ox = i * CELL + PAD;
+            let mut bm = [[false; SIZE]; SIZE];
+            for (y, row) in bm.iter_mut().enumerate() {
+                for (x, cell) in row.iter_mut().enumerate() {
+                    let px = img.get_pixel((ox + x) as u32, (PAD + y) as u32).0[0];
+                    *cell = px < 128;
+                }
+            }
+            let fp = fingerprint(&bm);
+            let (idx, dist) = self
+                .fps
+                .iter()
+                .enumerate()
+                .map(|(j, gfp)| (j as u32, glyphopt::hamming(&fp, gfp)))
+                .min_by_key(|&(_, d)| d)?;
+            out.push(if dist > self.radio { None } else { Some(idx) });
+        }
+        Some(out)
+    }
+
     /// Reconoce los índices desde un PNG de glifos (vecino más cercano).
     pub fn recognize(&self, png: &[u8]) -> Option<Vec<u32>> {
         // Decodifica con límites de tamaño (anti bomba de descompresión), igual
@@ -213,12 +278,24 @@ impl GlyphFont {
                 }
             }
             let fp = fingerprint(&bm);
-            let idx = self
+            let (idx, dist) = self
                 .fps
                 .iter()
                 .enumerate()
-                .min_by_key(|(_, gfp)| glyphopt::hamming(&fp, gfp))
-                .map(|(j, _)| j as u32)?;
+                .map(|(j, gfp)| (j as u32, glyphopt::hamming(&fp, gfp)))
+                .min_by_key(|&(_, d)| d)?;
+
+            // RECHAZO. Sin esto, `min_by_key` devolvía SIEMPRE el glifo más
+            // cercano, estuviera a distancia 1 o a 200: una foto de una pared
+            // producía una secuencia de índices perfectamente formada. Un canal
+            // que nunca dice «no sé» no distingue un dato de un ruido, y eso es
+            // lo que convierte una lectura fallida en un dato falso.
+            //
+            // Más allá del radio, la lectura no es inequívoca: podría estar más
+            // cerca de otro símbolo del alfabeto. Ahí se abandona.
+            if dist > self.radio {
+                return None;
+            }
             out.push(idx);
         }
         Some(out)

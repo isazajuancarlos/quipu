@@ -298,11 +298,32 @@ pub fn decode_from_robust_image(
     decode_from_blob(&blob, passphrase, [0u8; 8], pepper)
 }
 
+/// Paridad Reed-Solomon por bloque en el canal de glifos.
+///
+/// No es configurable a propósito. El canal de glifos SIEMPRE viaja por papel
+/// —se imprime, se dobla, se escanea—, así que un modo sin protección no
+/// tendría usuario legítimo: sería una trampa esperando a que alguien la
+/// eligiera por parecer más compacta. El canal PNG sí ofrece las dos variantes
+/// porque ahí el archivo puede no salir nunca de un disco.
+///
+/// 32 bytes corrigen hasta 16 símbolos erróneos por bloque de 255.
+const GLYPH_PARITY: u8 = 32;
+
 /// Cifra `data` y lo pinta como una tira de GLIFOS del alfabeto IA nativo.
+///
+/// Protegido con Reed-Solomon. Hasta ahora no lo estaba —el canal hermano de
+/// PNG sí, con el mismo módulo `ecc`—, de modo que UN glifo mal leído destruía
+/// la carga entera y no había forma de recuperar nada. La asimetría no tenía
+/// razón escrita en ninguna parte: era un olvido.
 pub fn encode_to_glyph_image(data: &[u8], passphrase: &str, opts: &Options) -> Vec<u8> {
     let blob = encode_to_blob(data, passphrase, [0u8; 8], opts);
+    let protegido = crate::ecc::protect(&blob, GLYPH_PARITY);
     let font = crate::glyphfont::standard();
-    let indices = codec::encode_base_n(&blob, font.base());
+    // Por GRUPOS y no como un número único: `encode_base_n` no tiene localidad
+    // —un glifo malo corrompe todo lo que sigue— y detrás de eso Reed-Solomon
+    // no puede corregir nada. Medido: el canal «protegido» no aguantaba ni un
+    // glifo dañado hasta que se cambió esto.
+    let indices = codec::encode_grupos(&protegido, font.base());
     font.render(&indices)
 }
 
@@ -313,10 +334,17 @@ pub fn decode_from_glyph_image(
     pepper: &[u8],
 ) -> Result<Vec<u8>, DecodeError> {
     let font = crate::glyphfont::standard();
+    // `recognize` devuelve None cuando algún glifo queda fuera del radio de
+    // decodificación: no aproxima, abandona. Antes devolvía siempre el más
+    // parecido, así que una imagen cualquiera producía índices válidos.
     let indices = font
-        .recognize(png)
+        .recognize_marcando(png)
         .ok_or(DecodeError::Container(ContainerError::TooShort))?;
-    let blob = codec::decode_base_n(&indices, font.base());
+    // `corruptos` son los grupos cuyo valor no cabe en 3 bytes: imposibles de
+    // producir por el codificador, así que vienen dañados. Se dejan en ceros
+    // para que Reed-Solomon los corrija; el dato está en que existen.
+    let (protegido, _corruptos) = codec::decode_grupos(&indices, font.base());
+    let blob = crate::ecc::recover(&protegido).ok_or(DecodeError::Decrypt)?;
     decode_from_blob(&blob, passphrase, [0u8; 8], pepper)
 }
 
@@ -735,9 +763,14 @@ mod tests {
     fn robust_image_survives_channel_noise() {
         let data = b"este mensaje sobrevive al ruido del canal impreso";
         let png = encode_to_robust_image(data, "clave", &test_opts(), 16);
-        // Simula ruido: voltea 8 bytes del payload (corregibles con parity=16).
+        // Simula ruido: voltea 8 bytes del CUERPO (corregibles con parity=16).
+        // El desplazamiento sale del módulo y no se escribe a mano: cuando la
+        // cabecera pasó de 5 bytes desnudos a un bloque RS de 15, un `5` fijo
+        // metía el daño DENTRO de la cabecera y la prueba fallaba por un
+        // motivo que no era el que mide.
+        let inicio = crate::ecc::tamano_cabecera();
         let mut payload = crate::render::png_to_bytes(&png).unwrap();
-        for byte in &mut payload[5..13] {
+        for byte in &mut payload[inicio..inicio + 8] {
             *byte ^= 0xFF;
         }
         let noisy = crate::render::bytes_to_png(&payload);

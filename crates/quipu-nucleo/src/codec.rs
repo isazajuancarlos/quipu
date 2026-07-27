@@ -89,3 +89,94 @@ mod tests {
         }
     }
 }
+
+
+// ===========================================================================
+// CODIFICACIÓN POR GRUPOS, PARA QUE EL DAÑO SEA LOCAL
+// ===========================================================================
+//
+// `encode_base_n` convierte el mensaje entero como UN número. Eso no tiene
+// localidad: un glifo mal leído no cambia un byte, cambia el número y con él
+// todos los bytes que siguen. Reed-Solomon corrige errores dispersos, así que
+// detrás de esa transformación no puede hacer nada — medido el 2026-07-26: el
+// canal protegido no aguantaba ni un glifo dañado.
+//
+// Aquí el mapeo es local y de tamaño fijo:
+//
+//     3 bytes  <->  4 glifos      94^4 = 78 074 896  >=  2^24 = 16 777 216
+//
+// Un glifo dañado corrompe EXACTAMENTE 3 bytes, que es lo que el corrector
+// espera. Y como solo el 21,5 % del espacio de 4 glifos corresponde a un valor
+// de 3 bytes, el 78,5 % de las corrupciones se detecta aquí mismo: el grupo da
+// un valor imposible. Ese detector local es lo que compra el 8,4 % de densidad
+// que la proporción 3:4 no aprovecha.
+
+/// Bytes por grupo.
+pub const GRUPO_BYTES: usize = 3;
+/// Glifos por grupo.
+pub const GRUPO_DIGITOS: usize = 4;
+
+/// Codifica en grupos de 3 bytes -> 4 dígitos base `n`.
+///
+/// Rellena con ceros hasta un múltiplo de 3. El relleno es inofensivo: quien
+/// llama —`ecc::recover`— conoce la longitud real por su propia cabecera y
+/// descarta la cola.
+pub fn encode_grupos(data: &[u8], n: u32) -> Vec<u32> {
+    let base = n as u64;
+    let mut out = Vec::with_capacity(data.len().div_ceil(GRUPO_BYTES) * GRUPO_DIGITOS);
+    for trozo in data.chunks(GRUPO_BYTES) {
+        let mut v = 0u64;
+        for i in 0..GRUPO_BYTES {
+            v = (v << 8) | *trozo.get(i).unwrap_or(&0) as u64;
+        }
+        let mut digitos = [0u32; GRUPO_DIGITOS];
+        for d in digitos.iter_mut().rev() {
+            *d = (v % base) as u32;
+            v /= base;
+        }
+        out.extend_from_slice(&digitos);
+    }
+    out
+}
+
+/// Operación inversa. Devuelve también qué grupos vinieron corruptos.
+///
+/// Un grupo cuyo valor no cabe en 3 bytes es imposible: no lo produjo
+/// `encode_grupos`. Se devuelve como ceros y se anota su posición, para que el
+/// corrector sepa dónde mirar en vez de tratarlo como dato bueno.
+pub fn decode_grupos(indices: &[Option<u32>], n: u32) -> (Vec<u8>, Vec<usize>) {
+    let base = n as u64;
+    let mut out = Vec::with_capacity(indices.len() / GRUPO_DIGITOS * GRUPO_BYTES);
+    let mut corruptos = Vec::new();
+
+    for (g, grupo) in indices.chunks(GRUPO_DIGITOS).enumerate() {
+        if grupo.len() < GRUPO_DIGITOS {
+            // Cola incompleta: no la produjo el codificador. Se descarta en vez
+            // de rellenarla, que sería inventar bytes.
+            corruptos.push(g);
+            break;
+        }
+        // Una posición ilegible contamina su grupo entero: no se puede
+        // reconstruir el valor sin ella. Se marca y Reed-Solomon lo repara.
+        if grupo.iter().any(|d| d.is_none()) {
+            corruptos.push(g);
+            out.extend_from_slice(&[0u8; GRUPO_BYTES]);
+            continue;
+        }
+        let mut v = 0u64;
+        for d in grupo.iter().flatten() {
+            // Un índice fuera del alfabeto solo puede venir de una lectura
+            // rota. Se satura para no desbordar y el grupo cae como corrupto.
+            v = v.saturating_mul(base).saturating_add((*d).min(n - 1) as u64);
+        }
+        if v > 0x00FF_FFFF {
+            corruptos.push(g);
+            out.extend_from_slice(&[0u8; GRUPO_BYTES]);
+            continue;
+        }
+        out.push((v >> 16) as u8);
+        out.push((v >> 8) as u8);
+        out.push(v as u8);
+    }
+    (out, corruptos)
+}

@@ -960,6 +960,7 @@ dependencies = [
  "fips205",
  "getrandom 0.4.3",
  "hkdf",
+ "image",
  "ml-dsa",
  "ml-kem",
  "proptest",

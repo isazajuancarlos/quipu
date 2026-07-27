@@ -9,13 +9,32 @@
 //!   [ parity(1) | data_len(4 LE) | bloques RS... ]
 //!   cada bloque = chunk_de_datos (hasta 255-parity) + bytes de paridad
 //!
-//! La cabecera (5 bytes) NO está protegida: si se corrompe, la recuperación
-//! falla limpiamente (devuelve None).
+//! La cabecera lleva SU PROPIO bloque Reed-Solomon (5 datos + 10 de paridad).
+//!
+//! Antes iba desnuda, y en un archivo eso era razonable: los bytes 0-4 no se
+//! corrompen solos. En papel es otra cosa — una mancha en la esquina izquierda
+//! de la hoja destruía el mensaje entero mientras el resto de la tira estaba
+//! intacta. Un punto único de fallo en el canal que más ruido tiene.
+//!
+//! Se protege con su propio bloque y no replicando copias porque una mancha
+//! daña bytes CONTIGUOS: tres copias seguidas mueren juntas, y repartirlas por
+//! el cuerpo obligaría a saltárselas al leer los bloques. Un bloque RS propio
+//! resuelve lo mismo sin tocar la disposición.
 
 use reed_solomon::{Decoder, Encoder};
 
 /// Cabecera: parity(1) + data_len(4).
 const HEADER: usize = 5;
+/// Paridad del bloque que protege la cabecera. Corrige hasta 5 bytes, que en
+/// el canal de glifos es algo más de un glifo entero borrado.
+const HEADER_PARITY: usize = 10;
+/// Lo que ocupa la cabecera protegida.
+const HEADER_BLOCK: usize = HEADER + HEADER_PARITY;
+
+/// Cuánto ocupa la cabecera protegida, para que nadie la escriba a mano.
+pub fn tamano_cabecera() -> usize {
+    HEADER_BLOCK
+}
 
 /// Protege `data` con Reed-Solomon usando `parity` bytes de paridad por bloque.
 pub fn protect(data: &[u8], parity: u8) -> Vec<u8> {
@@ -23,9 +42,12 @@ pub fn protect(data: &[u8], parity: u8) -> Vec<u8> {
     let chunk = 255 - parity as usize;
     let encoder = Encoder::new(parity as usize);
 
-    let mut out = Vec::with_capacity(HEADER + data.len() + parity as usize);
-    out.push(parity);
-    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    let mut cabecera = Vec::with_capacity(HEADER);
+    cabecera.push(parity);
+    cabecera.extend_from_slice(&(data.len() as u32).to_le_bytes());
+
+    let mut out = Vec::with_capacity(HEADER_BLOCK + data.len() + parity as usize);
+    out.extend_from_slice(&Encoder::new(HEADER_PARITY).encode(&cabecera));
     for block in data.chunks(chunk) {
         let encoded = encoder.encode(block);
         out.extend_from_slice(&encoded); // chunk de datos + paridad
@@ -36,17 +58,23 @@ pub fn protect(data: &[u8], parity: u8) -> Vec<u8> {
 /// Recupera los datos corrigiendo errores. Devuelve `None` si hay demasiados
 /// errores o la cabecera está corrupta.
 pub fn recover(protected: &[u8]) -> Option<Vec<u8>> {
-    if protected.len() < HEADER {
+    if protected.len() < HEADER_BLOCK {
         return None;
     }
-    let parity = protected[0];
+    // La cabecera viene con su propio bloque RS: se corrige antes de creerle
+    // nada. Si ni siquiera eso se puede reparar, no hay por dónde empezar.
+    let cabecera = Decoder::new(HEADER_PARITY)
+        .correct(&protected[..HEADER_BLOCK], None)
+        .ok()?;
+    let cabecera = cabecera.data();
+    let parity = cabecera[0];
     // `parity` viene de la cabecera NO protegida. Debe dejar sitio para datos:
     // con parity==255 el chunk sería 0 (bloque de pura paridad) -> trabajo inútil
     // y parámetros Reed-Solomon degenerados. Exige 2 <= parity <= 254.
     if parity < 2 || 255 - (parity as usize) == 0 {
         return None;
     }
-    let data_len = u32::from_le_bytes(protected[1..HEADER].try_into().ok()?) as usize;
+    let data_len = u32::from_le_bytes(cabecera[1..HEADER].try_into().ok()?) as usize;
     // Anti-DoS: un data_len mayor que los bytes disponibles es imposible y
     // evitaría una asignación gigante (with_capacity con un u32 malicioso).
     if data_len > protected.len() {
@@ -55,7 +83,7 @@ pub fn recover(protected: &[u8]) -> Option<Vec<u8>> {
     let chunk = 255 - parity as usize;
     let decoder = Decoder::new(parity as usize);
 
-    let mut body = &protected[HEADER..];
+    let mut body = &protected[HEADER_BLOCK..];
     let mut out = Vec::with_capacity(data_len);
     let mut remaining = data_len;
     while remaining > 0 {
