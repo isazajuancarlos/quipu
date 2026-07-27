@@ -33,6 +33,29 @@ pub fn min_pairwise_distance(fingerprints: &[Vec<u8>]) -> u32 {
 /// Selecciona `k` huellas maximizando (greedy) la distancia mínima entre las
 /// elegidas (farthest-point sampling). Devuelve los índices seleccionados.
 pub fn select_separable_subset(fingerprints: &[Vec<u8>], k: usize) -> Vec<usize> {
+    select_separable_subset_seeded(fingerprints, k, &[])
+}
+
+/// Como [`select_separable_subset`], pero además se aparta de `evitar`.
+///
+/// `evitar` son huellas que NO forman parte del alfabeto y de las que sin
+/// embargo hay que mantenerse lejos. Existe por un caso concreto y muy común:
+/// una hoja en blanco es una huella de ceros, y si el alfabeto contiene un
+/// glifo con poca tinta, el papel vacío cae dentro de su radio de
+/// decodificación y se lee como un mensaje. Lo mismo un borrón, que es unos.
+///
+/// La alternativa era endurecer el umbral del lector, y habría sido tapar con
+/// un mecanismo lo que otro dejó mal: el umbral estaba bien calculado; lo que
+/// estaba mal era admitir en el alfabeto un símbolo que se parece a la nada.
+///
+/// Es la misma idea que la restricción de complejidad de AprilTag —descartar
+/// palabras de código que la textura natural imita—, aplicada al caso que este
+/// canal encuentra siempre: papel.
+pub fn select_separable_subset_seeded(
+    fingerprints: &[Vec<u8>],
+    k: usize,
+    evitar: &[Vec<u8>],
+) -> Vec<usize> {
     let n = fingerprints.len();
     let k = k.min(n);
     if k == 0 {
@@ -41,12 +64,27 @@ pub fn select_separable_subset(fingerprints: &[Vec<u8>], k: usize) -> Vec<usize>
 
     // Farthest-point incremental: `mind[c]` = distancia mínima del candidato `c`
     // al conjunto ya elegido. Se actualiza solo contra el último añadido -> O(k·n·m).
+    let mut mind: Vec<u32> = vec![u32::MAX; n];
+    for e in evitar {
+        for (i, fp) in fingerprints.iter().enumerate() {
+            mind[i] = mind[i].min(hamming(fp, e));
+        }
+    }
+
+    // La primera elección: con `evitar`, el candidato MÁS lejano de lo que hay
+    // que rehuir; sin él, el primero, como siempre.
+    let primero = if evitar.is_empty() {
+        0
+    } else {
+        (0..n).max_by_key(|&i| mind[i]).unwrap_or(0)
+    };
+
     let mut selected = vec![false; n];
-    selected[0] = true;
-    let mut chosen = vec![0usize];
-    let mut mind: Vec<u32> = (0..n)
-        .map(|i| hamming(&fingerprints[i], &fingerprints[0]))
-        .collect();
+    selected[primero] = true;
+    let mut chosen = vec![primero];
+    for (i, fp) in fingerprints.iter().enumerate() {
+        mind[i] = mind[i].min(hamming(fp, &fingerprints[primero]));
+    }
 
     while chosen.len() < k {
         // Candidato no elegido con mayor distancia al conjunto.
