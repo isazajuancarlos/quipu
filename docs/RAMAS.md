@@ -45,6 +45,21 @@ git branch -u origin/estable estable
 git remote set-head origin -a
 ```
 
+## La protección muerde, y también a quien la puso
+
+`estable` y `testing` tienen `enforce_admins` **activo** desde el 2026-07-27. Un
+push directo se rechaza con `GH006`, sin excepción.
+
+Se activó por un motivo concreto: dos horas después de montar este modelo, su
+propio autor empujó directo a `testing` sin darse cuenta. Pasó porque la
+protección permitía saltársela siendo administrador. La regla estaba escrita —
+en este mismo archivo— y escribirla no bastó.
+
+**El precio, dicho antes de que sorprenda:** si el CI se rompe, nadie puede
+empujar el arreglo directo. Hay que desactivar la protección, arreglar y volver
+a activarla. Es deliberado: una regla que se puede saltar cuando molesta no es
+una regla, es una sugerencia.
+
 ## El recorrido
 
 ```
