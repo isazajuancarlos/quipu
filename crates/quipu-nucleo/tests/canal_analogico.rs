@@ -193,12 +193,25 @@ fn rotar(img: &GrayImage, rad: f32) -> GrayImage {
 // formada. Un canal que nunca dice «no sé» no distingue un dato de un ruido.
 // ===========================================================================
 
+/// El umbral está en el HUECO entre lo que hay que aceptar y lo que hay que
+/// rechazar, medido — no en una fracción elegida por bonita.
+///
+///     desenfoque al 5,6 % de celda   margen mínimo = 20   <- aceptar
+///     ruido tipo «foto de una pared» margen máximo =  7   <- rechazar
+///
+/// `d_min/2 = 16` cae dentro con holgura a los dos lados. El primer intento
+/// puso `d_min/4 = 8`, a UN bit del ruido.
 #[test]
-fn el_radio_sale_del_alfabeto_y_no_de_una_constante() {
+fn el_margen_sale_del_alfabeto_y_cae_en_el_hueco_medido() {
     let f = glyphfont::standard();
     let d = f.distancia_minima();
     assert!(d >= 2, "alfabeto sin separación: d_min = {d}");
-    assert_eq!(f.radio_decodificacion(), (d - 1) / 2);
+    assert_eq!(f.margen_minimo(), d / 2);
+    assert!(
+        (8..=19).contains(&f.margen_minimo()),
+        "el margen {} se salió del hueco entre el ruido (7) y el desenfoque          aceptable (20): vuelve a medir las dos poblaciones antes de moverlo",
+        f.margen_minimo(),
+    );
 }
 
 #[test]

@@ -165,10 +165,9 @@ fn build_font() -> (Vec<Bitmap>, Vec<Vec<u8>>) {
 pub struct GlyphFont {
     glyphs: Vec<Bitmap>,
     fps: Vec<Vec<u8>>,
-    /// Radio de decodificación: `(d_min - 1) / 2`. Se calcula una vez al
-    /// construir el font, del propio alfabeto, para que un alfabeto distinto
-    /// traiga su propio umbral en vez de heredar una constante ajena.
-    radio: u32,
+    /// MARGEN mínimo entre el glifo más cercano y el segundo, para aceptar la
+    /// lectura. Se deriva del propio alfabeto al construirlo.
+    margen: u32,
 }
 
 /// Devuelve el font estándar (construido una sola vez, determinista).
@@ -176,11 +175,34 @@ pub fn standard() -> &'static GlyphFont {
     static FONT: OnceLock<GlyphFont> = OnceLock::new();
     FONT.get_or_init(|| {
         let (glyphs, fps) = build_font();
-        // Radio clásico de decodificación por vecino más cercano: más allá de
-        // (d_min-1)/2 la lectura ya no es inequívoca, porque podría estar más
-        // cerca de otro símbolo. No es un número elegido: sale del alfabeto.
-        let radio = glyphopt::min_pairwise_distance(&fps).saturating_sub(1) / 2;
-        GlyphFont { glyphs, fps, radio }
+        // POR QUÉ MARGEN Y NO DISTANCIA ABSOLUTA.
+        //
+        // El primer intento usó el radio clásico de decodificación,
+        // (d_min-1)/2, que garantiza unicidad. Como criterio de RECHAZO resultó
+        // demasiado estrecho: rompió `el_desenfoque_a_escala_realista`, una
+        // medición que ya existía, tirando de 100 % a 0 % una lectura que el
+        // vecino más cercano seguía acertando.
+        //
+        // La causa fue el modelo de ruido. Voltear N píxeles mueve la huella
+        // exactamente N bits, y ahí el radio sobraba. Pero desenfocar y volver
+        // a umbralizar DESPLAZA EL TRAZO ENTERO: voltea muchos más de 16 bits
+        // mientras el glifo sigue siendo inconfundible.
+        //
+        // El margen mide otra cosa, y es la que importa: si el más cercano está
+        // MUCHO más cerca que el segundo, la lectura es inequívoca aunque su
+        // distancia absoluta sea grande. Y ante una foto de una pared todos los
+        // candidatos quedan igual de lejos, el margen se desploma y se rechaza,
+        // que es lo que se buscaba desde el principio.
+        // El valor sale de medir las dos poblaciones que hay que separar
+        // (2026-07-26, muestras de 40-98 celdas):
+        //
+        //     desenfoque al 5,6 % de celda   margen mínimo = 20   <- aceptar
+        //     ruido tipo «foto de una pared» margen máximo =  7   <- rechazar
+        //
+        // Hay hueco limpio entre 7 y 20. d_min/2 = 16 cae dentro con holgura a
+        // los dos lados; d_min/4 = 8 quedaba pegado al ruido, a un solo bit.
+        let margen = glyphopt::min_pairwise_distance(&fps) / 2;
+        GlyphFont { glyphs, fps, margen }
     })
 }
 
@@ -195,14 +217,73 @@ impl GlyphFont {
         glyphopt::min_pairwise_distance(&self.fps)
     }
 
+    /// Vecino más cercano SIN rechazar nada. Para medir el alfabeto.
+    ///
+    /// La separabilidad del alfabeto y la regla de decisión son propiedades
+    /// distintas, y mezclarlas confunde la medición: un banco que pregunta
+    /// «¿cuántos glifos acierta con este desenfoque?» quiere la respuesta del
+    /// clasificador, no la del criterio de confianza. Con rechazo todo-o-nada
+    /// la respuesta es siempre 0 % en cuanto un solo glifo queda ambiguo, y
+    /// eso no dice nada del alfabeto.
+    ///
+    /// No usar para leer de verdad: devuelve un glifo aunque la imagen sea una
+    /// pared. Para eso están `recognize` y `recognize_marcando`.
+    pub fn recognize_crudo(&self, png: &[u8]) -> Option<Vec<u32>> {
+        let img = crate::render::decode_png_luma(png)?;
+        let n = (img.width() as usize) / CELL;
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let ox = i * CELL + PAD;
+            let mut bm = [[false; SIZE]; SIZE];
+            for (y, row) in bm.iter_mut().enumerate() {
+                for (x, cell) in row.iter_mut().enumerate() {
+                    let px = img.get_pixel((ox + x) as u32, (PAD + y) as u32).0[0];
+                    *cell = px < 128;
+                }
+            }
+            let fp = fingerprint(&bm);
+            out.push(
+                self.fps
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, gfp)| glyphopt::hamming(&fp, gfp))
+                    .map(|(j, _)| j as u32)?,
+            );
+        }
+        Some(out)
+    }
+
+    /// El glifo más cercano y CUÁNTO le saca al segundo.
+    ///
+    /// Un margen grande es una lectura inequívoca; uno pequeño significa que
+    /// dos símbolos compiten y no hay forma honesta de elegir.
+    fn mejor_con_margen(&self, fp: &[u8]) -> Option<(u32, u32)> {
+        let (mut d1, mut d2) = (u32::MAX, u32::MAX);
+        let mut mejor = 0u32;
+        for (j, gfp) in self.fps.iter().enumerate() {
+            let d = glyphopt::hamming(fp, gfp);
+            if d < d1 {
+                d2 = d1;
+                d1 = d;
+                mejor = j as u32;
+            } else if d < d2 {
+                d2 = d;
+            }
+        }
+        if d1 == u32::MAX {
+            return None;
+        }
+        Some((mejor, d2.saturating_sub(d1)))
+    }
+
     /// La huella de un glifo del alfabeto. Para diagnóstico y pruebas.
     pub fn huella(&self, i: usize) -> &[u8] {
         &self.fps[i]
     }
 
-    /// Hasta qué distancia una lectura se considera un glifo y no basura.
-    pub fn radio_decodificacion(&self) -> u32 {
-        self.radio
+    /// Cuánto tiene que separarse el mejor candidato del segundo para creerle.
+    pub fn margen_minimo(&self) -> u32 {
+        self.margen
     }
 
     /// Pinta una secuencia de índices como una tira de glifos (PNG).
@@ -250,13 +331,8 @@ impl GlyphFont {
                 }
             }
             let fp = fingerprint(&bm);
-            let (idx, dist) = self
-                .fps
-                .iter()
-                .enumerate()
-                .map(|(j, gfp)| (j as u32, glyphopt::hamming(&fp, gfp)))
-                .min_by_key(|&(_, d)| d)?;
-            out.push(if dist > self.radio { None } else { Some(idx) });
+            let (idx, margen) = self.mejor_con_margen(&fp)?;
+            out.push(if margen < self.margen { None } else { Some(idx) });
         }
         Some(out)
     }
@@ -278,12 +354,7 @@ impl GlyphFont {
                 }
             }
             let fp = fingerprint(&bm);
-            let (idx, dist) = self
-                .fps
-                .iter()
-                .enumerate()
-                .map(|(j, gfp)| (j as u32, glyphopt::hamming(&fp, gfp)))
-                .min_by_key(|&(_, d)| d)?;
+            let (idx, margen) = self.mejor_con_margen(&fp)?;
 
             // RECHAZO. Sin esto, `min_by_key` devolvía SIEMPRE el glifo más
             // cercano, estuviera a distancia 1 o a 200: una foto de una pared
@@ -293,7 +364,7 @@ impl GlyphFont {
             //
             // Más allá del radio, la lectura no es inequívoca: podría estar más
             // cerca de otro símbolo del alfabeto. Ahí se abandona.
-            if dist > self.radio {
+            if margen < self.margen {
                 return None;
             }
             out.push(idx);

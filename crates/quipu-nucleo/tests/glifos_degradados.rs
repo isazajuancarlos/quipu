@@ -323,7 +323,7 @@ fn el_desenfoque_a_escala_realista() {
         // que en el mundo real hace el propio reconocedor.
         let acierto = match quipu_nucleo::glyphscan::normalizar(&borrosa, 16, 1) {
             None => 0.0,
-            Some((n, _)) => compara(font.recognize(&gris_a_png(&n)), &esperados),
+            Some((n, _)) => compara(font.recognize_crudo(&gris_a_png(&n)), &esperados),
         };
         let fraccion = radio as f32 / celda_fisica as f32;
         println!("  {radio:>6}   {:>7.1} %   {:>6.1} %", fraccion * 100.0, acierto * 100.0);
