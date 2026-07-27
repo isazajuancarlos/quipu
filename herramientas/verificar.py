@@ -1083,6 +1083,24 @@ def verificar_desplegado(inf: Informe, base: str) -> None:
         c = cod_admin.strip()[-3:]
         if c in ("401", "403", "404"):
             inf.ok(f"{metodo} /admin/keys cerrado sin credenciales", f"código {c}")
+        elif c.startswith("5"):
+            # UN 5xx NO ES «ABIERTO», Y CONFUNDIRLOS DA UNA FALSA ALARMA EN EL
+            # CHEQUEO MÁS SERIO DE TODOS.
+            #
+            # Un 502 significa que la petición ni siquiera llegó a una
+            # aplicación: nginx habló con un backend caído. No dice nada sobre
+            # si /admin estaría protegido cuando ese backend vuelva — y decir
+            # «ABIERTO» invita a correr a arreglar una brecha que no existe,
+            # mientras esconde la que sí hay, que es que el servicio está roto.
+            #
+            # Detectado el 2026-07-27 auditando `proyecto.xiliux.com`, un
+            # subdominio con el backend muerto: la herramienta gritó «ABIERTO»
+            # por partida doble.
+            inf.omitido(
+                f"{metodo} /admin/keys",
+                f"devolvió {c}: el backend no responde, así que no se puede saber "
+                f"si estaría cerrado. Arreglar el servicio y repetir",
+            )
         else:
             inf.fallo(f"{metodo} /admin/keys ABIERTO", f"devolvió {c}")
 
