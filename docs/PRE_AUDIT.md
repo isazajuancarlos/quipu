@@ -5,7 +5,8 @@
 > 🇪🇸 Original en español: [`../INFORME_PREAUDITORIA.txt`](../INFORME_PREAUDITORIA.txt)
 >
 > **Scope:** the library core (symmetric encryption, post-quantum hybrid, OPRF,
-> visual channel, ECC, container format) + dependencies.
+> ECC, container format) + dependencies. *(The visual channels this report
+> originally covered — glyphs and PNG — were removed in PR #93 and PR #99.)*
 > **NOTE:** this does NOT replace an independent audit. It is preparation to
 > reduce the cost and scope of a later paid/independent audit.
 
@@ -14,8 +15,13 @@
 Automated checks and a manual analysis of the protocols were run. Result: 2
 dependency vulnerabilities (pyo3) FIXED; 2 medium/low-severity design findings
 (non-verifiable OPRF; hybrid combiner binding), both since corrected; the rest
-positive. The library uses vetted primitives and contains no first-party `unsafe`
-code, so the focus of an audit would be the COMPOSITION.
+positive. The library uses vetted primitives, and the crypto crates contain no
+first-party `unsafe`, so the focus of an audit would be the COMPOSITION — **with
+one exception that must not be glossed over: `bindings/c` (`quipu-capi`) is
+first-party and is necessarily full of `unsafe`** (93 occurrences: raw pointers
+and lengths supplied by a C caller). It is the only place in this repository
+where a memory-safety bug can live, so it deserves the memory-safety part of the
+audit even though the rest of the tree does not.
 
 ## 1. Automated checks (results)
 
@@ -25,10 +31,12 @@ code, so the focus of an audit would be the COMPOSITION.
 - **Wycheproof** (Google KAT vectors for XChaCha20-Poly1305 vs `quipu::cipher`):
   PASS. Encryption reproduces ct‖tag; all invalid vectors are REJECTED
   (manipulated tags/nonces/ct). Interoperable, no known failures.
-- **unsafe** (first-party `src/`): 0 uses of `unsafe`. Memory safety rests only on
-  vetted crates.
+- **unsafe**: 0 uses in `src/` and in every `crates/*/src/`. Memory safety there
+  rests only on vetted crates. **`bindings/c/src/lib.rs` has 93** — unavoidable
+  for a C ABI, and audited as such.
 - **Miri** (undefined-behavior detector on pure-logic modules — codec, prelayers,
-  ecc, glyphopt): 13/13 tests with no UB detected.
+  ecc): 13/13 tests with no UB detected. *(The run also covered `glyphopt`, a
+  module removed with the glyph channel in PR #93; the figure predates that.)*
 - **Fuzzing** (`cargo-fuzz`: parse_container, unpad, codec_roundtrip): no crashes
   (~25M+ executions across sessions).
 
@@ -87,8 +95,10 @@ test.
 
 ## 5. Suggested scope for the independent audit
 
-Since the primitives are vetted and there is no first-party `unsafe`, the auditor
-should concentrate on:
+Since the primitives are vetted, and the crypto crates carry no first-party
+`unsafe`, the auditor should concentrate on the composition — plus `bindings/c`,
+which is the one first-party place where `unsafe` (and therefore a memory-safety
+bug) does live:
 - The hybrid KEM combiner (F2) and the construction of the asymmetric mode.
 - The VOPRF and the online protocol (rate-limit, replay).
 - Container parsing (untrusted input; expand fuzzing). The image/PNG parsing that
