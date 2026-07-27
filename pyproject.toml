@@ -12,7 +12,7 @@ name = "quipu-crypto"
 # acabará divergiendo: en `crates/quipu-voprf` divergió (pyproject 0.2.1 contra
 # Cargo 0.2.2, con crates.io ya en 0.2.2 y PyPI atascado en 0.2.1).
 dynamic = ["version"]
-description = "Codec criptográfico post-cuántico híbrido con endurecimiento online verificable (VOPRF) y canal visual de glifos."
+description = "Codec criptográfico post-cuántico híbrido (X25519+ML-KEM-1024, Ed25519+ML-DSA-87) con endurecimiento online verificable por VOPRF conforme a RFC 9497. Datos en reposo."
 readme = "README.md"
 license = { text = "AGPL-3.0-or-later" }
 requires-python = ">=3.9"
