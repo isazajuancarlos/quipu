@@ -12,7 +12,7 @@ The §742.15(b) exclusion is therefore perfected. It must be **re-sent when the
 cryptographic functionality changes** — §3 says what does and does not trigger
 that.
 
-Quipu is published on GitHub, crates.io, PyPI and npm — all US infrastructure —
+Quipu is published on GitHub, crates.io and PyPI — all US infrastructure —
 so the US Export Administration Regulations (EAR) are the relevant regime,
 regardless of the author being Colombian and the code being written in Colombia.
 
@@ -25,7 +25,7 @@ regardless of the author being Colombian and the code being written in Colombia.
 | ECCN | **5D002** — "Information Security" software |
 | Basis for exclusion | **§742.15(b)** — publicly available encryption source code |
 | Licence exception used | None required once the notification is filed |
-| Object code | Compiled artefacts from publicly available source (wheels, npm packages, crates) fall under the same exclusion |
+| Object code | Compiled artefacts from publicly available source (wheels, crates) fall under the same exclusion |
 
 Publicly available encryption **source code** is not subject to the EAR under
 §742.15(b), but only **once the notification has been sent**. Until then, the
@@ -121,7 +121,6 @@ recognition, anything in the `lab` feature (which is never shipped).
 > The same source code is distributed in package form at:
 > - crates.io — `quipu` and `quipu-voprf`
 > - PyPI — `quipu-crypto`
-> - npm — `quipu-crypto`
 >
 > **Cryptographic functionality.** The software implements standard,
 > published algorithms: ML-KEM-1024 (FIPS 203), ML-DSA-87 (FIPS 204),

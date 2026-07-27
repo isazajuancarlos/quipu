@@ -15,13 +15,16 @@
 Automated checks and a manual analysis of the protocols were run. Result: 2
 dependency vulnerabilities (pyo3) FIXED; 2 medium/low-severity design findings
 (non-verifiable OPRF; hybrid combiner binding), both since corrected; the rest
-positive. The library uses vetted primitives, and the crypto crates contain no
-first-party `unsafe`, so the focus of an audit would be the COMPOSITION — **with
-one exception that must not be glossed over: `bindings/c` (`quipu-capi`) is
-first-party and is necessarily full of `unsafe`** (93 occurrences: raw pointers
-and lengths supplied by a C caller). It is the only place in this repository
-where a memory-safety bug can live, so it deserves the memory-safety part of the
-audit even though the rest of the tree does not.
+positive. The library uses vetted primitives and contains **zero first-party
+`unsafe` anywhere in the repository**, so the focus of an audit is the
+COMPOSITION.
+
+That claim was narrower until 0.10. `bindings/c` (`quipu-capi`) was first-party
+and necessarily full of `unsafe` — 93 occurrences of raw pointers and lengths
+supplied by a C caller — and it was the only place a memory-safety bug could
+live. It was removed along with the Node and Go wrappers it existed to serve, so
+the statement is now unqualified: an auditor has no memory-safety surface to
+review, only the composition.
 
 ## 1. Automated checks (results)
 
@@ -31,9 +34,9 @@ audit even though the rest of the tree does not.
 - **Wycheproof** (Google KAT vectors for XChaCha20-Poly1305 vs `quipu::cipher`):
   PASS. Encryption reproduces ct‖tag; all invalid vectors are REJECTED
   (manipulated tags/nonces/ct). Interoperable, no known failures.
-- **unsafe**: 0 uses in `src/` and in every `crates/*/src/`. Memory safety there
-  rests only on vetted crates. **`bindings/c/src/lib.rs` has 93** — unavoidable
-  for a C ABI, and audited as such.
+- **unsafe**: 0 uses in the whole repository (`src/` and every `crates/*/src/`).
+  Memory safety rests only on vetted crates. The 93 occurrences that used to
+  live in `bindings/c/src/lib.rs` went away with the C ABI in 0.10.
 - **Miri** (undefined-behavior detector on pure-logic modules — codec, prelayers,
   ecc): 13/13 tests with no UB detected. *(The run also covered `glyphopt`, a
   module removed with the glyph channel in PR #93; the figure predates that.)*
@@ -95,10 +98,8 @@ test.
 
 ## 5. Suggested scope for the independent audit
 
-Since the primitives are vetted, and the crypto crates carry no first-party
-`unsafe`, the auditor should concentrate on the composition — plus `bindings/c`,
-which is the one first-party place where `unsafe` (and therefore a memory-safety
-bug) does live:
+Since the primitives are vetted and there is no first-party `unsafe` anywhere,
+the auditor should concentrate entirely on the composition:
 - The hybrid KEM combiner (F2) and the construction of the asymmetric mode.
 - The VOPRF and the online protocol (rate-limit, replay).
 - Container parsing (untrusted input; expand fuzzing). The image/PNG parsing that

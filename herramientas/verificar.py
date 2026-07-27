@@ -513,31 +513,17 @@ def _sitios_de_version(v: str) -> list[tuple[str, str, str, object]]:
 
     # --- la versión propia de Quipu -----------------------------------------
     sitios.append(("Cargo.toml", "[package] version", "propia", toml_pkg("Cargo.toml")))
-    sitios.append(
-        ("bindings/c/Cargo.toml", "[package] version", "propia", toml_pkg("bindings/c/Cargo.toml"))
-    )
 
     # Cargo.lock: por BLOQUE, nunca por búsqueda de la cadena.
     try:
         with open(RAIZ / "Cargo.lock", "rb") as f:
             lock = tomllib.load(f)
         por_nombre = {p["name"]: p.get("version") for p in lock.get("package", [])}
-        for crate in ("quipu", "quipu-capi"):
+        for crate in ("quipu",):
             sitios.append(("Cargo.lock", f'[[package]] {crate}', "propia", por_nombre.get(crate)))
     except Exception:
         sitios.append(("Cargo.lock", "ilegible", "propia", None))
 
-    sitios.append(
-        ("bindings/node/package.json", ".version", "propia", json_clave("bindings/node/package.json", "version"))
-    )
-    sitios.append(
-        ("bindings/node/package-lock.json", ".version", "propia",
-         json_clave("bindings/node/package-lock.json", "version"))
-    )
-    sitios.append(
-        ("bindings/node/package-lock.json", '.packages[""].version', "propia",
-         json_clave("bindings/node/package-lock.json", "packages", "", "version"))
-    )
 
     # La autoexención de cargo-vet: si no se sube, el check del CI falla.
     try:
@@ -551,20 +537,7 @@ def _sitios_de_version(v: str) -> list[tuple[str, str, str, object]]:
         sitios.append(("supply-chain/config.toml", "[[exemptions.quipu]]", "propia", None))
 
     # --- documentación y rangos que la NOMBRAN -------------------------------
-    sitios.append(("README.md", f"go get …@v{v}", "referencia", texto_contiene("README.md", f"@v{v}")))
-    sitios.append(
-        ("bindings/go/README.md", f"go get …@v{v}", "referencia",
-         texto_contiene("bindings/go/README.md", f"@v{v}"))
-    )
     sitios.append(("SECURITY.md", f"`v{v}`", "referencia", texto_contiene("SECURITY.md", f"v{v}")))
-    sitios.append(
-        ("integrations/express/package.json", "dependencies.quipu-crypto (RANGO, no versión propia)",
-         "referencia", json_clave("integrations/express/package.json", "dependencies", "quipu-crypto"))
-    )
-    sitios.append(
-        ("integrations/express/README.md", f">= {v}", "referencia",
-         texto_contiene("integrations/express/README.md", v))
-    )
     return sitios
 
 
@@ -666,14 +639,13 @@ _MANIFIESTOS = [
     "crates/quipu-nucleo/Cargo.toml",
     "crates/quipu-cnsa/Cargo.toml",
     "crates/quipu-voprf/Cargo.toml",
-    "bindings/c/Cargo.toml",
 ]
 
 
 def _fuente_del_arbol() -> str:
     """Todo el Rust del árbol, para preguntarle si algo existe."""
     trozos = []
-    for base in ("src", "crates", "bindings/c/src"):
+    for base in ("src", "crates"):
         raiz = RAIZ / base
         if not raiz.is_dir():
             continue
