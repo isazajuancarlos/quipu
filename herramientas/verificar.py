@@ -461,16 +461,21 @@ _BARRIDO_EXENTO = {
 }
 
 
-def _leer_toml(rel: str) -> dict:
-    import tomllib
+def _toml_relativo(rel: str) -> dict:
+    """Igual que `_leer_toml`, pero tomando una ruta RELATIVA a la raíz.
 
-    with open(RAIZ / rel, "rb") as f:
-        return tomllib.load(f)
+    Existe aparte y con otro nombre a propósito: la primera versión de esto se
+    llamaba también `_leer_toml` y, por definirse más abajo en el archivo,
+    SUSTITUÍA a la otra en silencio. Python no avisa de eso. Dos funciones con
+    el mismo nombre y distinta firma en el mismo módulo es un fallo esperando
+    a que alguien cambie una de las dos.
+    """
+    return _leer_toml(RAIZ / rel)
 
 
 def _version_de_referencia() -> str:
     """La versión de Quipu, tal como la declara su `Cargo.toml`. La fuente."""
-    return _leer_toml("Cargo.toml")["package"]["version"]
+    return _toml_relativo("Cargo.toml")["package"]["version"]
 
 
 def _sitios_de_version(v: str) -> list[tuple[str, str, str, object]]:
@@ -487,7 +492,7 @@ def _sitios_de_version(v: str) -> list[tuple[str, str, str, object]]:
 
     def toml_pkg(rel: str) -> object:
         try:
-            return _leer_toml(rel)["package"]["version"]
+            return _toml_relativo(rel)["package"]["version"]
         except Exception:
             return None
 
@@ -536,7 +541,7 @@ def _sitios_de_version(v: str) -> list[tuple[str, str, str, object]]:
 
     # La autoexención de cargo-vet: si no se sube, el check del CI falla.
     try:
-        cfg = _leer_toml("supply-chain/config.toml")
+        cfg = _toml_relativo("supply-chain/config.toml")
         ex = cfg.get("exemptions", {}).get("quipu", [])
         sitios.append(
             ("supply-chain/config.toml", "[[exemptions.quipu]]", "propia",
@@ -623,6 +628,100 @@ def verificar_versiones(inf: Informe) -> None:
         )
     else:
         inf.ok("ningún archivo lleva la versión a espaldas del registro")
+
+
+# =========================== la portada no promete de más ======================
+#
+# El campo `description` de un manifiesto es lo que se publica en crates.io y en
+# PyPI: es la PORTADA, lo primero que lee quien evalúa la librería. Y es lo que
+# más veces se ha quedado atrás:
+#
+#   - `quipu-cnsa` anunciaba ML-KEM-1024 sin implementarlo (corregido en b767341,
+#     con una prueba propia dentro del crate).
+#   - `quipu`, `quipu-nucleo` y `pyproject.toml` seguían anunciando «canal visual
+#     de glifos» DESPUÉS de que los PR #93 y #99 lo eliminaran entero. Tres
+#     manifiestos, uno de ellos el de PyPI, prometiendo un subsistema borrado.
+#
+# La forma de comprobarlo no puede ser una lista de palabras prohibidas: esa
+# lista habría que acordarse de ampliarla cada vez que se quite algo, y
+# acordarse es justo lo que falla. Se comprueba al revés y se DERIVA: si una
+# descripción nombra un subsistema, ese subsistema tiene que existir en el
+# código. Cuando se borra el código, la comprobación se pone roja sola.
+_SUBSISTEMAS = {
+    # término en la portada -> señales de que existe de verdad en el árbol
+    "glifo": ["glyphfont", "glyphopt", "glyphscan", "encode_to_glyph_image"],
+    "canal visual": ["fn bytes_to_png", "encode_to_image", "glyphfont"],
+    "PNG": ["fn bytes_to_png", "encode_to_image"],
+    "honey": ["fn encrypt_pin", "mod honey"],
+    "VOPRF": ["fn blind_evaluate", "mod voprf", "pub use quipu_voprf"],
+    "ML-KEM": ["ml_kem", "ml-kem", "MlKem1024"],
+    "ML-DSA": ["ml_dsa", "ml-dsa", "MlDsa87"],
+    "Reed-Solomon": ["reed_solomon", "mod ecc"],
+    "Shamir": ["mod shamir", "fn split_secret"],
+}
+
+_MANIFIESTOS = [
+    "Cargo.toml",
+    "pyproject.toml",
+    "crates/quipu-nucleo/Cargo.toml",
+    "crates/quipu-cnsa/Cargo.toml",
+    "crates/quipu-voprf/Cargo.toml",
+    "bindings/c/Cargo.toml",
+]
+
+
+def _fuente_del_arbol() -> str:
+    """Todo el Rust del árbol, para preguntarle si algo existe."""
+    trozos = []
+    for base in ("src", "crates", "bindings/c/src"):
+        raiz = RAIZ / base
+        if not raiz.is_dir():
+            continue
+        for ruta in raiz.rglob("*.rs"):
+            if "target" in ruta.parts:
+                continue
+            try:
+                trozos.append(ruta.read_text(encoding="utf-8", errors="ignore"))
+            except OSError:
+                pass
+    return "\n".join(trozos)
+
+
+def verificar_promesas_de_la_portada(inf: Informe) -> None:
+    """Lo que la `description` publicada nombra, tiene que estar en el código."""
+    fuente = _fuente_del_arbol()
+    if len(fuente) < 10_000:
+        inf.omitido("promesas de la portada", "no se pudo leer el árbol de fuentes")
+        return
+
+    mentiras = []
+    revisados = 0
+    for rel in _MANIFIESTOS:
+        ruta = RAIZ / rel
+        if not ruta.exists():
+            continue
+        descripcion = ""
+        for linea in ruta.read_text(encoding="utf-8").splitlines():
+            if linea.lstrip().startswith("description"):
+                descripcion = linea
+                break
+        if not descripcion:
+            continue
+        revisados += 1
+        bajo = descripcion.lower()
+        for termino, señales in _SUBSISTEMAS.items():
+            if termino.lower() not in bajo:
+                continue
+            if not any(s in fuente for s in señales):
+                mentiras.append(f"{rel} anuncia «{termino}» y no está en el código")
+
+    if mentiras:
+        inf.fallo(
+            "la portada promete lo que el código no tiene",
+            "; ".join(mentiras) + " — es el texto que se publica en crates.io y PyPI",
+        )
+    else:
+        inf.ok(f"las descripciones de {revisados} manifiestos solo prometen lo que existe")
 
 
 def verificar_coherencia_de_features(inf: Informe) -> None:
@@ -896,6 +995,7 @@ def main() -> int:
     sub = p.add_subparsers(dest="orden", required=True)
     sub.add_parser("local", help="pruebas, doctests, clippy y cargo-vet del árbol")
     sub.add_parser("version", help="todos los sitios que llevan la versión llevan la misma")
+    sub.add_parser("portada", help="la description publicada no promete lo que no existe")
     pub = sub.add_parser("publicado", help="artefactos en crates.io, PyPI y npm")
     pub.add_argument("--version", required=True)
     desp = sub.add_parser("desplegado", help="postura del servicio EN PRODUCCIÓN (I7)")
@@ -910,10 +1010,14 @@ def main() -> int:
     if args.orden == "version":
         print(f"{GRIS}Comprobando que la versión concuerde en todos sus sitios…{FIN}")
         verificar_versiones(inf)
+    if args.orden == "portada":
+        print(f"{GRIS}Comprobando que las descripciones publicadas no mientan…{FIN}")
+        verificar_promesas_de_la_portada(inf)
     if args.orden in ("local", "todo"):
         print(f"{GRIS}Verificando el árbol de trabajo…{FIN}")
         verificar_local(inf)
         verificar_coherencia_de_features(inf)
+        verificar_promesas_de_la_portada(inf)
         # Barato y va aquí a propósito: es lo que hay que mirar ANTES de
         # etiquetar, y etiquetar es publicar.
         verificar_versiones(inf)
