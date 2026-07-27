@@ -4,7 +4,7 @@
 //! Quipu: librería de codificación con protección criptográfica y simbología propia.
 //!
 //! Arquitectura por capas (ver QUIPU_PROYECTO_Y_REQUISITOS.txt):
-//!   kdf -> cipher -> codec -> dictionary -> renderer (opc) ; container, prelayers, api.
+//!   kdf -> cipher -> codec -> dictionary ; container, prelayers, api.
 //!
 //! La seguridad vive en el cifrado (clave + AEAD). El codec y el diccionario son
 //! representación (la "oruga"): no aportan seguridad, solo forma.
@@ -23,7 +23,7 @@ pub mod hackerbot;
 // lo que no es criptografía. Se re-exporta módulo a módulo para que
 // `quipu::codec::*`, `quipu::ecc::*`, etc. sigan funcionando igual: ningún
 // consumidor tiene que cambiar nada. Mismo patrón que `quipu-voprf`.
-pub use quipu_nucleo::{codec, ecc, prelayers, render};
+pub use quipu_nucleo::{codec, ecc, prelayers};
 /// Honey Encryption (modo con señuelos, opt-in). Ver el modelo de amenaza del
 /// módulo: **sin autenticación** por diseño, solo para secretos uniformes de
 /// baja entropía; no sustituye al núcleo AEAD.

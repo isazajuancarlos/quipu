@@ -34,8 +34,6 @@ datos → KDF(passphrase+pepper) → AEAD → contenedor → codec base-N → di
 |---|---|---|
 | Simétrico (passphrase) | `api::encode` / `api::decode` | Argon2id + XChaCha20-Poly1305 |
 | Post-cuántico (clave pública) | `api::encode_to_recipient` / `decode_as_recipient` | Híbrido **X25519 + ML-KEM-1024** (transcript ligado estilo X-Wing) |
-| Canal visual | `api::encode_to_image` / `decode_from_image` | Salida **PNG** lossless |
-| Canal robusto (impreso) | `api::encode_to_robust_image` / `decode_from_robust_image` | + **Reed-Solomon** (corrige errores de canal) |
 | Online (endurecimiento) | `api::encode_online` / `decode_online` | **VOPRF conforme a [RFC 9497](https://www.rfc-editor.org/rfc/rfc9497.html)** (ristretto255-SHA512, prueba DLEQ): el cliente detecta un servidor deshonesto |
 | Firmado (autenticidad) | `api::encode_signed` / `decode_verified` | Firma híbrida **Ed25519 + ML-DSA-87** (combinador AND). Autenticidad y no-repudio verificables; **no** confidencialidad |
 | Firmado triple (alta garantía, feature `slh`) | `api::encode_signed_triple` / `decode_verified_triple` | Firma triple-híbrida **Ed25519 + ML-DSA-87 + SLH-DSA-256s** (AND 3-de-3): infalsificable mientras sobreviva ≥1 de {curva, retículo, hash}. Opt-in; firma ~34 KB |
@@ -311,7 +309,7 @@ encima que declaran con qué criptografía se comprometen.
 
 | Crate | Qué es |
 |---|---|
-| [`crates/quipu-nucleo`](crates/quipu-nucleo) | Todo lo que **no** es criptografía: formato del contenedor, codec base-N, Reed-Solomon, canal visual PNG, relleno Padmé. **Cero primitivas.** |
+| [`crates/quipu-nucleo`](crates/quipu-nucleo) | Todo lo que **no** es criptografía: formato del contenedor, codec base-N, Reed-Solomon, relleno Padmé. **Cero primitivas.** |
 | `quipu` (este crate) | El perfil por defecto: **XChaCha20-Poly1305**, HKDF-SHA-256, nonce extendido de 192 bits. |
 | [`crates/quipu-cnsa`](crates/quipu-cnsa) | El perfil alineado con **CNSA 2.0**: AES-256-GCM, HKDF-SHA-384, nonce de 96 bits. **NO validado FIPS 140-3.** |
 

@@ -136,7 +136,7 @@ pub mod container {
 
 /// Reexporta el núcleo compartido para que quien use `quipu-cnsa` no tenga que
 /// declarar `quipu-nucleo` por su cuenta.
-pub use quipu_nucleo::{codec, ecc, prelayers, render};
+pub use quipu_nucleo::{codec, ecc, prelayers};
 
 #[cfg(test)]
 mod promesa {

@@ -37,4 +37,3 @@ pub mod container;
 pub mod dictionary;
 pub mod ecc;
 pub mod prelayers;
-pub mod render;
