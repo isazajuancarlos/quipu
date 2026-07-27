@@ -418,6 +418,213 @@ def verificar_npm_publicado(inf: Informe, version: str) -> None:
         inf.fallo(f"npm tiene quipu-crypto {version}", "no aparece en el registro")
 
 
+# =========================== coherencia de versiones ===========================
+#
+# El error que más veces se ha repetido en este proyecto es publicar con la
+# versión puesta en unos archivos y no en otros. La defensa era una LISTA en el
+# CLAUDE.md («son DOCE archivos») y un `grep` para comprobarla. Auditada el
+# 2026-07-27, esa defensa tenía tres agujeros, y los tres del mismo tipo — la
+# lista y el comando decían cosas que no eran:
+#
+#   1. El `grep` filtra por `--include="*.toml"` y **`Cargo.lock` no es un
+#      `.toml`**, así que no veía las dos entradas que sí tiene — siendo el
+#      punto 2 de su propia lista.
+#   2. `pyproject.toml` figuraba en la lista y usa `dynamic = ["version"]`: no
+#      contiene ninguna versión. Sobraba.
+#   3. `integrations/express/package.json` figuraba como si llevara la versión
+#      de Quipu, y lo que lleva es un RANGO DE DEPENDENCIA (`^0.9.1`); su propia
+#      versión es otra (0.1.0). Son dos cosas distintas que la lista mezclaba.
+#
+# Así que aquí no hay lista en prosa: hay un registro con un extractor por
+# sitio, que dice DÓNDE vive la versión en cada archivo. Y dos categorías, que
+# no se comprueban igual:
+#
+#   - PROPIA: es la versión de Quipu. Debe ser idéntica a la de `Cargo.toml`.
+#   - REFERENCIA: la nombra en documentación o en un rango de dependencia.
+#     Debe mencionarla; si nombra otra, es documentación caducada.
+#
+# Los manifiestos se leen con `tomllib` y `json`, ESTRUCTURALMENTE. Un `grep` no
+# vale: `Cargo.lock` contiene `version = "0.9.1"` para `aes` y para `poly1305`,
+# que no tienen nada que ver con Quipu. Buscar la cadena encuentra vecinos.
+#
+# Y al final hay un BARRIDO: cualquier archivo versionado en git que contenga la
+# versión y no esté en el registro se reporta. Sin eso, el registro envejecería
+# igual que la lista a la que sustituye — un archivo nuevo entraría sin que
+# nadie lo vigilara, que es exactamente cómo se llegó hasta aquí.
+
+# Archivos que legítimamente nombran muchas versiones y no deben vigilarse.
+_BARRIDO_EXENTO = {
+    "CHANGELOG.md",           # documenta todas las versiones, esa es su función
+    "Cargo.lock",             # ya cubierto, entrada por entrada, más arriba
+    "supply-chain/config.toml",  # ídem: la autoexención está en el registro
+    "supply-chain/imports.lock",
+}
+
+
+def _leer_toml(rel: str) -> dict:
+    import tomllib
+
+    with open(RAIZ / rel, "rb") as f:
+        return tomllib.load(f)
+
+
+def _version_de_referencia() -> str:
+    """La versión de Quipu, tal como la declara su `Cargo.toml`. La fuente."""
+    return _leer_toml("Cargo.toml")["package"]["version"]
+
+
+def _sitios_de_version(v: str) -> list[tuple[str, str, str, object]]:
+    """(archivo, qué sitio, categoría, valor-encontrado-o-None).
+
+    Cada extractor sabe dónde mirar. `None` significa «el sitio ya no existe»,
+    que es distinto de «tiene otra versión» y se reporta distinto: un archivo
+    que dejó de llevar la versión puede ser un cambio legítimo o un despiste, y
+    en ambos casos hay que enterarse.
+    """
+    import tomllib
+
+    sitios: list[tuple[str, str, str, object]] = []
+
+    def toml_pkg(rel: str) -> object:
+        try:
+            return _leer_toml(rel)["package"]["version"]
+        except Exception:
+            return None
+
+    def json_clave(rel: str, *claves: str) -> object:
+        try:
+            d = json.loads((RAIZ / rel).read_text(encoding="utf-8"))
+            for c in claves:
+                d = d[c]
+            return d
+        except Exception:
+            return None
+
+    def texto_contiene(rel: str, aguja: str) -> object:
+        try:
+            return aguja if aguja in (RAIZ / rel).read_text(encoding="utf-8") else "(no aparece)"
+        except Exception:
+            return None
+
+    # --- la versión propia de Quipu -----------------------------------------
+    sitios.append(("Cargo.toml", "[package] version", "propia", toml_pkg("Cargo.toml")))
+    sitios.append(
+        ("bindings/c/Cargo.toml", "[package] version", "propia", toml_pkg("bindings/c/Cargo.toml"))
+    )
+
+    # Cargo.lock: por BLOQUE, nunca por búsqueda de la cadena.
+    try:
+        with open(RAIZ / "Cargo.lock", "rb") as f:
+            lock = tomllib.load(f)
+        por_nombre = {p["name"]: p.get("version") for p in lock.get("package", [])}
+        for crate in ("quipu", "quipu-capi"):
+            sitios.append(("Cargo.lock", f'[[package]] {crate}', "propia", por_nombre.get(crate)))
+    except Exception:
+        sitios.append(("Cargo.lock", "ilegible", "propia", None))
+
+    sitios.append(
+        ("bindings/node/package.json", ".version", "propia", json_clave("bindings/node/package.json", "version"))
+    )
+    sitios.append(
+        ("bindings/node/package-lock.json", ".version", "propia",
+         json_clave("bindings/node/package-lock.json", "version"))
+    )
+    sitios.append(
+        ("bindings/node/package-lock.json", '.packages[""].version', "propia",
+         json_clave("bindings/node/package-lock.json", "packages", "", "version"))
+    )
+
+    # La autoexención de cargo-vet: si no se sube, el check del CI falla.
+    try:
+        cfg = _leer_toml("supply-chain/config.toml")
+        ex = cfg.get("exemptions", {}).get("quipu", [])
+        sitios.append(
+            ("supply-chain/config.toml", "[[exemptions.quipu]]", "propia",
+             ex[0].get("version") if ex else None)
+        )
+    except Exception:
+        sitios.append(("supply-chain/config.toml", "[[exemptions.quipu]]", "propia", None))
+
+    # --- documentación y rangos que la NOMBRAN -------------------------------
+    sitios.append(("README.md", f"go get …@v{v}", "referencia", texto_contiene("README.md", f"@v{v}")))
+    sitios.append(
+        ("bindings/go/README.md", f"go get …@v{v}", "referencia",
+         texto_contiene("bindings/go/README.md", f"@v{v}"))
+    )
+    sitios.append(("SECURITY.md", f"`v{v}`", "referencia", texto_contiene("SECURITY.md", f"v{v}")))
+    sitios.append(
+        ("integrations/express/package.json", "dependencies.quipu-crypto (RANGO, no versión propia)",
+         "referencia", json_clave("integrations/express/package.json", "dependencies", "quipu-crypto"))
+    )
+    sitios.append(
+        ("integrations/express/README.md", f">= {v}", "referencia",
+         texto_contiene("integrations/express/README.md", v))
+    )
+    return sitios
+
+
+def verificar_versiones(inf: Informe) -> None:
+    """Todos los sitios que llevan la versión llevan LA MISMA."""
+    try:
+        v = _version_de_referencia()
+    except Exception as e:
+        inf.omitido("coherencia de versiones", f"no se pudo leer Cargo.toml: {e}")
+        return
+
+    descuadres, ausentes = [], []
+    for archivo, sitio, categoria, valor in _sitios_de_version(v):
+        if valor is None:
+            ausentes.append(f"{archivo} ({sitio})")
+        elif categoria == "propia":
+            if valor != v:
+                descuadres.append(f"{archivo} ({sitio}) = {valor}, se esperaba {v}")
+        else:  # referencia: basta con que la nombre
+            if v not in str(valor):
+                descuadres.append(f"{archivo} ({sitio}) = {valor!r}, no menciona {v}")
+
+    n = len(_sitios_de_version(v))
+    if descuadres:
+        inf.fallo(
+            f"coherencia de versiones ({v})",
+            "; ".join(descuadres) + " — etiquetar así publica artefactos que no concuerdan",
+        )
+    else:
+        inf.ok(f"los {n} sitios de versión concuerdan en {v}")
+
+    if ausentes:
+        inf.omitido(
+            "sitios de versión que ya no existen",
+            "; ".join(ausentes) + " — o el archivo cambió de forma, o se perdió la versión",
+        )
+
+    # --- barrido: ¿hay algún archivo con la versión que nadie vigila? --------
+    cod, salida = correr(["git", "ls-files"], cwd=RAIZ, timeout=60)
+    if cod != 0:
+        inf.omitido("barrido de archivos no vigilados", "git ls-files no respondió")
+        return
+    vigilados = {a for a, _, _, _ in _sitios_de_version(v)} | _BARRIDO_EXENTO
+    sueltos = []
+    for rel in salida.splitlines():
+        rel = rel.strip()
+        if not rel or rel in vigilados:
+            continue
+        if not rel.endswith((".toml", ".json", ".md", ".yml", ".yaml", ".cfg", ".txt")):
+            continue
+        try:
+            if v in (RAIZ / rel).read_text(encoding="utf-8", errors="ignore"):
+                sueltos.append(rel)
+        except OSError:
+            continue
+    if sueltos:
+        inf.fallo(
+            "archivos con la versión que NADIE vigila",
+            ", ".join(sueltos) + " — añádelos al registro de `_sitios_de_version` o el "
+            "próximo salto de versión los dejará atrás en silencio",
+        )
+    else:
+        inf.ok("ningún archivo lleva la versión a espaldas del registro")
+
+
 def verificar_coherencia_de_features(inf: Informe) -> None:
     """`release.yml` no debe REPETIR la lista de features de `pyproject.toml`.
 
@@ -688,6 +895,7 @@ def main() -> int:
     )
     sub = p.add_subparsers(dest="orden", required=True)
     sub.add_parser("local", help="pruebas, doctests, clippy y cargo-vet del árbol")
+    sub.add_parser("version", help="todos los sitios que llevan la versión llevan la misma")
     pub = sub.add_parser("publicado", help="artefactos en crates.io, PyPI y npm")
     pub.add_argument("--version", required=True)
     desp = sub.add_parser("desplegado", help="postura del servicio EN PRODUCCIÓN (I7)")
@@ -699,10 +907,16 @@ def main() -> int:
     args = p.parse_args()
 
     inf = Informe()
+    if args.orden == "version":
+        print(f"{GRIS}Comprobando que la versión concuerde en todos sus sitios…{FIN}")
+        verificar_versiones(inf)
     if args.orden in ("local", "todo"):
         print(f"{GRIS}Verificando el árbol de trabajo…{FIN}")
         verificar_local(inf)
         verificar_coherencia_de_features(inf)
+        # Barato y va aquí a propósito: es lo que hay que mirar ANTES de
+        # etiquetar, y etiquetar es publicar.
+        verificar_versiones(inf)
     if args.orden in ("publicado", "todo"):
         print(f"{GRIS}Verificando los artefactos publicados de la {args.version}…{FIN}")
         with tempfile.TemporaryDirectory(prefix="quipu-verificar-") as d:
