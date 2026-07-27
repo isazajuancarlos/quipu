@@ -6,7 +6,19 @@ SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 # quipu-cnsa
 
 Perfil de [Quipu](https://github.com/isazajuancarlos/quipu) alineado con los
-algoritmos de **CNSA 2.0**: AES-256-GCM, HKDF-SHA-384 y ML-KEM-1024.
+algoritmos de **CNSA 2.0** que cubre: AES-256-GCM y HKDF-SHA-384.
+
+**Alcance: solo cifrado simétrico.** No hay firma ni establecimiento de clave, así
+que ML-DSA-87 y ML-KEM-1024 —que CNSA 2.0 exige para esas dos funciones— no están
+aquí todavía. `quipu` sí los tiene; ver «Lo que todavía no cubre».
+
+Hasta el 2026-07-27 el titular de este archivo y la descripción del crate
+anunciaban ML-KEM-1024, y no estaba implementado en ninguna parte: la
+documentación de dentro lo listaba entre lo que faltaba mientras la portada lo
+daba por hecho. Se corrige diciéndolo, no borrándolo, porque este perfil se
+sostiene sobre que su alcance sea comprobable — y una promesa de más habría
+restado credibilidad justo a la afirmación que sí importa y sí es cierta: que
+implementa los algoritmos pero **no está validado**.
 
 ## Antes de nada: alineación no es cumplimiento
 
@@ -37,7 +49,7 @@ un **compromiso declarado** que comparte casi todo y tiene identidad propia.
 | Huella de codebook | SHA-256 | **SHA-384** |
 | Cabecera del contenedor | 68 bytes | **56 bytes** |
 | Contraseña → clave | Argon2id | Argon2id (**igual**) |
-| Formato, codec, ECC, glifos | `quipu-nucleo` | `quipu-nucleo` (**el mismo**) |
+| Formato, codec, ECC, PNG | `quipu-nucleo` | `quipu-nucleo` (**el mismo**) |
 
 Todo lo que no es criptografía vive en
 [`quipu-nucleo`](../quipu-nucleo) y se arregla **una vez**. Copiar el

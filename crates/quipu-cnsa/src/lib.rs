@@ -25,7 +25,7 @@
 //! | Nonce | 192 bits (extendido) | **96 bits** |
 //! | Derivación | Argon2id + HKDF-**SHA-256** | Argon2id + HKDF-**SHA-384** |
 //! | Huella de codebook | SHA-256 | **SHA-384** |
-//! | Formato, codec, ECC, glifos | `quipu-nucleo` | `quipu-nucleo` (el mismo) |
+//! | Formato, codec, ECC, PNG | `quipu-nucleo` | `quipu-nucleo` (el mismo) |
 //!
 //! Lo compartido vive en [`quipu_nucleo`] y se arregla **una vez**. Copiar el
 //! repositorio y dejarlo divergir es como mueren los forks, y en criptografía
@@ -137,3 +137,104 @@ pub mod container {
 /// Reexporta el núcleo compartido para que quien use `quipu-cnsa` no tenga que
 /// declarar `quipu-nucleo` por su cuenta.
 pub use quipu_nucleo::{codec, ecc, prelayers, render};
+
+#[cfg(test)]
+mod promesa {
+    //! Que la portada no prometa lo que las tripas no tienen.
+    //!
+    //! El 2026-07-27 el `description` de este crate —el texto que se publica en
+    //! crates.io— anunciaba ML-KEM-1024 mientras la documentación de dentro lo
+    //! listaba entre lo que FALTA. No era un fallo de seguridad; era una
+    //! promesa de alcance sin respaldo, y este perfil se sostiene precisamente
+    //! sobre que su alcance sea comprobable.
+    //!
+    //! Un README no lo caza nadie hasta que lo lee un tercero. Esto sí.
+
+    use std::collections::HashMap;
+
+    /// Cómo se ve en el código cada algoritmo que se puede nombrar.
+    fn marcadores() -> HashMap<&'static str, Vec<&'static str>> {
+        HashMap::from([
+            ("AES-256-GCM", vec!["Aes256Gcm"]),
+            ("HKDF", vec!["Hkdf", "hkdf"]),
+            ("SHA-384", vec!["Sha384"]),
+            ("SHA-512", vec!["Sha512"]),
+            ("ML-KEM", vec!["MlKem", "ml_kem", "MlKem1024"]),
+            ("ML-DSA", vec!["MlDsa", "ml_dsa"]),
+            ("SLH-DSA", vec!["SlhDsa", "slh_dsa"]),
+            ("Argon2", vec!["Argon2", "argon2"]),
+            ("XChaCha20", vec!["XChaCha20", "xchacha"]),
+        ])
+    }
+
+    /// El código del crate, SIN este módulo de prueba.
+    ///
+    /// El recorte se hace archivo por archivo. La primera versión concatenaba
+    /// todo y truncaba en la primera aparición de `mod promesa`, lo que se
+    /// llevaba por delante cuanto se hubiera concatenado después — y el orden de
+    /// `read_dir` no está definido, así que la prueba fallaba o no según qué
+    /// archivo se leyera primero. Un banco que depende del orden del sistema de
+    /// archivos no mide nada.
+    fn fuente_del_crate() -> String {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut todo = String::new();
+        for e in std::fs::read_dir(&dir).expect("src/ del crate") {
+            let ruta = e.expect("entrada").path();
+            if ruta.extension().is_some_and(|x| x == "rs") {
+                let texto = std::fs::read_to_string(&ruta).expect("fuente");
+                let util = match texto.find("mod promesa {") {
+                    Some(i) => &texto[..i],
+                    None => &texto[..],
+                };
+                todo.push_str(util);
+            }
+        }
+        todo
+    }
+
+    #[test]
+    fn la_descripcion_no_nombra_algoritmos_que_no_estan() {
+        let manifiesto =
+            std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"))
+                .expect("Cargo.toml");
+        let descripcion = manifiesto
+            .lines()
+            .find(|l| l.trim_start().starts_with("description"))
+            .expect("el crate debe tener description")
+            .to_string();
+
+        let fuente = fuente_del_crate();
+
+        let mut mentiras = Vec::new();
+        for (nombre, marcas) in marcadores() {
+            if !descripcion.contains(nombre) {
+                continue;
+            }
+            if !marcas.iter().any(|m| fuente.contains(m)) {
+                mentiras.push(nombre);
+            }
+        }
+        assert!(
+            mentiras.is_empty(),
+            "el `description` del crate promete {mentiras:?}, y no está en el código. \n\
+             O se implementa, o se quita de la promesa: este perfil se vende sobre que \n\
+             su alcance sea comprobable, y una promesa de más resta credibilidad a la \n\
+             afirmación que sí importa (implementa los algoritmos, NO está validado).",
+        );
+    }
+
+    /// Y que DISCRIMINE: si el buscador no encontrara nada nunca, la prueba de
+    /// arriba pasaría con cualquier descripción.
+    #[test]
+    fn la_prueba_encuentra_lo_que_si_esta() {
+        let fuente = fuente_del_crate();
+        assert!(
+            fuente.contains("Aes256Gcm"),
+            "AES-256-GCM está implementado y el buscador no lo ve: la otra prueba no vale nada",
+        );
+        assert!(
+            !fuente.contains("Aes128"),
+            "el buscador tiene que poder decir que NO: encontró algo que no existe",
+        );
+    }
+}

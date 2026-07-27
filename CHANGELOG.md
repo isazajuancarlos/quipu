@@ -6,6 +6,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`quipu-cnsa` anunciaba ML-KEM-1024 sin implementarlo.** El titular del README y —peor— el
+  campo `description` del `Cargo.toml`, que es el texto que se publica en crates.io, decían
+  «AES-256-GCM, HKDF-SHA-384 y ML-KEM-1024». Los tres primeros están; el cuarto no aparecía en
+  ninguna parte del crate salvo en su propia documentación interna, que lo listaba entre **lo que
+  falta**. La portada afirmaba lo que las tripas negaban.
+
+  No es un fallo de seguridad y nada estaba roto: es una promesa de alcance que el código no
+  respaldaba. Importa porque este crate se sostiene sobre que su alcance sea comprobable — su
+  primer titular es «alineación no es cumplimiento» —, y una promesa de más resta credibilidad
+  justo a la afirmación que sí es cierta y valiosa: que implementa los algoritmos pero **no está
+  validado FIPS 140-3**.
+
+  Corregido diciéndolo, no borrándolo: el README explica el alcance real —**solo cifrado
+  simétrico**, sin firma ni establecimiento de clave— y deja constancia de qué se anunciaba antes.
+
+- `quipu-cnsa` mencionaba el canal de glifos en su tabla de módulos compartidos. Residuo del
+  PR #93, que lo eliminó.
+
 ### Removed
 - **BREAKING — the native glyph channel is gone in its entirety.** `api::encode_to_glyph_image`,
   `api::decode_from_glyph_image` and `api::huella_del_portador` no longer exist, nor do the
