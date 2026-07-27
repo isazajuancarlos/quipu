@@ -137,9 +137,16 @@ una filtración: hace falta fallar las dos a la vez. Las autopruebas de arranque
 detectan un binario que computa mal.
 
 **Herramienta.** *Existe:* autopruebas (`selftest`) con inyección de fallo
-(`selftest-fault`), firma híbrida. *Falta:* una sonda de lab que inyecte fallos
-en la firma y **compruebe que el combinador AND los absorbe** (probar que la
-defensa estructural discrimina, no asumirlo).
+(`selftest-fault`), firma híbrida, y desde el 2026-07-27 la sonda que faltaba:
+`tests/invariantes.rs` inyecta fallos en **las dos mitades** por separado y en
+seis posiciones, y comprueba además que media firma —una mitad válida y la otra
+ausente— no autoriza nada.
+
+Añade cobertura real sobre la autoprueba, que solo altera el byte 0 y por tanto
+solo toca la mitad Ed25519: se verificó con una mutación que ignora `ml_ok`, la
+autoprueba PASA y la sonda falla. Es el peor caso posible —dejar la seguridad
+colgando de la curva, que es la que cae primero ante un ordenador cuántico— y
+hasta ahora nadie lo habría visto.
 
 **Invariante:** I2 (integridad del cómputo) + I4.
 
@@ -158,9 +165,17 @@ no hay CRIME/BREACH.
 
 **Herramienta.** *Existe:* el distinguidor entrenado (#91) es exactamente un
 detector de oráculo — pregunta "¿puede un modelo notar la diferencia entre estas
-dos salidas?"; honey_attack. *Falta:* un **verificador de uniformidad de errores**
-que recorra cada punto de fallo y confirme que el mensaje, el tipo y el *tiempo*
-no discriminan la causa (hoy se afirma, conviene medirlo en continuo).
+dos salidas?"; honey_attack; y desde el 2026-07-27 el **verificador de uniformidad
+de errores** (`tests/invariantes.rs`), que recorre seis caminos de fallo —
+passphrase, pepper, sal, nonce, cuerpo, tag y truncación — y exige que el tipo y
+el mensaje sean idénticos.
+
+Distingue a propósito lo que SÍ puede diferenciarse: los errores de FORMATO
+ocurren antes de que el secreto entre en juego, así que separarlos no filtra nada
+y le sirve a quien integra. Lo que no puede discriminar es lo que pasa después.
+
+*Falta todavía:* el **tiempo**. Que dos caminos devuelvan el mismo error no
+implica que tarden lo mismo; eso es trabajo del distinguidor y de dudect.
 
 **Invariante:** I1 + I4.
 
@@ -239,9 +254,17 @@ umbral; y el **custodio PKCS#11 (HSM): la clave privada no sale del dispositivo*
 Residuo honesto documentado: la zeroización es *best-effort* (el optimizador o el
 swap pueden dejar copias) — solo el HSM lo cierra del todo.
 
-**Herramienta.** *Existe:* zeroize, HSM, Shamir. *Falta:* un chequeo de "la clave
-no aparece en logs/errores" (grep de material sensible en la salida, ligado a la
-regla de no exponer secretos), y `mlock` opcional para el material reconstruido.
+**Herramienta.** *Existe:* zeroize, HSM, Shamir, y desde el 2026-07-27 el chequeo
+de que **el material sensible no viaja dentro de un error**
+(`tests/invariantes.rs`): cifra con una passphrase, un pepper y un texto en claro
+reconocibles, provoca cinco caminos de fallo y exige que ninguna de las tres
+cadenas aparezca en el `Debug` del error.
+
+El riesgo que cubre no es criptográfico sino de comodidad: basta con que alguien
+añada la passphrase a un error «para depurar mejor» y esa cadena acaba en un log
+o en la consola de un cliente.
+
+*Falta todavía:* `mlock` opcional para el material reconstruido.
 
 **Invariante:** I3 (residencia) + I5 (procedencia de la custodia).
 
@@ -315,11 +338,14 @@ La lectura vertical de la tabla de invariantes da el diseño:
    señales (timing, error, ciphertext), con adversario adaptativo. Máximo
    apalancamiento.
 2. **Detector de reúso de nonce** y batería estadística del RNG (I3).
-3. **Verificador de uniformidad de errores** (I4) recorriendo cada punto de fallo.
+3. ~~**Verificador de uniformidad de errores** (I4) recorriendo cada punto de
+   fallo.~~ **HECHO** el 2026-07-27 para el mensaje y el tipo
+   (`tests/invariantes.rs`); el *tiempo* sigue pendiente y es del punto 4.
 4. **dudect sistemático** sobre cada ruta con secreto (I1), con alarma si un
    build cae a implementación con tablas.
-5. **Paridad de las herramientas en los bindings** (#100) y build reproducible
-   (I5).
+5. ~~**Paridad de las herramientas en los bindings** (#100)~~ **RESUELTO POR
+   ELIMINACIÓN**: desde 0.10 hay un solo binding, y un binding no puede divergir
+   de sí mismo. Queda la **build reproducible** (I5).
 
 Nada de esto se implementa sin cerrar el diseño y el modelo de amenaza de cada
 sonda. Este documento es el mapa, no la implementación.
