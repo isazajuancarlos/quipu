@@ -148,6 +148,29 @@ fn ninguna_feature_del_binding_de_python_queda_fuera_de_la_rueda() {
 #[test]
 fn python_no_reexpone_el_voprf_del_nucleo_agpl() {
     let python = fuente("src/python.rs");
+
+    // Y LOS EJEMPLOS TAMPOCO PUEDEN PROMETERLO.
+    //
+    // `examples/oprf_client.py` llamaba a `quipu.voprf_blind(...)` — una función
+    // que este módulo no expone desde 0.8.0. El ejemplo reventaba con
+    // AttributeError en su primera línea útil, y llevaba así desde entonces sin
+    // que nadie lo notara: ningún workflow ejecuta los ejemplos de Python.
+    //
+    // Peor que estar roto: enseñaba el camino equivocado. Quien lo copiara
+    // acabaría enlazando el núcleo AGPL desde su servidor de autenticación, que
+    // es exactamente lo que `quipu-voprf` (Apache-2.0) existe para evitar. Un
+    // ejemplo es documentación ejecutable, y esta mentía.
+    for ejemplo in ["examples/oprf_client.py", "examples/quickstart.py"] {
+        let texto = fuente(ejemplo);
+        assert!(
+            !texto.contains("quipu.voprf_"),
+            "{ejemplo} llama a `quipu.voprf_*`, que el módulo de Python NO expone. \
+             El paquete correcto es `quipu_voprf` (Apache-2.0): enlazar el núcleo \
+             AGPL desde el servidor de auth del cliente es justo lo que la \
+             separación evita."
+        );
+    }
+
     for prohibido in ["wrap_pyfunction!(voprf_blind", "wrap_pyfunction!(voprf_finalize"] {
         assert!(
             !python.contains(prohibido),
