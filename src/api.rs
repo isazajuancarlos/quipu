@@ -360,9 +360,9 @@ pub fn huella_del_portador(png: &[u8]) -> Result<[u8; 32], DecodeError> {
     use sha2::{Digest, Sha256};
 
     let font = crate::glyphfont::standard();
-    let indices = font
-        .recognize_marcando(png)
-        .ok_or(DecodeError::Container(ContainerError::TooShort))?;
+    // UN SOLO ERROR PARA TODO FALLO DEL CANAL. Ver la nota de
+    // `decode_from_glyph_image`.
+    let indices = font.recognize_marcando(png).ok_or(DecodeError::Decrypt)?;
     let (protegido, _) = codec::decode_grupos(&indices, font.base());
     let blob = crate::ecc::recover(&protegido).ok_or(DecodeError::Decrypt)?;
 
@@ -378,12 +378,25 @@ pub fn decode_from_glyph_image(
     pepper: &[u8],
 ) -> Result<Vec<u8>, DecodeError> {
     let font = crate::glyphfont::standard();
-    // `recognize` devuelve None cuando algún glifo queda fuera del radio de
-    // decodificación: no aproxima, abandona. Antes devolvía siempre el más
-    // parecido, así que una imagen cualquiera producía índices válidos.
-    let indices = font
-        .recognize_marcando(png)
-        .ok_or(DecodeError::Container(ContainerError::TooShort))?;
+    // UN SOLO ERROR PARA TODO FALLO DEL CANAL (invariante I4 de
+    // `docs/ATAQUES_TAXONOMIA.md`: el fallo no revela nada).
+    //
+    // Antes había dos variantes —`Container(TooShort)` si no se leían los
+    // glifos, `Decrypt` si el ECC no corregía— y eso le decía al atacante EN
+    // QUÉ CAPA falló su intento.
+    //
+    // No es un oráculo de CLAVE: `Decrypt` ya conflaciona «clave equivocada» y
+    // «datos alterados» a propósito. Es un oráculo de CONSTRUCCIÓN: quien
+    // fabrica una hoja falsa aprende cuánto le falta para que sea bien
+    // formada, y esa realimentación es justo lo que necesita para dirigir el
+    // descifrado hacia un señuelo elegido en modo `honey`, donde no hay
+    // etiqueta que lo desmienta.
+    //
+    // LÍMITE CONOCIDO: los errores son uniformes, el TIEMPO no. Fallar al
+    // reconocer los glifos es más rápido que llegar al AEAD, así que queda un
+    // canal temporal. Cerrarlo exige recorrer siempre el camino completo y no
+    // se hace aquí; queda dicho para que nadie suponga que I4 está entero.
+    let indices = font.recognize_marcando(png).ok_or(DecodeError::Decrypt)?;
     // `corruptos` son los grupos cuyo valor no cabe en 3 bytes: imposibles de
     // producir por el codificador, así que vienen dañados. Se dejan en ceros
     // para que Reed-Solomon los corrija; el dato está en que existen.
