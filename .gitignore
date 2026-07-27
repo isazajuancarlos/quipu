@@ -17,6 +17,11 @@ oprf_seed*
 *.key
 *.pem
 
+# La BD del servidor OPRF lleva clientes y hashes de API keys. Se crea sola al
+# ejecutar el binario sin QUIPU_OPRF_DB, así que aparece en el árbol por probar.
+*.db
+quipu-oprf.db
+
 # --- Local del agente / privado ---
 /.claude
 /.remember

@@ -52,7 +52,29 @@ fn load_server_key() -> voprf::Server {
                     std::process::exit(1);
                 }
             },
-            None => eprintln!("⚠️  QUIPU_OPRF_SEED inválido (esperaba 64 hex); ignorado."),
+            // UN SEED INVÁLIDO MATA EL ARRANQUE. No se degrada a efímera.
+            //
+            // Antes esto era un aviso y seguía adelante, y era el peor camino
+            // del servicio: quien define QUIPU_OPRF_SEED está declarando que
+            // quiere la clave persistente, así que un valor mal copiado —un
+            // salto de línea de más, 63 dígitos en vez de 64— arrancaba con una
+            // clave EFÍMERA distinta. El proceso queda vivo, responde 200, y
+            // TODO lo que los clientes derivaron con la clave anterior deja de
+            // valer sin que nada se ponga rojo. `k` no rota jamás justamente
+            // porque rotarla invalida todo lo derivado; esto la rotaba por
+            // accidente. Un aviso en stderr no es fallar (directiva 20).
+            //
+            // La distinción es entre variable AUSENTE y variable EQUIVOCADA:
+            // sin `QUIPU_OPRF_SEED` se sigue arrancando con clave efímera,
+            // porque ese es el desarrollo local de siempre y es legítimo.
+            None => {
+                eprintln!(
+                    "error: QUIPU_OPRF_SEED inválido (esperaba 64 dígitos hex, \
+                     sin espacios). Arrancar con clave efímera invalidaría todo \
+                     lo que los clientes ya derivaron, así que no se arranca."
+                );
+                std::process::exit(1);
+            }
         }
     }
     eprintln!(
