@@ -89,17 +89,34 @@ cuánticos Shor (rompe RSA/ECC) y Grover (halva la seguridad simétrica);
 para hash: colisión, preimagen, segunda preimagen, extensión de longitud.
 
 **Exposición de Quipu.** **Baja, por política, no por suerte.** Quipu *no inventa
-primitivas*: usa XChaCha20-Poly1305, Argon2id, HKDF-SHA512, Ed25519, ML-KEM-1024,
+primitivas*: usa XChaCha20-Poly1305, Argon2id, HKDF-SHA256, Ed25519, ML-KEM-1024,
 ML-DSA-87, todas vetadas y con parámetros en categoría NIST 5. El criptoanálisis
 de la primitiva es responsabilidad de la comunidad que la mantiene; la de Quipu
 es *no degradarla* (parámetros, no reinventar, KyberSlash verificado ausente en
 la fuente vendida).
 
-**Herramienta.** *Existe:* fijado de versiones + vectores publicados (RFC 5869,
-Wycheproof) + `cargo-audit` (RustSec) que avisa de un aviso nuevo contra una
-primitiva. *Falta:* un chequeo que ligue cada primitiva a su vector de referencia
-y falle si la implementación deja de conformar (no solo "es consistente consigo
-misma").
+**Herramienta.** *Existe:* fijado de versiones, `cargo-audit` (RustSec), y desde
+el 2026-07-27 el chequeo que faltaba: `tests/vectores_de_norma.rs` liga las
+primitivas a vectores de una norma EXTERNA, no a los que genera el propio Quipu.
+
+La distinción es el punto: `tests/vectors.rs` compara contra
+`quipu_vectors.json`, que produce Quipu, así que prueba que la implementación no
+cambió — no que sea correcta. Si Quipu llamara a Argon2i en vez de Argon2id, o
+invirtiera `salt` e `info`, todo seguiría verde.
+
+Cubierto hoy:
+
+| Primitiva | Vectores | Qué prueba |
+|---|---|---|
+| XChaCha20-Poly1305 | Wycheproof | el envoltorio AEAD |
+| VOPRF ristretto255 | RFC 9497 A.1.2 | conformidad del protocolo |
+| **HKDF-SHA256** | **Wycheproof, 8 vectores en 5 tamaños** | **el cableado de Quipu**, vía `derive_stream`, más que `derive_subkey` coincida con él |
+| **Ed25519** | **Wycheproof, 88 válidas + 62 inválidas** | **procedencia**: que la dependencia siga conformando |
+
+*Falta:* Argon2id (RFC 9106) y las KAT de NIST para ML-KEM-1024 y ML-DSA-87.
+Ninguna de las tres viene en `wycheproof`, y **no se escriben a mano**: un vector
+transcrito con un byte cambiado haría «arreglar» el código para que encaje con
+algo falso, que es el peor desenlace posible aquí.
 
 **Invariante:** I5.
 
