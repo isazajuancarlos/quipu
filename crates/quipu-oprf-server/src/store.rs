@@ -301,6 +301,82 @@ mod tests {
         (store, customer, key.secret)
     }
 
+    // ---------------------------------------------------------------------
+    // I7 — LA SUPERFICIE DESPLEGADA RESPONDE POR SÍ MISMA
+    //
+    // `docs/ATAQUES_TAXONOMIA.md` cuenta 27 menciones de inyección SQL frente a
+    // 6 de criptografía en la literatura de ataque real. Aquí no hay ninguna
+    // porque todas las consultas van parametrizadas — pero eso era, hasta esta
+    // prueba, una propiedad que nadie vigilaba: si mañana alguien construye una
+    // consulta con `format!` para salir del paso, nada se pone rojo.
+    //
+    // Se comprueban las DOS cosas, porque cada una tapa el agujero de la otra:
+    // el comportamiento de hoy (un dato hostil es un dato) y la forma del
+    // código de mañana (nadie concatena). La primera sola no impide la
+    // regresión; la segunda sola no prueba que lo de hoy funcione.
+    // ---------------------------------------------------------------------
+
+    /// Un valor hostil es un DATO, nunca parte de la consulta.
+    #[test]
+    fn el_dato_hostil_no_se_ejecuta() {
+        let store = Store::open_in_memory().unwrap();
+
+        // Si el email se concatenara, este valor cerraría la cadena y dejaría
+        // caer la tabla. Parametrizado, es sencillamente un email raro.
+        let hostil = "'); DROP TABLE customers; --";
+        let customer = store.create_customer(hostil, "beta").unwrap();
+        let key = store.issue_key(&customer, 5, None).unwrap();
+
+        // La tabla sigue viva y el valor se guardó ENTERO, sin interpretar.
+        match store.verify(&key.secret).unwrap() {
+            AuthResult::Valid { customer_id, .. } => assert_eq!(customer_id, customer),
+            other => panic!("la tabla no sobrevivió al dato hostil: {other:?}"),
+        }
+
+        // Y el mismo valor por el camino de lectura: `verify` recibe basura con
+        // comillas y responde Unknown, no un error de SQL.
+        assert_eq!(store.verify(hostil).unwrap(), AuthResult::Unknown);
+    }
+
+    /// META-PRUEBA: ninguna consulta de este archivo se construye concatenando.
+    ///
+    /// Mira el fuente, no el comportamiento, porque el riesgo es una línea que
+    /// todavía no existe.
+    ///
+    /// LA REGLA SE CORRIGIÓ AL PRIMER FALSO POSITIVO, que fue esta misma
+    /// función: la versión inicial marcaba «cualquier línea con `format!` y una
+    /// palabra de SQL», y su propio comentario —que cita un ejemplo peligroso
+    /// para explicarse— entraba en la categoría. «Cualquier línea» era el
+    /// fallo: un comentario no ejecuta nada. La regla ahora enumera lo que SÍ
+    /// puede ejecutar (código) y manda el resto fuera.
+    #[test]
+    fn el_almacen_no_concatena_sql() {
+        let fuente = include_str!("store.rs");
+        let palabras = ["SELECT", "INSERT", "UPDATE", "DELETE", "FROM ", "WHERE "];
+
+        let mut sospechosas: Vec<String> = Vec::new();
+        for (i, linea) in fuente.lines().enumerate() {
+            let codigo = linea.trim_start();
+            // Un comentario no ejecuta SQL. Cubre `//`, `///` y `//!`.
+            if codigo.starts_with("//") {
+                continue;
+            }
+            // Solo interesa el SQL que se ARMA: `format!` y una palabra de SQL
+            // en la misma línea. El `format!` del periodo (`{y:04}-{m:02}`) no
+            // lleva ninguna, así que no entra — y ese es justo el caso legítimo
+            // que esta regla NO debe marcar.
+            if codigo.contains("format!") && palabras.iter().any(|p| codigo.contains(p)) {
+                sospechosas.push(format!("  línea {}: {}", i + 1, codigo));
+            }
+        }
+
+        assert!(
+            sospechosas.is_empty(),
+            "hay SQL construido con `format!`; usa `params![]`:\n{}",
+            sospechosas.join("\n")
+        );
+    }
+
     #[test]
     fn valid_key_authorizes() {
         let (store, customer, secret) = seeded();

@@ -20,8 +20,8 @@ hackerbot, autopruebas de arranque—. Este documento la ordena y dice qué falt
 > violar uno de cinco invariantes»— es cierta dentro de ese alcance y **falsa
 > fuera de él**, y como la frase se lee universal conviene decirlo aquí.
 >
-> Comprobado el 2026-07-26 contra incidentes reales (§ Evidencia empírica, y
-> `THREAT_MODEL.md` §10): **ninguno atacó la criptografía**. Fueron denegación de
+> Comprobado el 2026-07-26 contra incidentes reales (`THREAT_MODEL.md` §10,
+> *Empirical evidence*): **ninguno atacó la criptografía**. Fueron denegación de
 > servicio, ransomware por un proveedor y acceso comprometido. Los cinco
 > invariantes no habrían cambiado ningún desenlace.
 >
@@ -45,7 +45,15 @@ cinco propiedades, no cien ataques.
 | **I4** | El fallo no revela nada | oráculos de error, mensajes distintos por causa | verificador de uniformidad de errores |
 | **I5** | Procedencia verificada | dependencia comprometida, primitiva con puerta trasera | cargo-vet/audit + vectores publicados + build reproducible |
 | **I6** | **El humano es parte del sistema** | pretexto, phishing, coacción, hombro | asimetría cerrar/abrir en `/admin/*`: cerrar sin verificar a nadie, reabrir lo revocado no está disponible |
-| **I7** | **La superficie desplegada responde por sí misma** | XSS/SQLi/hardening del servidor OPRF, proveedor caído, canal de actualización tumbado | pruebas de la aplicación web + plan de continuidad + modo degradado |
+| **I7** | **La superficie desplegada responde por sí misma** | XSS/SQLi/hardening del servidor OPRF, proveedor caído, canal de actualización tumbado | postura del despliegue comprobable + plan de continuidad + modo degradado |
+
+**Estado de I6 e I7**, que la tabla no decía y las diez familias sí dicen de las
+suyas — auditado el 2026-07-27 contra el repositorio:
+
+| | Estado | Dónde |
+|---|---|---|
+| **I6** | **CUBIERTO.** Revocar es definitivo: `revoked_at` entra en la consulta de verificación y `activate` no toca una key revocada, así que la asimetría no depende de que nadie juzgue una petición | `crates/quipu-oprf-server/src/store.rs`, con la prueba `una_key_revocada_no_se_reactiva_por_mucho_que_lo_pidan` |
+| **I7** | **CUBIERTO, con residuo declarado.** Postura del despliegue comprobable (HSTS, `/admin/keys` no 2xx); SQL parametrizado y fijado por una meta-prueba; continuidad y modo degradado escritos. Lo que sigue sin resolver está enumerado, no escondido: sin respaldo verificado del *seed* fuera del VPS, sin réplica, sin objetivo de disponibilidad y sin alerta automática | `verificar.py desplegado`; `store.rs` (`el_almacen_no_concatena_sql`, `el_dato_hostil_no_se_ejecuta`); **`docs/CONTINUIDAD.md`** |
 
 Un ataque nuevo casi siempre es una forma nueva de romper **uno** de estos. Si el
 lab prueba los siete en continuo y con adversario adaptativo, cubre el espacio,
@@ -133,11 +141,32 @@ depender del hardware (a diferencia de AES sin AES-NI, que cae a S-boxes
 indexadas por bytes secretos — canal de caché clásico, y **la caída es
 silenciosa**). Comparación en tiempo constante, GF(2^8) de Shamir sin tablas.
 
-**Herramienta.** *Existe:* dudect sobre la ruta post-cuántica (clases *válido vs
-corrupto* en decapsulación, *dos claves distintas*), `src/lab/timing.rs`.
-*Falta:* extender dudect a **cada** ruta con secreto de forma sistemática (hoy es
-selectivo), y un chequeo que marque si un build cae a una implementación con
-tablas (el caso AES-sin-NI, que hoy pasa callado).
+**Herramienta.** *Existe:* dudect sobre seis rutas con secreto en
+`src/lab/timing.rs` — `ct_eq`, decapsulación *válido vs corrupto*, decapsulación
+con *dos claves distintas*, rechazo por causa, verificación de firma y derivación
+de subclaves.
+*Falta:* extender dudect a **cada** ruta con secreto de forma sistemática (hoy
+son seis, elegidas).
+
+> **La alarma de «build caído a tablas» NO hay que construirla, y merece
+> explicarse** (auditado el 2026-07-27, corrigiendo lo que este mismo documento
+> pedía). El aviso de arriba sobre AES sin AES-NI es cierto *en general* y
+> **no aplica a este stack**, por dos razones independientes:
+>
+> 1. **El núcleo no lleva AES.** `cargo tree -p quipu` no devuelve ninguna
+>    dependencia de `aes`: el AEAD es `chacha20poly1305`, ARX sin tablas.
+> 2. **El único AES es el de `quipu-cnsa`** (`aes-gcm` → `aes`, por mandato
+>    CNSA 2.0), y su backend portátil **no usa tablas**. El crate lo dice
+>    textualmente: implementación *fixslicing*, «entirely in terms of bitwise
+>    arithmetic with no use of any lookup tables or data-dependent branches», y
+>    la detección en runtime cae a ella cuando no hay AES-NI.
+>
+> Es decir: en este stack, perder AES-NI cuesta **rendimiento, no tiempo
+> constante**. Una alarma aquí no vigilaría ningún riesgo; sonaría por lentitud,
+> y una alarma que suena por lo que no importa es una alarma que se acaba
+> ignorando. Lo que sí queda es una **dependencia de una promesa ajena**: si
+> `aes` cambiara de backend, la propiedad se perdería en silencio. Ese es un
+> caso de I5 (procedencia) y lo cubre `cargo-vet`, no una sonda de I1.
 
 **Invariante:** I1.
 
@@ -411,13 +440,29 @@ La lectura vertical de la tabla de invariantes da el diseño:
    **HECHO** el 2026-07-27 (`tests/taxonomia.rs`). Queda promover el detector a
    API pública.
 3. ~~**Verificador de uniformidad de errores** (I4) recorriendo cada punto de
-   fallo.~~ **HECHO** el 2026-07-27 para el mensaje y el tipo
-   (`tests/invariantes.rs`); el *tiempo* sigue pendiente y es del punto 4.
-4. **dudect sistemático** sobre cada ruta con secreto (I1), con alarma si un
-   build cae a implementación con tablas.
+   fallo.~~ **HECHO** el 2026-07-27: el mensaje y el tipo en `tests/invariantes.rs`,
+   y el **tiempo** en `lab::timing::dudect_rechazo_por_causa`.
+4. **dudect sistemático** sobre cada ruta con secreto (I1). ~~Con alarma si un
+   build cae a implementación con tablas.~~ **La alarma se retira**: este stack
+   no tiene AES en el núcleo y el de `quipu-cnsa` es *fixsliced* sin tablas —
+   ver el recuadro de la familia 2.
 5. ~~**Paridad de las herramientas en los bindings** (#100)~~ **RESUELTO POR
    ELIMINACIÓN**: desde 0.10 hay un solo binding, y un binding no puede divergir
    de sí mismo. Queda la **build reproducible** (I5).
+6. **I7 — continuidad y modo degradado.** Añadido al orden el 2026-07-27, y va
+   antes de lo que queda de I1: la evidencia empírica del propio bloque ALCANCE
+   dice que los incidentes reales fueron disponibilidad y proveedor, no
+   criptografía. Primera pasada **HECHA** (`docs/CONTINUIDAD.md`, meta-prueba de
+   SQL, arranque que muere con seed inválido); el residuo está enumerado allí, y
+   lo primero es el respaldo del *seed* fuera del VPS.
 
 Nada de esto se implementa sin cerrar el diseño y el modelo de amenaza de cada
 sonda. Este documento es el mapa, no la implementación.
+
+**Y el mapa se audita contra el repositorio, no se hereda.** La pasada del
+2026-07-27 comprobó una a una las afirmaciones de arriba: casi todas se
+sostuvieron —incluidos los conteos finos, «8 vectores en 5 tamaños» y «88
+válidas + 62 inválidas», medidos corriendo las pruebas— y dos no: I6 figuraba
+como pendiente estando hecho, y el punto 4 pedía una alarma para un riesgo que
+este stack no tiene. Un mapa que manda construir lo que no hace falta cuesta más
+que uno incompleto.
