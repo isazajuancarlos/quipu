@@ -199,3 +199,77 @@ fn una_hoja_ilegible_no_da_huella() {
     let destrozada = manchar_seguidas(&png, 0, 40);
     assert!(huella_del_portador(&destrozada).is_err());
 }
+
+// ===========================================================================
+// I4: EL FALLO NO REVELA NADA
+//
+// Antes había dos variantes de error según dónde fallara: `Container` si no se
+// leían los glifos, `Decrypt` si el ECC no corregía. Eso le decía al atacante
+// EN QUÉ CAPA falló su intento.
+//
+// No es un oráculo de clave —`Decrypt` ya conflaciona «clave equivocada» y
+// «datos alterados» a propósito—. Es un oráculo de CONSTRUCCIÓN: quien fabrica
+// una hoja falsa aprende cuánto le falta para que sea bien formada, y esa
+// realimentación es la que necesita para dirigir el descifrado hacia un señuelo
+// elegido en modo honey.
+// ===========================================================================
+
+use quipu::api::DecodeError;
+
+/// Cuatro formas MUY distintas de fallar. Todas deben contarse igual.
+fn entradas_que_fallan() -> Vec<(&'static str, Vec<u8>)> {
+    use image::{GrayImage, ImageFormat, Luma};
+    let png_de = |img: &GrayImage| {
+        let mut o = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut o), ImageFormat::Png).unwrap();
+        o
+    };
+    let base = encode_to_glyph_image(SECRETO, "clave", &opciones());
+    vec![
+        ("no es una imagen", b"esto no es un PNG".to_vec()),
+        ("hoja en blanco", png_de(&GrayImage::from_pixel(18 * 30, 18, Luma([255])))),
+        ("glifos destrozados", manchar_seguidas(&base, 0, 40)),
+        ("bien formada, clave equivocada", base),
+    ]
+}
+
+#[test]
+fn todos_los_fallos_del_canal_dan_el_mismo_error() {
+    let mut vistos = Vec::new();
+    for (nombre, png) in entradas_que_fallan() {
+        let r = decode_from_glyph_image(&png, "clave-que-no-es", b"");
+        let e = r.expect_err(&format!("«{nombre}» debía fallar"));
+        vistos.push((nombre, format!("{e:?}")));
+    }
+    let primero = &vistos[0].1;
+    for (nombre, e) in &vistos {
+        assert_eq!(
+            e, primero,
+            "«{nombre}» devuelve {e} y otro caso devuelve {primero}: el error \
+             dice en qué capa falló y eso es realimentación para el atacante",
+        );
+    }
+    assert_eq!(*primero, format!("{:?}", DecodeError::Decrypt));
+}
+
+#[test]
+fn la_huella_tambien_falla_de_una_sola_forma() {
+    let mut vistos = Vec::new();
+    for (nombre, png) in entradas_que_fallan().into_iter().take(3) {
+        let e = huella_del_portador(&png).expect_err(&format!("«{nombre}» debía fallar"));
+        vistos.push(format!("{e:?}"));
+    }
+    assert!(
+        vistos.windows(2).all(|p| p[0] == p[1]),
+        "la huella distingue la causa del fallo: {vistos:?}",
+    );
+}
+
+#[test]
+fn y_lo_que_si_funciona_sigue_funcionando() {
+    // Que discrimine: si todo fallara igual porque nada funciona, las dos de
+    // arriba pasarían sin significar nada.
+    let png = encode_to_glyph_image(SECRETO, "clave", &opciones());
+    assert_eq!(decode_from_glyph_image(&png, "clave", b"").unwrap(), SECRETO);
+    assert!(huella_del_portador(&png).is_ok());
+}
