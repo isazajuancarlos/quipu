@@ -379,47 +379,46 @@ fn combine_secret(py: Python<'_>, shares: Vec<Vec<u8>>) -> PyResult<Py<PyByteArr
 // Se quitó antes de publicar 0.8.0: el 0.7.0 de PyPI nunca las expuso, así que
 // nadie las usa y borrarlas no rompe a nadie. Ver LICENSING.md §0.
 
-/// Cifra un PIN (dígitos) en modo **Honey**: una passphrase equivocada al
-/// descifrar devuelve **otro PIN plausible**, no un error. Feature `honey`.
-///
-/// ADVERTENCIA: honey es **sin autenticación por diseño** —un tag sería un
-/// oráculo de acierto—. No sustituye al cifrado normal (`encode`/`decode`);
-/// es solo para secretos de baja entropía y uniformes (PIN, frase mnemónica).
-#[cfg(feature = "honey")]
-#[pyfunction]
-#[pyo3(signature = (pin, passphrase, pepper = None))]
-fn honey_encrypt_pin<'py>(
-    py: Python<'py>,
-    pin: &str,
-    passphrase: &str,
-    pepper: Option<&[u8]>,
-) -> PyResult<Bound<'py, PyBytes>> {
-    use crate::honey::{encrypt_pin, HoneyOptions};
-    let opts = HoneyOptions { pepper: pepper.unwrap_or(b""), ..Default::default() };
-    let blob = encrypt_pin(pin, passphrase, &opts)
-        .map_err(|e| PyValueError::new_err(format!("{e:?}")))?;
-    Ok(PyBytes::new(py, &blob))
-}
+// HONEY NO SE EXPONE AQUÍ. No es un olvido: es que no llegaba a nadie.
+//
+// Había un `honey_encrypt_pin`/`honey_decrypt_pin` tras `#[cfg(feature =
+// "honey")]`, y la rueda se construye con `features = ["python","escrow","hsm"]`
+// (`pyproject.toml`). O sea: quien hace `pip install quipu-crypto` nunca pudo
+// llamarlas, y ninguna prueba las ejecutaba — solo compilaban bajo
+// `--all-features` en el CI. Código que parece una característica y no lo es.
+//
+// Eso es peor que un hueco, y en honey más que en ningún otro modo: quien lee
+// esta fuente concluye «Python tiene honey» y honey es justo donde una
+// suposición equivocada hace daño, porque **no autentica** — un tag sería un
+// oráculo de acierto. Además, su señuelo aún no está medido para secretos no
+// uniformes (`docs/ML.md`): repartir a todos los usuarios de Python un modo sin
+// autenticar y sin medir es lo contrario de lo que hay que hacer.
+//
+// Sigue existiendo entero en Rust (`src/honey.rs`), con sus vectores, su fuzz y
+// su banco de distinguibilidad. Si algún día se expone a Python, se enciende la
+// feature en `pyproject.toml` en el mismo commit — y la prueba de
+// `tests/paridad.rs` obliga a ello.
 
-/// Descifra un contenedor Honey. Con la passphrase correcta devuelve el PIN;
-/// con cualquier otra, **un señuelo plausible** en vez de un error. Feature
-/// `honey`.
-#[cfg(feature = "honey")]
+/// Versión de la librería nativa.
+///
+/// La tenían los otros cuatro bindings (`quipu_version`, `version()`,
+/// `Version()`) y Python no. No es cosmético: publicar una versión toca DOCE
+/// archivos, así que el número que uno cree tener y el que de verdad está
+/// cargado se separan con facilidad. Quien depura desde Python no tenía forma
+/// de preguntárselo al binario — solo a los metadatos del paquete, que son otra
+/// cosa: describen la rueda instalada, no la `.so` que se está ejecutando.
 #[pyfunction]
-#[pyo3(signature = (blob, passphrase, pepper = None))]
-fn honey_decrypt_pin(blob: &[u8], passphrase: &str, pepper: Option<&[u8]>) -> PyResult<String> {
-    // `{e:?}` y no `to_string()`: `HoneyError` solo deriva `Debug` a propósito.
-    // Darle un `Display` bonito invitaría a enseñárselo al usuario final, y en
-    // honey la causa del fallo es justo lo que NO debe distinguirse — el modo
-    // existe para que un intento equivocado devuelva un señuelo, no un
-    // diagnóstico. Aquí solo llegan errores de FORMATO, no de contraseña.
-    crate::honey::decrypt_pin(blob, passphrase, pepper.unwrap_or(b""))
-        .map_err(|e| PyValueError::new_err(format!("{e:?}")))
+fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
 }
 
 /// Módulo `quipu`.
 #[pymodule]
 fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(version, m)?)?;
+    // `__version__` además de `version()`: es lo que un pythonista mira primero,
+    // y sale de la MISMA constante, así que no pueden discrepar.
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_function(wrap_pyfunction!(encode, m)?)?;
     m.add_function(wrap_pyfunction!(decode, m)?)?;
     m.add_function(wrap_pyfunction!(generate_keypair, m)?)?;
@@ -436,9 +435,5 @@ fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(split_secret, m)?)?;
     #[cfg(feature = "escrow")]
     m.add_function(wrap_pyfunction!(combine_secret, m)?)?;
-    #[cfg(feature = "honey")]
-    m.add_function(wrap_pyfunction!(honey_encrypt_pin, m)?)?;
-    #[cfg(feature = "honey")]
-    m.add_function(wrap_pyfunction!(honey_decrypt_pin, m)?)?;
     Ok(())
 }
