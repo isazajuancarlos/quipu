@@ -14,7 +14,7 @@ proyectos y no sirve para trabajar aquí.
 
 | | |
 |---|---|
-| Versión | 0.9.1 (crates.io, PyPI) |
+| Publicado en | crates.io y PyPI (la versión, en `Cargo.toml`) |
 | Pruebas | 244 en verde, 0 fallidas · 883 sumando todas las combinaciones de features |
 | `unsafe` de primera parte | **0** en todo el repositorio |
 | Superficies publicadas | 2 — crates.io y PyPI |
