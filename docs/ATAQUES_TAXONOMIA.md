@@ -210,11 +210,25 @@ para la causa transitoria. Las autopruebas vigilan la salud del RNG en continuo
 (dos tiradas seguidas deben diferir y no ser ceros). El nonce extendido de
 XChaCha (192 bits) hace la colisión por azar despreciable.
 
-**Herramienta.** *Existe:* `selftest::check_rng_health`, el manejo falible.
-*Falta:* un **detector de reúso de nonce** a nivel de contenedor/stream (que un
-integrador que serialice mal no repita nonce entre mensajes bajo la misma clave),
-y una batería estadística sobre la salida del RNG (monobit, runs, ya hay parte en
-el distinguidor).
+**Herramienta.** *Existe:* `selftest::check_rng_health`, el manejo falible, y
+desde el 2026-07-27 las dos que faltaban (`tests/taxonomia.rs`):
+
+- **Detector de reúso de nonce** sobre un conjunto de contenedores, que devuelve
+  QUÉ pares colisionan y no un booleano — quien lo corra necesita saber cuáles
+  para recifrarlos. Probado en las dos direcciones: cero falsos positivos en 40
+  contenedores sanos, y encuentra el duplicado sembrado. El riesgo no es que
+  Quipu repita —cada nonce sale del RNG— sino que un integrador serialice mal o
+  restaure una copia de seguridad sobre un cifrado nuevo. Con XChaCha20, dos
+  mensajes que comparten clave y nonce entregan el XOR de sus textos claros, sin
+  error ni aviso.
+- **Batería estadística**: monobit y rachas sobre 131 072 bits reales del RNG,
+  más la comprobación de 64 bytes seguidos a cero que es lo que falló en Debian.
+  El umbral es de 5 sigma A PROPÓSITO: con el 0,01 habitual, la prueba fallaría
+  una de cada cien veces sobre un RNG perfecto, y una prueba que falla sin motivo
+  se acaba ignorando.
+
+*Falta todavía:* que el detector de nonce sea API pública y no solo una prueba,
+para que un integrador pueda correrlo sobre su propio almacén.
 
 **Invariante:** I3.
 
@@ -232,10 +246,14 @@ el transcript estilo X-Wing. AAD/contexto en el AEAD. No hay negociación de
 algoritmo → no hay downgrade. Contenedor versionado (`magic ‖ version`).
 
 **Herramienta.** *Existe:* la forja adaptativa del lab (`forge.rs`,
-`forge_triple.rs`) ataca justo esto; meta-tests que fallan si se debilita una
-defensa. *Falta:* sondas de **downgrade/confusión** explícitas (aunque hoy no hay
-negociación, documentar y probar que añadir un modo nunca reintroduce
-negociación insegura).
+`forge_triple.rs`), meta-tests que fallan si se debilita una defensa, y desde el
+2026-07-27 las **sondas de downgrade y confusión** (`tests/taxonomia.rs`): una
+versión anterior, una posterior y un `magic` ajeno tienen que rechazarse.
+
+Su valor no es defender de un ataque de hoy —hoy no hay negociación que forzar—
+sino de una CARACTERÍSTICA FUTURA. Es el `alg:none` de JWT: nadie lo diseñó como
+agujero, apareció al añadir flexibilidad. Si mañana se añade un segundo cifrador
+y un byte que elija, la prueba se pone roja y obliga a pensarlo.
 
 **Invariante:** I2 + el binding de dominio como caso de I4.
 
@@ -253,8 +271,16 @@ wraparound silencioso al parsear longitudes de entrada no confiable.
 
 **Herramienta.** *Existe:* hackerbot (tamper/truncation/uniqueness),
 `stream_attack.rs`, fuzzing con libFuzzer sobre **cuatro** objetivos
-(parse_container, unpad, codec_roundtrip, honey_decrypt). *Falta:* ampliar el
-fuzz a los parsers de **firma** y **recipient**, con corpus encadenado.
+(parse_container, unpad, codec_roundtrip, honey_decrypt). Desde el 2026-07-27 son **seis**: se añadieron `parse_signed` y
+`parse_recipient`, que eran los que faltaban. El de la firma exige además que
+ningún contenedor arbitrario verifique contra una clave ajena, no solo que no
+entre en pánico.
+
+Y la lista del CI **se deriva** con `cargo fuzz list` en vez de escribirse: la
+anterior tenía cuatro nombres a mano y habría dejado los dos nuevos fuera sin que
+nadie lo notara — el job seguiría verde fuzzeando menos de lo que hay.
+
+*Falta todavía:* el corpus encadenado entre objetivos.
 
 **Invariante:** I2.
 
@@ -363,7 +389,9 @@ La lectura vertical de la tabla de invariantes da el diseño:
 1. **Generalizar el distinguidor** a un banco que cubra I1+I4 sobre las tres
    señales (timing, error, ciphertext), con adversario adaptativo. Máximo
    apalancamiento.
-2. **Detector de reúso de nonce** y batería estadística del RNG (I3).
+2. ~~**Detector de reúso de nonce** y batería estadística del RNG (I3).~~
+   **HECHO** el 2026-07-27 (`tests/taxonomia.rs`). Queda promover el detector a
+   API pública.
 3. ~~**Verificador de uniformidad de errores** (I4) recorriendo cada punto de
    fallo.~~ **HECHO** el 2026-07-27 para el mensaje y el tipo
    (`tests/invariantes.rs`); el *tiempo* sigue pendiente y es del punto 4.

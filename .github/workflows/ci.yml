@@ -332,11 +332,26 @@ jobs:
         run: cargo install cargo-fuzz --locked
       # Smoke corto por target: garantiza que el harness compila y que ninguna
       # entrada del corpus/seed provoca crash. El fuzzing largo va por cron/local.
+      #
+      # LA LISTA SE DERIVA, NO SE ESCRIBE. Aquí había cuatro nombres a mano y
+      # habrían dejado fuera los dos objetivos nuevos (parse_signed,
+      # parse_recipient) sin que nadie lo notara: el job seguiría verde fuzzeando
+      # menos de lo que hay. Es el mismo defecto que la lista de doce archivos de
+      # versión y el banco del verificador — un registro que hay que acordarse de
+      # ampliar es un registro que diverge.
       - name: Smoke every fuzz target
         run: |
-          for t in honey_decrypt parse_container unpad codec_roundtrip; do
-            echo "== fuzz $t =="
+          set -o pipefail
+          objetivos=$(cargo fuzz list)
+          if [ -z "$objetivos" ]; then
+            echo "::error::cargo fuzz list no devolvió ningún objetivo"
+            exit 1
+          fi
+          echo "Objetivos detectados: $objetivos"
+          for t in $objetivos; do
+            echo "::group::fuzz $t"
             cargo fuzz run "$t" -- -max_total_time=20
+            echo "::endgroup::"
           done
 
 
