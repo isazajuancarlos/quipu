@@ -1,10 +1,15 @@
 """Cliente OPRF de referencia (Python) para un `quipu-oprf-server`.
 
 Flujo verificable de endurecimiento:
-  1. quipu.voprf_blind(password)        -> el servidor nunca ve la contraseña.
+  1. quipu_voprf.voprf_blind(password)  -> el servidor nunca ve la contraseña.
   2. POST /v1/oprf/evaluate (API key)   -> evaluación + prueba DLEQ.
-  3. quipu.voprf_finalize(...)          -> VERIFICA la prueba contra la clave
+  3. quipu_voprf.voprf_finalize(...)    -> VERIFICA la prueba contra la clave
      pública FIJADA y deriva el secreto endurecido.
+
+El paquete es `quipu-voprf` (Apache-2.0), NO `quipu-crypto`. No es un detalle de
+importación: el núcleo es AGPL, y enlazarlo desde tu servidor de autenticación
+arrastraría copyleft de red a ese servidor. `quipu-voprf` existe para que no
+haga falta. Instálalo con  pip install quipu-voprf.
 
 Uso:
   QUIPU_OPRF_URL=https://oprf.tudominio.com \\
@@ -20,7 +25,7 @@ import os
 import sys
 import urllib.request
 
-import quipu
+import quipu_voprf
 
 
 def _http(url, method, data=None, headers=None):
@@ -36,7 +41,7 @@ def harden(password, base_url, api_key, server_pub=None):
         _, body = _http(base + "/v1/public-key", "GET")
         server_pub = bytes.fromhex(json.loads(body)["public_key"])
 
-    state, blinded = quipu.voprf_blind(password)
+    state, blinded = quipu_voprf.voprf_blind(password)
     _, body = _http(
         base + "/v1/oprf/evaluate",
         "POST",
@@ -47,7 +52,7 @@ def harden(password, base_url, api_key, server_pub=None):
     evaluated = bytes.fromhex(resp["evaluation"])
     proof = bytes.fromhex(resp["proof"])
     # Lanza ValueError si la prueba DLEQ no valida contra server_pub.
-    return quipu.voprf_finalize(password, state, evaluated, proof, server_pub)
+    return quipu_voprf.voprf_finalize(password, state, evaluated, proof, server_pub)
 
 
 if __name__ == "__main__":
