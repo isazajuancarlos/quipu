@@ -291,6 +291,10 @@ no valida, no se degrada a "sin endurecer".
 
 ## Documentación
 
+- [`docs/HOJA_DE_RUTA.md`](docs/HOJA_DE_RUTA.md) — **qué falta y en qué orden**,
+  con el estado medido y las decisiones ya tomadas para no reabrirlas.
+- [`docs/RAMAS.md`](docs/RAMAS.md) — el modelo de ramas (estable, testing,
+  desarrollo) y por qué la promoción no se hace a mano.
 - [`docs/SPEC.md`](docs/SPEC.md) — **especificación técnica** (formato del
   contenedor, KDF, modo híbrido, VOPRF/DLEQ, separación de dominios).
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — modelo de amenaza (EN)
