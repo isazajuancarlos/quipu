@@ -252,9 +252,9 @@ duplicado y splicing entre ficheros; `overflow-checks` **en release** evita el
 wraparound silencioso al parsear longitudes de entrada no confiable.
 
 **Herramienta.** *Existe:* hackerbot (tamper/truncation/uniqueness),
-`stream_attack.rs`, fuzzing con libFuzzer (parse_container, unpad,
-codec_roundtrip). *Falta:* ampliar el fuzz a **todos** los parsers de contenedor
-nuevos (firma, recipient, honey) con corpus encadenado, no solo el simétrico.
+`stream_attack.rs`, fuzzing con libFuzzer sobre **cuatro** objetivos
+(parse_container, unpad, codec_roundtrip, honey_decrypt). *Falta:* ampliar el
+fuzz a los parsers de **firma** y **recipient**, con corpus encadenado.
 
 **Invariante:** I2.
 
@@ -313,12 +313,21 @@ typosquatting; actualización maliciosa; **primitiva con puerta trasera**
 publicador.
 
 **Exposición de Quipu.** **Baja, y es de las mejor cubiertas.** `cargo-vet`
-(supply chain) y `cargo-audit` (RustSec) obligatorios en CI; SBOM (CycloneDX);
-publicación por *trusted publishing* (OIDC, sin tokens de larga vida); *no se
-inventan primitivas* → no hay un DRBG propio que pueda esconder una puerta. Las
+(supply chain) y `cargo-audit` (RustSec) obligatorios en CI —comprobado: son dos
+de los tres checks que exige la rama `estable`—; SBOM (CycloneDX); *no se
+inventan primitivas* → no hay un DRBG propio que pueda esconder una puerta.
+
+**La publicación está a medias, y decirlo entero importa.** PyPI va por *trusted
+publishing* (OIDC, sin tokens de larga vida). **crates.io NO**: usa un token de
+larga vida en el disco de quien publica. Se comprobó de la peor manera el
+2026-07-27, con un 403 al publicar `quipu-nucleo` porque al token le faltaba el
+alcance `publish-new`. Mientras esa asimetría exista, el compromiso de ese token
+es un camino real a una actualización maliciosa — justo la amenaza de esta
+familia. Las
 autopruebas corren sobre el binario que ejecuta, no sobre el de CI.
 
-**Herramienta.** *Existe:* vet, audit, SBOM, trusted publishing, autopruebas.
+**Herramienta.** *Existe:* vet, audit, SBOM, autopruebas, y trusted publishing
+SOLO en PyPI.
 *Falta:* build reproducible verificable por terceros (que dos compilaciones den
 el mismo binario), y un chequeo de que la rueda publicada = el commit etiquetado
 (instalar del índice y comparar, ya es política manual — automatizarlo).
