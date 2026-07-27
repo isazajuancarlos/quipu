@@ -130,13 +130,102 @@ exactamente el oráculo offline que el modo existe para impedir.
 
 ---
 
+---
+
+## Custodia del seed: el procedimiento
+
+El seed es la única fila irreversible del inventario, así que su respaldo no
+puede ser una copia en otro disco: eso cambia un punto único de **fallo** por
+dos puntos únicos de **compromiso**. Se reparte con Shamir k-de-n — hacen falta
+`k` partes para reconstruir y `k-1` no revelan **nada**, que es la propiedad de
+seguridad perfecta del esquema, no una aproximación.
+
+La herramienta vive tras una feature no-default del crate del servidor, para que
+no viaje en el binario que corre como servicio:
+
+```bash
+cargo build -p quipu-oprf-server --features custodia   # deja target/…/custodia-seed
+```
+
+**El material sensible entra siempre por `stdin`, nunca como argumento.** Un
+argumento es público en la máquina: aparece en `ps aux` para cualquier usuario
+mientras el proceso vive, y queda en el historial del shell para siempre. Un
+seed que pasa una vez por ahí hay que darlo por comprometido. El comando además
+se niega a leer de una terminal, para que nadie lo teclee.
+
+### Respaldar
+
+Se hace **en el VPS**, para que el seed no salga de la máquina donde ya está;
+lo que sale son comparticiones, y hace falta más de una.
+
+```bash
+printenv QUIPU_OPRF_SEED | custodia-seed repartir --umbral 2 --partes 3
+```
+
+Imprime la **clave pública** —anótala, es la huella que verificará cualquier
+restauración futura, y no es secreta— y las tres comparticiones. El comando
+**verifica el reparto antes de entregarlo**: reconstruye con un subconjunto del
+tamaño del umbral y comprueba que deriva la misma clave. Si no cuadra, no
+entrega nada.
+
+Después, cada compartición a un **sitio distinto** y ninguna al VPS. Con 2-de-3,
+perder un sitio no cuesta nada y comprometer uno tampoco. Borra el scrollback
+cuando las hayas movido.
+
+### Comprobar que el respaldo sirve (sin restaurar nada)
+
+Conviene repetirlo de vez en cuando: un respaldo que nadie ha probado a
+restaurar no es un respaldo.
+
+```bash
+custodia-seed restaurar --clave-publica <64hex>   # comparticiones por stdin
+```
+
+Sin más banderas **solo comprueba**: dice si el material reconstruye y si deriva
+la clave esperada. No imprime el seed.
+
+### Restaurar de verdad
+
+**El criterio no es «el fichero se recuperó», es que la clave pública coincida.**
+Un seed que se restaura íntegro pero deriva otra clave es peor que perderlo: el
+servicio arranca, responde 200 e invalida a todos los clientes en silencio.
+
+```bash
+custodia-seed restaurar --clave-publica <64hex> --mostrar-seed > /ruta/segura
+```
+
+La bandera es explícita a propósito: sin ella el comando comprueba, con ella
+entrega. Y después, confirmarlo contra el proceso — levantar con ese seed y ver
+que `GET /v1/public-key` devuelve la clave de siempre.
+
+### Qué garantiza la prueba, y qué no
+
+`tests/restauracion_del_seed.rs` ejecuta el ciclo entero **contra el binario
+real** —repartir, perder el original, reconstruir con dos de tres, arrancar el
+servicio— y exige que sirva la misma clave. Lleva su control negativo: un seed
+distinto por un solo bit levanta un servicio que arranca **perfectamente** y
+sirve otra clave. Sin ese control, la prueba no distinguiría «restauré bien» de
+«arrancó algo».
+
+Lo que NO garantiza: que las comparticiones existan de verdad, estén donde deben
+y sean legibles. Eso es operación, no código, y es el punto 1 de la lista de
+abajo.
+
+---
+
 ## Lo que NO está resuelto
 
 Se dice para que nadie lo lea como una garantía:
 
-1. **No hay respaldo verificado del seed fuera del VPS**, ni procedimiento
-   escrito de restauración. Es el único dato irreversible del sistema y hoy su
-   custodia no está documentada. Es lo primero que hay que cerrar de esta lista.
+1. **NO EXISTE respaldo del seed fuera del VPS.** Confirmado por Juan el
+   2026-07-27 — no es «no consta»: no lo hay. El servicio está cobrando con un
+   punto único de fallo total, y mientras eso siga así, la pérdida del VPS es
+   la pérdida de los datos de los clientes.
+
+   El mecanismo, el procedimiento y la herramienta ya están arriba y probados.
+   **Lo que falta es ejecutarlos una vez**, y eso toca producción, así que lo
+   hace Juan. Es la línea más urgente de este documento y la única cuyo coste
+   crece cada día que pasa.
 2. **No hay réplica ni conmutación por error.** Una caída del VPS es una caída
    del servicio, y su duración es el tiempo de reacción de una persona.
 3. **No hay objetivo de disponibilidad declarado** — ni RTO ni RPO — así que hoy

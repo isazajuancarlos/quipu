@@ -26,10 +26,9 @@ fn db_path() -> String {
     std::env::var("QUIPU_OPRF_DB").unwrap_or_else(|_| "quipu-oprf.db".to_string())
 }
 
-/// `info` de `DeriveKeyPair` (RFC 9497 §3.2). Fijo y versionado: entra en la
-/// derivación, así que cambiarlo cambia la clave para la misma semilla y
-/// invalida todos los secretos endurecidos. No se toca.
-const DERIVE_INFO: &[u8] = b"quipu-oprf-server-v1";
+/// Reexportada desde la lib: una sola definición para el arranque y para la
+/// verificación de restauraciones. Ver el comentario en `lib.rs`.
+use quipu_oprf_server::DERIVE_INFO;
 
 /// Carga la clave VOPRF desde el seed persistente. Sin seed => clave EFÍMERA
 /// (solo dev): reiniciar rompería los secretos endurecidos de los clientes.

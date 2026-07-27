@@ -915,6 +915,7 @@ dependencies = [
  "sha2 0.10.9",
  "subtle",
  "tiny_http",
+ "zeroize",
 ]
 
 [[package]]
