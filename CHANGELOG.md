@@ -6,6 +6,30 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+- **BREAKING — the native glyph channel is gone in its entirety.** `api::encode_to_glyph_image`,
+  `api::decode_from_glyph_image` and `api::huella_del_portador` no longer exist, nor do the
+  `glyphfont`, `glyphopt` and `glyphscan` modules, the `glyph_min_distance` / `select_separable`
+  Python bindings, and the grouped codec that only fed them.
+
+  **Why.** `docs/THREAT_MODEL.md` already stated that the visual channel is *"purely
+  representation: adds/subtracts no security"*, and no invariant (I1–I7) depended on it. What it
+  did add was attack surface: PNG decoding, adaptive binarisation, grid detection and ECC, all
+  over attacker-controlled input, all of it to be fuzzed and audited. Removing it makes the
+  library smaller and the audit narrower without weakening any guarantee.
+
+  **This is not a security fix and closes no vulnerability.** It removes a representation layer
+  that never carried one.
+
+  **Migration.** The dense-text and PNG channels are unchanged and cover the same use cases:
+  `encode`/`decode` with any `dictionaries::*` alphabet, `encode_to_image`/`decode_from_image`,
+  and `encode_to_robust_image`/`decode_from_robust_image` for print, which keeps Reed-Solomon.
+  For a paper carrier, a standard 2D symbology (Data Matrix, QR) is the recommended route: the
+  decoder will still exist in twenty years, which a proprietary alphabet cannot promise.
+
+  Unaffected: `dictionaries::flagship()` and the other dictionaries. Those are Unicode glyphs in
+  the **text** channel, a different thing that merely shares the word.
+
 ### Added
 - **`crates/quipu-nucleo`** — the primitive-agnostic core: container format,
   base-N codec, Reed-Solomon, Padmé padding and the visual glyph channel.

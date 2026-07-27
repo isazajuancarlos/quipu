@@ -21,7 +21,7 @@ Librería de codificación con **protección criptográfica** y **simbología pr
 
 ## Qué hace
 
-Protege datos y los representa como **símbolos** (texto denso, glifos, o una imagen),
+Protege datos y los representa como **símbolos** (texto denso o una imagen),
 de forma reversible y autenticada.
 
 ```
@@ -36,7 +36,6 @@ datos → KDF(passphrase+pepper) → AEAD → contenedor → codec base-N → di
 | Post-cuántico (clave pública) | `api::encode_to_recipient` / `decode_as_recipient` | Híbrido **X25519 + ML-KEM-1024** (transcript ligado estilo X-Wing) |
 | Canal visual | `api::encode_to_image` / `decode_from_image` | Salida **PNG** lossless |
 | Canal robusto (impreso) | `api::encode_to_robust_image` / `decode_from_robust_image` | + **Reed-Solomon** (corrige errores de canal) |
-| Glifos nativos | `api::encode_to_glyph_image` / `decode_from_glyph_image` | Alfabeto de glifos propio, reconocible |
 | Online (endurecimiento) | `api::encode_online` / `decode_online` | **VOPRF conforme a [RFC 9497](https://www.rfc-editor.org/rfc/rfc9497.html)** (ristretto255-SHA512, prueba DLEQ): el cliente detecta un servidor deshonesto |
 | Firmado (autenticidad) | `api::encode_signed` / `decode_verified` | Firma híbrida **Ed25519 + ML-DSA-87** (combinador AND). Autenticidad y no-repudio verificables; **no** confidencialidad |
 | Firmado triple (alta garantía, feature `slh`) | `api::encode_signed_triple` / `decode_verified_triple` | Firma triple-híbrida **Ed25519 + ML-DSA-87 + SLH-DSA-256s** (AND 3-de-3): infalsificable mientras sobreviva ≥1 de {curva, retículo, hash}. Opt-in; firma ~34 KB |
@@ -96,18 +95,6 @@ verificada— y en el binding de Python (`quipu.CustodioHsm`), que va en la rued
 - `dictionaries::ascii94()` — 94 símbolos ASCII (copy-paste universal).
 - `dictionaries::flagship()` — 4096 glifos (12 bits/símbolo, ~2× más denso).
 - `dictionaries::from_range(start, count)` — alfabeto a medida.
-- `glyphopt` — selección de glifos por máxima separabilidad (base para glifos por IA).
-
-## Galería de glifos
-
-La misma carga cifrada puede representarse como texto denso, como una imagen PNG,
-o con un **alfabeto de glifos propio** (geométrico o generado orgánicamente).
-La simbología es **pública** (Kerckhoffs): no aporta ni resta seguridad, solo
-representación.
-
-| Alfabeto de glifos | Secreto en glifos | Glifos nativos | Glifos generativos |
-|---|---|---|---|
-| ![alfabeto](glyph_alphabet.png) | ![secreto](secreto_en_glifos.png) | ![nativos](glifos_nativos.png) | ![generativos](glyph_generative.png) |
 
 ## Seguridad y endurecimiento
 
@@ -274,7 +261,7 @@ python examples/quickstart.py           # Python (examples/quickstart.py)
 ```bash
 cargo test                      # tests unit + property
 cargo clippy --all-targets      # lint
-cargo run --example demo        # demo simétrico + glifos
+cargo run --example demo        # demo simétrico
 cargo run --example v2demo      # post-cuántico + OPRF + imagen
 cargo run --example hackerbot   # red-team
 cargo run --example testplatform --release   # batería completa
@@ -319,7 +306,7 @@ encima que declaran con qué criptografía se comprometen.
 
 | Crate | Qué es |
 |---|---|
-| [`crates/quipu-nucleo`](crates/quipu-nucleo) | Todo lo que **no** es criptografía: formato del contenedor, codec base-N, Reed-Solomon, canal visual de glifos, relleno Padmé. **Cero primitivas.** |
+| [`crates/quipu-nucleo`](crates/quipu-nucleo) | Todo lo que **no** es criptografía: formato del contenedor, codec base-N, Reed-Solomon, canal visual PNG, relleno Padmé. **Cero primitivas.** |
 | `quipu` (este crate) | El perfil por defecto: **XChaCha20-Poly1305**, HKDF-SHA-256, nonce extendido de 192 bits. |
 | [`crates/quipu-cnsa`](crates/quipu-cnsa) | El perfil alineado con **CNSA 2.0**: AES-256-GCM, HKDF-SHA-384, nonce de 96 bits. **NO validado FIPS 140-3.** |
 

@@ -298,112 +298,6 @@ pub fn decode_from_robust_image(
     decode_from_blob(&blob, passphrase, [0u8; 8], pepper)
 }
 
-/// Paridad Reed-Solomon por bloque en el canal de glifos.
-///
-/// No es configurable a propósito. El canal de glifos SIEMPRE viaja por papel
-/// —se imprime, se dobla, se escanea—, así que un modo sin protección no
-/// tendría usuario legítimo: sería una trampa esperando a que alguien la
-/// eligiera por parecer más compacta. El canal PNG sí ofrece las dos variantes
-/// porque ahí el archivo puede no salir nunca de un disco.
-///
-/// 32 bytes corrigen hasta 16 símbolos erróneos por bloque de 255.
-const GLYPH_PARITY: u8 = 32;
-
-/// Cifra `data` y lo pinta como una tira de GLIFOS del alfabeto IA nativo.
-///
-/// Protegido con Reed-Solomon. Hasta ahora no lo estaba —el canal hermano de
-/// PNG sí, con el mismo módulo `ecc`—, de modo que UN glifo mal leído destruía
-/// la carga entera y no había forma de recuperar nada. La asimetría no tenía
-/// razón escrita en ninguna parte: era un olvido.
-pub fn encode_to_glyph_image(data: &[u8], passphrase: &str, opts: &Options) -> Vec<u8> {
-    let blob = encode_to_blob(data, passphrase, [0u8; 8], opts);
-    let protegido = crate::ecc::protect(&blob, GLYPH_PARITY);
-    let font = crate::glyphfont::standard();
-    // Por GRUPOS y no como un número único: `encode_base_n` no tiene localidad
-    // —un glifo malo corrompe todo lo que sigue— y detrás de eso Reed-Solomon
-    // no puede corregir nada. Medido: el canal «protegido» no aguantaba ni un
-    // glifo dañado hasta que se cambió esto.
-    let indices = codec::encode_grupos(&protegido, font.base());
-    font.render(&indices)
-}
-
-/// Huella del PORTADOR: identifica la hoja, no su contenido.
-///
-/// Devuelve el SHA-256 del contenedor cifrado que la tira transporta, después
-/// de corregir el daño. Sirve para responder **«¿es esta la hoja que se
-/// emitió?»** comparándola contra un sello externo — el acta de Tunjo, con su
-/// firma y su marca de tiempo RFC 3161.
-///
-/// Tres propiedades, y las tres son el diseño:
-///
-/// 1. **No lleva clave.** Un perito puede verificar que la hoja es la emitida
-///    sin que nadie le entregue el secreto. Y, sobre todo, no es un oráculo:
-///    no dice si una clave es correcta, que es justo lo que el modo `honey`
-///    existe para negarle al atacante. Un MAC aquí destruiría el señuelo.
-///
-/// 2. **Tolera el daño.** Se calcula DESPUÉS de Reed-Solomon, así que una hoja
-///    manchada pero legible da la misma huella que la recién impresa. Si se
-///    calculara sobre los píxeles, cualquier mota la invalidaría y el control
-///    sería inservible en papel.
-///
-/// 3. **No la puede recalcular quien altera la hoja.** Un resumen sin clave
-///    parece débil —el atacante también sabe calcularlo— y no lo es, porque el
-///    ancla no está en el papel: está en un acta firmada y fechada en otro
-///    sitio y otro momento. El atacante puede fabricar una hoja coherente
-///    consigo misma; no puede fabricar el sello que dice que se emitió.
-///
-/// Es la única defensa del canal contra la SUSTITUCIÓN. Todo lo demás —la
-/// corrección de errores, el umbral de rechazo, los grupos locales— responde a
-/// «¿está esto dañado?», y ante una hoja falsificada entera la respuesta
-/// honesta es «no».
-pub fn huella_del_portador(png: &[u8]) -> Result<[u8; 32], DecodeError> {
-    use sha2::{Digest, Sha256};
-
-    let font = crate::glyphfont::standard();
-    // UN SOLO ERROR PARA TODO FALLO DEL CANAL. Ver la nota de
-    // `decode_from_glyph_image`.
-    let indices = font.recognize_marcando(png).ok_or(DecodeError::Decrypt)?;
-    let (protegido, _) = codec::decode_grupos(&indices, font.base());
-    let blob = crate::ecc::recover(&protegido).ok_or(DecodeError::Decrypt)?;
-
-    let mut h = Sha256::new();
-    h.update(&blob);
-    Ok(h.finalize().into())
-}
-
-/// Operación inversa de [`encode_to_glyph_image`]: reconoce los glifos y descifra.
-pub fn decode_from_glyph_image(
-    png: &[u8],
-    passphrase: &str,
-    pepper: &[u8],
-) -> Result<Vec<u8>, DecodeError> {
-    let font = crate::glyphfont::standard();
-    // UN SOLO ERROR PARA TODO FALLO DEL CANAL (invariante I4 de
-    // `docs/ATAQUES_TAXONOMIA.md`: el fallo no revela nada).
-    //
-    // Antes había dos variantes —`Container(TooShort)` si no se leían los
-    // glifos, `Decrypt` si el ECC no corregía— y eso le decía al atacante EN
-    // QUÉ CAPA falló su intento.
-    //
-    // No es un oráculo de CLAVE: `Decrypt` ya conflaciona «clave equivocada» y
-    // «datos alterados» a propósito. Es un oráculo de CONSTRUCCIÓN: quien
-    // fabrica una hoja falsa aprende cuánto le falta para que sea bien
-    // formada, y esa realimentación es justo lo que necesita para dirigir el
-    // descifrado hacia un señuelo elegido en modo `honey`, donde no hay
-    // etiqueta que lo desmienta.
-    //
-    // LÍMITE CONOCIDO: los errores son uniformes, el TIEMPO no. Fallar al
-    // reconocer los glifos es más rápido que llegar al AEAD, así que queda un
-    // canal temporal. Cerrarlo exige recorrer siempre el camino completo y no
-    // se hace aquí; queda dicho para que nadie suponga que I4 está entero.
-    let indices = font.recognize_marcando(png).ok_or(DecodeError::Decrypt)?;
-    // `corruptos` son los grupos cuyo valor no cabe en 3 bytes: imposibles de
-    // producir por el codificador, así que vienen dañados. Se dejan en ceros
-    // para que Reed-Solomon los corrija; el dato está en que existen.
-    let (protegido, _corruptos) = codec::decode_grupos(&indices, font.base());
-    let blob = crate::ecc::recover(&protegido).ok_or(DecodeError::Decrypt)?;
-    decode_from_blob(&blob, passphrase, [0u8; 8], pepper)
-}
 
 // ============================ Modo híbrido post-cuántico ============================
 
@@ -806,14 +700,6 @@ mod tests {
     fn image_wrong_passphrase_fails() {
         let png = encode_to_image(b"x", "correcta", &test_opts());
         assert!(decode_from_image(&png, "incorrecta", b"").is_err());
-    }
-
-    #[test]
-    fn glyph_image_round_trips() {
-        let data = b"secreto pintado con glifos IA nativos";
-        let png = encode_to_glyph_image(data, "clave", &test_opts());
-        assert_eq!(&png[0..8], &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]);
-        assert_eq!(decode_from_glyph_image(&png, "clave", b"").unwrap(), data);
     }
 
     #[test]

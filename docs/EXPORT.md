@@ -66,7 +66,7 @@ classification arguable rather than obvious:
    adopted **as that composition**.
 
 2. **The container format** (`SPEC.md` §3.2), the Padmé padding layer, the
-   base-N codec and the glyph channel. All published and documented here, none
+   base-N codec and the PNG channel. All published and documented here, none
    adopted by a standards body.
 
 A reasonable person can argue either way: *"every primitive is standard, so this
@@ -95,7 +95,7 @@ Changes that would trigger a re-notification, given the current roadmap:
 - adding LMS or XMSS for software signing;
 - any change to the hybrid combiner in `SPEC.md` §7.2.
 
-Changes that would **not**: version bumps, the fallible-RNG refactor, glyph
+Changes that would **not**: version bumps, the fallible-RNG refactor, symbology
 recognition, anything in the `lab` feature (which is never shipped).
 
 ---
