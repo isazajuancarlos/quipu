@@ -299,6 +299,85 @@ pub fn dudect_decapsulate_two_keys(samples: usize) -> DudectReport {
     DudectReport::from_classes("dudect/decapsulate-dos-claves", &a, &b)
 }
 
+/// dudect sobre el RECHAZO: ¿tarda distinto fallar por una causa que por otra?
+///
+/// Cierra la mitad que `tests/invariantes.rs` dejó abierta a propósito. Aquella
+/// prueba demuestra que seis caminos de fallo devuelven el MISMO error; esta
+/// pregunta lo que aquella no puede: si tardan lo mismo. Un mensaje idéntico con
+/// tiempos distintos sigue siendo un oráculo — el atacante deja de leer el error
+/// y mira el reloj.
+///
+/// # Qué se compara, y por qué justo eso
+///
+/// Clase A: **passphrase equivocada**, cabecera intacta.
+/// Clase B: **tag alterado**, passphrase correcta.
+///
+/// Las dos pagan Argon2id entero y fallan en la verificación AEAD. Si el tiempo
+/// las separa, el atacante sabe si acertó la contraseña aunque el error no se lo
+/// diga, y eso convierte una búsqueda en dos.
+///
+/// # La comparación que NO se hace, y es la parte importante
+///
+/// Hay un tercer camino con una diferencia de tiempo enorme: un contenedor con
+/// parámetros KDF absurdos se rechaza en microsegundos porque `is_sane()` corta
+/// ANTES de derivar la clave, mientras los otros dos pagan Argon2 completo.
+/// Mismo error, tiempos que difieren en órdenes de magnitud.
+///
+/// **No es un oráculo, y medirlo como si lo fuera sería un hallazgo falso.** Lo
+/// que ese tiempo revela es que la cabecera traía basura — un dato que el
+/// atacante puso él mismo y ya conoce. I4 exige que el fallo no revele nada
+/// SOBRE EL SECRETO; no que todos los rechazos del mundo tarden igual. Confundir
+/// las dos cosas llenaría el informe de falsos positivos y acabaría con alguien
+/// desactivando la sonda.
+///
+/// # Por qué con parámetros KDF BARATOS
+///
+/// Con los de producción, Argon2id domina el tiempo y taparía cualquier
+/// diferencia del AEAD: la medición saldría limpia por el motivo equivocado.
+/// Con parámetros baratos, una diferencia de unas pocas instrucciones sí es
+/// visible. Es la condición MÁS exigente, no la más cómoda: si aquí no aparece,
+/// en producción tampoco.
+pub fn dudect_rechazo_por_causa(samples: usize) -> DudectReport {
+    use crate::api::{decode_from_blob, encode_to_blob, Options};
+    use crate::kdf::KdfParams;
+
+    let opts = Options {
+        pepper: b"",
+        kdf_params: KdfParams { mem_kib: 64, iterations: 1, parallelism: 1 },
+        codebook_id: 0,
+    };
+    let clave = "la-passphrase-correcta";
+    let blob = encode_to_blob(b"contenido de la medicion", clave, [0u8; 8], &opts);
+
+    // Clase B: mismo contenedor con el último byte del tag volteado.
+    let mut con_tag_roto = blob.clone();
+    let ultimo = con_tag_roto.len() - 1;
+    con_tag_roto[ultimo] ^= 0x01;
+
+    let (a, b) = sample_two_classes_interleaved(
+        samples,
+        || {
+            std::hint::black_box(decode_from_blob(
+                std::hint::black_box(&blob),
+                std::hint::black_box("passphrase-equivocada"),
+                [0u8; 8],
+                b"",
+            ))
+            .ok();
+        },
+        || {
+            std::hint::black_box(decode_from_blob(
+                std::hint::black_box(&con_tag_roto),
+                std::hint::black_box(clave),
+                [0u8; 8],
+                b"",
+            ))
+            .ok();
+        },
+    );
+    DudectReport::from_classes("dudect/rechazo-passphrase-vs-tag", &a, &b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,6 +472,30 @@ mod tests {
         let b: Vec<f64> = (0..100).map(|i| if i % 2 == 0 { 29.0 } else { 31.0 }).collect();
         let r = DudectReport::from_classes("t", &a, &b);
         assert!(!r.is_constant_time(DUDECT_T_THRESHOLD), "t={}", r.t);
+    }
+
+    #[test]
+    fn el_rechazo_no_delata_su_causa_por_el_tiempo() {
+        // TRES RONDAS, MAYORÍA PARA ACUSAR. Es el mismo criterio que
+        // `distinguidor::medir_repetido` y por la misma razón: la medición no es
+        // reproducible —cada corrida pide sal y nonce nuevos, y el planificador
+        // del sistema mete ruido— así que un umbral fijo cruza por azar de vez
+        // en cuando. Una prueba cuyo mensaje de fallo dice «oráculo de tiempo»
+        // no puede saltar por una migración de CPU.
+        //
+        // Con 2 de 3 la falsa alarma es despreciable, y NO esconde nada: una
+        // fuga real da |t| enorme en las tres rondas, no en una.
+        let mut ts = Vec::new();
+        for _ in 0..3 {
+            ts.push(dudect_rechazo_por_causa(300).t.abs());
+        }
+        let acusan = ts.iter().filter(|t| **t > DUDECT_T_THRESHOLD).count();
+        assert!(
+            acusan < 2,
+            "el tiempo de rechazo DELATA la causa: |t| = {ts:?} con umbral {DUDECT_T_THRESHOLD}. \
+             Fallar por passphrase y fallar por tag tardan distinto, así que el atacante \
+             sabe si acertó la contraseña aunque el error no se lo diga."
+        );
     }
 
     #[test]
