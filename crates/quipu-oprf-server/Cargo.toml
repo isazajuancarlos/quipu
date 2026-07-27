@@ -50,3 +50,11 @@ quipu = { path = "../.." }
 [[example]]
 name = "client"
 path = "examples/client.rs"
+
+# La herramienta de custodia NO se compila por defecto. `required-features`
+# evita que entre en el binario que se sube al VPS sin pedirlo, y que un
+# `cargo build` a secas falle porque el módulo `custodia` está tras la feature.
+[[bin]]
+name = "custodia-seed"
+path = "src/bin/custodia-seed.rs"
+required-features = ["custodia"]
