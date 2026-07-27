@@ -26,6 +26,27 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PR #93, que lo eliminó.
 
 ### Removed
+- **BREAKING — `integrations/go` también se va.** Se me pasó en el recorte anterior,
+  y salió al preguntarme si el repositorio era realmente todo Rust: quedaban 585
+  líneas de Go en 3 archivos versionados.
+
+  No era un binding sino una integración —el hermano en Go de
+  `integrations/django`—, y por eso no cayó con `bindings/go`. Se va por tres
+  razones que se acumulan:
+
+  1. **Estaba roto desde el commit anterior.** Su `go.mod` traía
+     `replace … => ../../bindings/go`, y ese directorio ya no existe.
+  2. **Nunca lo vigiló nadie.** Ningún workflow del CI lo compilaba ni lo
+     probaba, así que llevaba tiempo pudiéndose romper en silencio.
+  3. **Nunca se publicó, y por la misma razón que motivó todo esto.** Su propio
+     `go.mod` lo dejaba escrito: *«depende de bindings/go, que enlaza el C ABI
+     con las 12 funciones del núcleo AGPL. Mientras siga así, este SDK
+     arrastraría copyleft de red al SaaS del cliente y NO se publica.»*
+
+  El equivalente resuelto es `integrations/django`, que usa `quipu-voprf`
+  (Apache-2.0) y sí se publica. Si algún día hace falta el de Go, se construye
+  sobre ese mismo SDK, no sobre el núcleo AGPL.
+
 - **BREAKING — un solo binding: Python. Se van Node, Go, la C ABI y la integración
   de Express.** `bindings/c` (`quipu-capi`), `bindings/node` (`quipu-crypto` en npm),
   `bindings/go` e `integrations/express` ya no existen, ni sus jobs de CI, ni el
