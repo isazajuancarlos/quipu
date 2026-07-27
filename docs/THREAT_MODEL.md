@@ -54,9 +54,23 @@ hiding the format, it is a design defect.
   does not need to. This is the adversary that every real incident we studied
   actually was; see §10.
 - **T8. Attacker of the human in the loop:** pretexting, phishing, coercion,
-  shoulder-surfing. Relevant above all to **paper custody**, where a person reads
-  the words aloud, photographs the sheet, or is talked into "verifying the backup
-  key". A perfect decoy does not defend against a phone call.
+  shoulder-surfing. The concrete surface is **support for the OPRF service**: the
+  `/admin/*` operations are run by a person, and "we got revoked by mistake,
+  please reactivate us" is an email anyone can write. Whoever answers cannot tell
+  the customer from whoever is impersonating them.
+
+  MITIGATED BY ASYMMETRY, not by getting the judgement right. Closing (revoke,
+  deactivate) may be done for anyone who asks: being wrong there is a reversible
+  nuisance. Reopening what was deliberately closed is **not available at all** —
+  `activate` will not resurrect a revoked key and `verify` rejects it even if its
+  `active` flag is raised by some other route. Issuing a new key stays deliberate
+  and is checked against the payment record, never against the requester's word.
+  See `crates/quipu-oprf-server/README.md`.
+
+  This entry originally justified itself on **paper custody** — someone reading
+  words aloud or photographing a sheet. That channel was removed in PR #93, so
+  the scenario was rewritten to match the operation that actually exists. An
+  invariant defended over a use case we no longer have defends nothing.
 - **T9. Attacker of availability with a security consequence:** takes down the
   distribution or update path so fixes do not arrive. Not a breach, and still a
   degradation of everyone downstream.

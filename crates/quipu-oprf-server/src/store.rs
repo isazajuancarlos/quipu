@@ -162,8 +162,15 @@ impl Store {
         let row = self
             .conn
             .query_row(
+                // `revoked_at` entra en la consulta: una key revocada no vale
+                // aunque su `active` diga otra cosa. Es la segunda mitad de I6 —
+                // la primera impide reactivarla por el endpoint, y esta impide
+                // que sirva si alguien la levanta por cualquier otra vía (un
+                // UPDATE a mano en la base, un respaldo restaurado de antes de
+                // la revocación). Una decisión de cierre no puede depender de
+                // que nadie toque una fila.
                 "SELECT k.id, k.customer_id, k.key_hash, k.active, k.quota_monthly, \
-                        k.expires_at, c.plan \
+                        k.expires_at, c.plan, k.revoked_at \
                  FROM api_key k JOIN customer c ON c.id = k.customer_id \
                  WHERE k.prefix = ?1",
                 params![prefix],
@@ -176,12 +183,15 @@ impl Store {
                         r.get::<_, i64>(4)?,
                         r.get::<_, Option<i64>>(5)?,
                         r.get::<_, String>(6)?,
+                        r.get::<_, Option<i64>>(7)?,
                     ))
                 },
             )
             .optional()?;
 
-        let Some((key_id, customer_id, stored_hash, active, quota, expires_at, plan)) = row else {
+        let Some((key_id, customer_id, stored_hash, active, quota, expires_at, plan, revoked_at)) =
+            row
+        else {
             return Ok(AuthResult::Unknown);
         };
 
@@ -189,7 +199,8 @@ impl Store {
         if stored_hash.len() != hash.len() || stored_hash.as_slice().ct_eq(hash.as_slice()).unwrap_u8() != 1 {
             return Ok(AuthResult::Unknown);
         }
-        if active == 0 {
+        // Revocada es revocada, diga lo que diga `active`.
+        if revoked_at.is_some() || active == 0 {
             return Ok(AuthResult::Inactive);
         }
         if let Some(exp) = expires_at
@@ -240,14 +251,37 @@ impl Store {
     }
 
     /// Activa o desactiva una key por su `prefix` (lo que hace el webhook de pagos).
+    ///
+    /// UNA KEY REVOCADA NO SE RESUCITA. Invariante I6: el humano es parte del
+    /// sistema, y este endpoint lo ejecuta una persona a la que basta convencer.
+    ///
+    /// Antes, `activate` levantaba cualquier key: `revoke` marcaba `revoked_at`
+    /// pero `verify` solo miraba `active`, así que un simple
+    /// `POST /admin/keys/<prefijo>/activate` deshacía una decisión de seguridad
+    /// tomada a propósito. Un correo con un pretexto creíble —«me revocaron por
+    /// error, reactívame»— bastaba, y quien atiende no tiene forma de distinguir
+    /// al cliente del que lo suplanta.
+    ///
+    /// LA REGLA NO EXIGE JUZGAR LA PETICIÓN, que es de lo que se trata: cerrar
+    /// se puede hacer siempre y ante cualquiera, porque equivocarse cerrando
+    /// solo causa una molestia reversible; abrir lo que se cerró a propósito no
+    /// se puede hacer por mucho que convenzan a quien atiende. Si el cliente
+    /// vuelve de verdad, se le emite una key NUEVA — un acto deliberado y con su
+    /// propio registro, no una reversión silenciosa.
     pub fn set_active(&self, prefix: &str, active: bool) -> rusqlite::Result<usize> {
+        if active {
+            return self.conn.execute(
+                "UPDATE api_key SET active = 1 WHERE prefix = ?1 AND revoked_at IS NULL",
+                params![prefix],
+            );
+        }
         self.conn.execute(
-            "UPDATE api_key SET active = ?1 WHERE prefix = ?2",
-            params![active as i64, prefix],
+            "UPDATE api_key SET active = 0 WHERE prefix = ?1",
+            params![prefix],
         )
     }
 
-    /// Revoca una key: la desactiva y marca `revoked_at`.
+    /// Revoca una key: la desactiva y marca `revoked_at`. Es DEFINITIVO.
     pub fn revoke(&self, prefix: &str) -> rusqlite::Result<usize> {
         self.conn.execute(
             "UPDATE api_key SET active = 0, revoked_at = ?1 WHERE prefix = ?2",
@@ -298,6 +332,73 @@ mod tests {
         let (prefix, _) = keys::parse(&secret).unwrap();
         store.revoke(&prefix).unwrap();
         assert_eq!(store.verify(&secret).unwrap(), AuthResult::Inactive);
+    }
+
+    /// I6: revocar es DEFINITIVO, y no depende de que nadie juzgue una petición.
+    ///
+    /// `activate` levantaba cualquier key, así que un
+    /// `POST /admin/keys/<prefijo>/activate` deshacía una revocación. Ese
+    /// endpoint lo ejecuta una persona a la que basta convencer con un pretexto
+    /// creíble —«me revocaron por error»—, y quien atiende no puede distinguir
+    /// al cliente de quien lo suplanta. La defensa no puede ser que acierte.
+    #[test]
+    fn una_key_revocada_no_se_reactiva_por_mucho_que_lo_pidan() {
+        let (store, _c, secret) = seeded();
+        let (prefix, _) = keys::parse(&secret).unwrap();
+        store.revoke(&prefix).unwrap();
+
+        let tocadas = store.set_active(&prefix, true).unwrap();
+        assert_eq!(tocadas, 0, "activate no puede tocar una key revocada");
+        assert_eq!(
+            store.verify(&secret).unwrap(),
+            AuthResult::Inactive,
+            "la key revocada volvió a servir tras un activate",
+        );
+    }
+
+    /// Y que DISCRIMINE: si `activate` no funcionara nunca, la prueba de arriba
+    /// pasaría sin comprobar nada. Una key solo desactivada SÍ debe reactivarse
+    /// — es lo que hace el webhook de pagos cuando un cliente se pone al día.
+    #[test]
+    fn una_key_solo_desactivada_si_se_reactiva() {
+        let (store, _c, secret) = seeded();
+        let (prefix, _) = keys::parse(&secret).unwrap();
+
+        store.set_active(&prefix, false).unwrap();
+        assert_eq!(store.verify(&secret).unwrap(), AuthResult::Inactive);
+
+        let tocadas = store.set_active(&prefix, true).unwrap();
+        assert_eq!(tocadas, 1, "una suspensión por impago tiene que ser reversible");
+        assert!(
+            matches!(store.verify(&secret).unwrap(), AuthResult::Valid { .. }),
+            "el cliente que se pone al día debe volver a entrar",
+        );
+    }
+
+    /// Defensa en profundidad: revocada es revocada aunque alguien levante el
+    /// `active` por otra vía — un UPDATE a mano, o un respaldo restaurado de
+    /// antes de la revocación. Una decisión de cierre no puede depender de que
+    /// nadie toque una fila.
+    #[test]
+    fn revocada_no_sirve_aunque_active_diga_lo_contrario() {
+        let (store, _c, secret) = seeded();
+        let (prefix, _) = keys::parse(&secret).unwrap();
+        store.revoke(&prefix).unwrap();
+
+        // Por debajo del API, como haría alguien con acceso a la base.
+        store
+            .conn
+            .execute(
+                "UPDATE api_key SET active = 1 WHERE prefix = ?1",
+                params![prefix],
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.verify(&secret).unwrap(),
+            AuthResult::Inactive,
+            "bastaba un UPDATE para resucitar una key revocada",
+        );
     }
 
     #[test]
