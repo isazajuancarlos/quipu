@@ -48,6 +48,18 @@ hiding the format, it is a design defect.
   (X25519) can be broken.
 - **T6. Attacker with access to process memory AFTER an operation** (dump, swap,
   partial cold-boot): looks for residual keys.
+- **T7. Attacker of the operator, not the cryptography** (2026-07-26): reaches the
+  plaintext through the surrounding system — the deployed service, an
+  administrative credential, a supplier. Does not attack a primitive because it
+  does not need to. This is the adversary that every real incident we studied
+  actually was; see §10.
+- **T8. Attacker of the human in the loop:** pretexting, phishing, coercion,
+  shoulder-surfing. Relevant above all to **paper custody**, where a person reads
+  the words aloud, photographs the sheet, or is talked into "verifying the backup
+  key". A perfect decoy does not defend against a phone call.
+- **T9. Attacker of availability with a security consequence:** takes down the
+  distribution or update path so fixes do not arrive. Not a breach, and still a
+  degradation of everyone downstream.
 
 Out of the adversary model (see §5): an attacker with access to memory **during**
 the operation, a local physical side channel, or control of the binary/OS.
@@ -145,6 +157,22 @@ the operation, a local physical side channel, or control of the binary/OS.
   `cargo-audit` in CI, but a 0-day in a dependency remains possible.
 - **R5.** The model does not cover a compromised endpoint (N2): if the user's
   machine is owned, the passphrase and plaintext leak in the clear.
+- **R6. We are somebody's supplier.** `oprf.xiliux.com` is a deployed service that
+  other people's products depend on. Supersalud and MIPRES did not fail through
+  their own fault: their supplier IFX Networks failed. In that story the seat
+  Xiliux occupies is IFX's. This is the operational risk of the product, well
+  above any attack on the primitives, and R2 only covered its availability half —
+  not the cascade to clients.
+- **R7. Degraded mode.** If the system is unavailable, the client must not be left
+  in breach before a third party (the patient, the payer, the regulator). Medellín
+  logged emergencies on paper for a reason. Recovery that needs no machine —
+  a word list rather than a camera — is not nostalgia: it is what an emergency
+  service actually did.
+- **R8. Encryption at rest is what makes exfiltration worthless.** Against double
+  extortion — encrypt and leak — backups solve the first half only. The leak is
+  neutralised solely if the data was already encrypted with keys the attacker did
+  not obtain. This is Quipu's exact scope and the strongest argument to a client
+  in the health sector.
 
 ## 8. Traceability to mitigations (summary)
 
@@ -202,3 +230,29 @@ container is documented as "ML-ready" for optional heavy experiments.
 
 Construction references: RFC 9497 (OPRF/VOPRF), X-Wing (hybrid KEM), FIPS-203
 (ML-KEM), RFC 8439 (ChaCha20-Poly1305), RFC 9106 (Argon2).
+
+## 10. Empirical evidence: what actually happens (2026-07)
+
+The model above was built from the cryptographic literature. This section records
+what real incidents show, because the weight of the model should follow the
+evidence and not the elegance of the categories.
+
+**None of the incidents studied attacked the cryptography.** Not one. They were
+denial of service, ransomware through a supplier, and compromised access. The
+five invariants of `ATAQUES_TAXONOMIA.md` would not have changed any outcome —
+that document is an excellent map of attacks *on the cipher*, and its conclusion
+reads as universal when its scope is not.
+
+| Incident | What it was | What it teaches |
+|---|---|---|
+| Canonical, Apr–May 2026 | **DDoS, not a breach.** `archive.ubuntu.com` and `security.ubuntu.com` down | An availability attack delayed **patching for everyone downstream**. → T9 |
+| Medellín 123 / SIESM, Feb 2023 | LockBit ransomware; emergencies logged **with pencil and paper**; personal data of dispatchers leaked | The degraded mode is not hypothetical: an emergency service fell back to paper. → R7 |
+| Supersalud + MIPRES | Fell because **IFX Networks**, their supplier, fell | The vector was the supplier, not the entity. → R6 |
+| Salud Total, Jan 2024 | 4.6 M members affected | Colombian health is a preferred target |
+
+Reported but **denied by the entity** and therefore not treated as fact: an
+alleged attack on the Medellín city portal in March 2026.
+
+Deliberately absent from this section: the exploitation vector of any named
+entity. Several may still be exposed. What is useful here is the pattern —
+supplier, availability, exfiltration — not anyone's concrete hole.

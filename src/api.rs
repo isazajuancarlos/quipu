@@ -327,6 +327,50 @@ pub fn encode_to_glyph_image(data: &[u8], passphrase: &str, opts: &Options) -> V
     font.render(&indices)
 }
 
+/// Huella del PORTADOR: identifica la hoja, no su contenido.
+///
+/// Devuelve el SHA-256 del contenedor cifrado que la tira transporta, después
+/// de corregir el daño. Sirve para responder **«¿es esta la hoja que se
+/// emitió?»** comparándola contra un sello externo — el acta de Tunjo, con su
+/// firma y su marca de tiempo RFC 3161.
+///
+/// Tres propiedades, y las tres son el diseño:
+///
+/// 1. **No lleva clave.** Un perito puede verificar que la hoja es la emitida
+///    sin que nadie le entregue el secreto. Y, sobre todo, no es un oráculo:
+///    no dice si una clave es correcta, que es justo lo que el modo `honey`
+///    existe para negarle al atacante. Un MAC aquí destruiría el señuelo.
+///
+/// 2. **Tolera el daño.** Se calcula DESPUÉS de Reed-Solomon, así que una hoja
+///    manchada pero legible da la misma huella que la recién impresa. Si se
+///    calculara sobre los píxeles, cualquier mota la invalidaría y el control
+///    sería inservible en papel.
+///
+/// 3. **No la puede recalcular quien altera la hoja.** Un resumen sin clave
+///    parece débil —el atacante también sabe calcularlo— y no lo es, porque el
+///    ancla no está en el papel: está en un acta firmada y fechada en otro
+///    sitio y otro momento. El atacante puede fabricar una hoja coherente
+///    consigo misma; no puede fabricar el sello que dice que se emitió.
+///
+/// Es la única defensa del canal contra la SUSTITUCIÓN. Todo lo demás —la
+/// corrección de errores, el umbral de rechazo, los grupos locales— responde a
+/// «¿está esto dañado?», y ante una hoja falsificada entera la respuesta
+/// honesta es «no».
+pub fn huella_del_portador(png: &[u8]) -> Result<[u8; 32], DecodeError> {
+    use sha2::{Digest, Sha256};
+
+    let font = crate::glyphfont::standard();
+    let indices = font
+        .recognize_marcando(png)
+        .ok_or(DecodeError::Container(ContainerError::TooShort))?;
+    let (protegido, _) = codec::decode_grupos(&indices, font.base());
+    let blob = crate::ecc::recover(&protegido).ok_or(DecodeError::Decrypt)?;
+
+    let mut h = Sha256::new();
+    h.update(&blob);
+    Ok(h.finalize().into())
+}
+
 /// Operación inversa de [`encode_to_glyph_image`]: reconoce los glifos y descifra.
 pub fn decode_from_glyph_image(
     png: &[u8],

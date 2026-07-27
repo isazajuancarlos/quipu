@@ -136,3 +136,66 @@ fn se_mide_la_mancha_seguida_que_aguanta_en_cada_extremo() {
         assert!(ok >= 1, "en {nombre} no aguanta ni uno");
     }
 }
+
+// ===========================================================================
+// LA HUELLA DEL PORTADOR
+//
+// Responde «¿es esta la hoja que se emitió?» para compararla contra un sello
+// externo. Sus tres propiedades SON el diseño, así que cada una tiene prueba.
+// ===========================================================================
+
+use quipu::api::huella_del_portador;
+
+#[test]
+fn la_misma_hoja_da_la_misma_huella() {
+    let png = encode_to_glyph_image(SECRETO, "clave", &opciones());
+    assert_eq!(
+        huella_del_portador(&png).unwrap(),
+        huella_del_portador(&png).unwrap()
+    );
+}
+
+#[test]
+fn no_hace_falta_la_clave_para_calcularla() {
+    // La propiedad que permite a un perito verificar la hoja sin que nadie le
+    // entregue el secreto. Y, sobre todo, la que impide que sea un oráculo:
+    // no dice si una clave es correcta, que es lo que honey existe para negar.
+    let png = encode_to_glyph_image(SECRETO, "clave-de-verdad", &opciones());
+    let con_clave = huella_del_portador(&png).unwrap();
+
+    // Se calcula igual sin conocerla, y descifrar con otra clave no la cambia.
+    assert!(decode_from_glyph_image(&png, "clave-equivocada", b"").is_err());
+    assert_eq!(huella_del_portador(&png).unwrap(), con_clave);
+}
+
+#[test]
+fn una_hoja_manchada_pero_legible_da_la_misma_huella() {
+    // Se calcula DESPUÉS de Reed-Solomon. Si se calculara sobre los píxeles,
+    // cualquier mota la invalidaría y el control sería inservible en papel.
+    let png = encode_to_glyph_image(SECRETO, "clave", &opciones());
+    let limpia = huella_del_portador(&png).unwrap();
+    let manchada = manchar(&png, 4);
+    assert_eq!(
+        huella_del_portador(&manchada).unwrap(),
+        limpia,
+        "una mancha reparable cambia la huella: el control no sirve en papel",
+    );
+}
+
+#[test]
+fn otra_hoja_da_otra_huella() {
+    // Que discrimine: si diera siempre lo mismo, las de arriba no probarían nada.
+    let a = encode_to_glyph_image(SECRETO, "clave", &opciones());
+    let b = encode_to_glyph_image(b"un secreto distinto del primero", "clave", &opciones());
+    assert_ne!(
+        huella_del_portador(&a).unwrap(),
+        huella_del_portador(&b).unwrap()
+    );
+}
+
+#[test]
+fn una_hoja_ilegible_no_da_huella() {
+    let png = encode_to_glyph_image(SECRETO, "clave", &opciones());
+    let destrozada = manchar_seguidas(&png, 0, 40);
+    assert!(huella_del_portador(&destrozada).is_err());
+}

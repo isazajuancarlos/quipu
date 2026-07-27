@@ -14,6 +14,21 @@ Quipu ya tiene infraestructura defensiva —`src/lab/` (distinguidor, forja,
 guessing, timing, honey_attack, stream_attack), `docs/THREAT_MODEL.md`, dudect,
 hackerbot, autopruebas de arranque—. Este documento la ordena y dice qué falta.
 
+> ### ALCANCE — leer antes que la tesis
+>
+> Este documento cubre **ataques al cifrado**. Su conclusión —«casi todo reduce a
+> violar uno de cinco invariantes»— es cierta dentro de ese alcance y **falsa
+> fuera de él**, y como la frase se lee universal conviene decirlo aquí.
+>
+> Comprobado el 2026-07-26 contra incidentes reales (§ Evidencia empírica, y
+> `THREAT_MODEL.md` §10): **ninguno atacó la criptografía**. Fueron denegación de
+> servicio, ransomware por un proveedor y acceso comprometido. Los cinco
+> invariantes no habrían cambiado ningún desenlace.
+>
+> Lo que queda fuera de I1–I5 y sí ocurre: el factor humano, la superficie
+> desplegada, la cadena de proveedores y la disponibilidad del canal de
+> actualizaciones. Ver **I6** e **I7**, abajo.
+
 ---
 
 ## La tesis: cinco invariantes, no cien ataques
@@ -29,10 +44,25 @@ cinco propiedades, no cien ataques.
 | **I3** | Entropía fresca y nonce único | RNG débil, reutilización de nonce, semilla predecible | monitor de salud del RNG + detector de reúso de nonce |
 | **I4** | El fallo no revela nada | oráculos de error, mensajes distintos por causa | verificador de uniformidad de errores |
 | **I5** | Procedencia verificada | dependencia comprometida, primitiva con puerta trasera | cargo-vet/audit + vectores publicados + build reproducible |
+| **I6** | **El humano es parte del sistema** | pretexto, phishing, coacción, hombro | procedimiento de custodia que no exija juzgar una petición + modo de coacción |
+| **I7** | **La superficie desplegada responde por sí misma** | XSS/SQLi/hardening del servidor OPRF, proveedor caído, canal de actualización tumbado | pruebas de la aplicación web + plan de continuidad + modo degradado |
 
 Un ataque nuevo casi siempre es una forma nueva de romper **uno** de estos. Si el
-lab prueba los cinco en continuo y con adversario adaptativo, cubre el espacio,
+lab prueba los siete en continuo y con adversario adaptativo, cubre el espacio,
 no la lista.
+
+**I6 e I7 se añadieron el 2026-07-26** tras contrastar la taxonomía con *Hacking
+Ético* (Tori) y con incidentes reales. El libro dedica capítulos enteros a
+recabar información, ingeniería social, aplicaciones web y hardening: de sus
+nueve capítulos, **solo uno** cruza con las cinco familias que teníamos —fuerza
+bruta—. Y sus frecuencias lo resumen: 54 menciones de XSS, 41 de ingeniería
+social, 27 de SQL injection, **6 de criptografía**.
+
+Para Quipu no son teóricos. `oprf.xiliux.com` es un servicio desplegado y
+cobrando (I7), y la custodia en papel pone a una persona en el camino crítico
+(I6): alguien fotografía la hoja, alguien lee las palabras por teléfono, alguien
+atiende un correo que pide «verificar la clave de respaldo». Un señuelo perfecto
+no defiende de una llamada.
 
 ---
 
