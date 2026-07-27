@@ -26,6 +26,45 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PR #93, que lo eliminó.
 
 ### Removed
+- **BREAKING — un solo binding: Python. Se van Node, Go, la C ABI y la integración
+  de Express.** `bindings/c` (`quipu-capi`), `bindings/node` (`quipu-crypto` en npm),
+  `bindings/go` e `integrations/express` ya no existen, ni sus jobs de CI, ni el
+  workflow `npm-publish.yml`.
+
+  **Por qué.** Nadie los usaba. Medido contra los índices el 2026-07-27: npm
+  acumulaba 486 descargas en cuatro meses y crates.io 307 en toda su historia —
+  cifras que a esa escala son espejos y rastreadores, no usuarios. La C ABI
+  llevaba `publish = false`, así que jamás salió del repositorio: sus únicos
+  consumidores eran los envoltorios de Node y Go, que se van con ella.
+
+  Lo que sí generaban era coste, y del que no se ve: la matriz de paridad entre
+  cinco superficies estaba mal en cuatro celdas; la lista de «doce archivos de
+  versión» estaba mal en tres formas; y los **93 `unsafe`** del ABI de C eran el
+  único lugar del repositorio donde podía vivir un fallo de memoria.
+
+  **Qué se gana, en números.** Sitios de versión: 13 → **4**. `unsafe` de primera
+  parte: 93 → **0**. Registros de paquetes: 4 → **2**. Jobs de CI: 14 → 11.
+  Y desaparece el problema de paridad entero, porque un binding no puede
+  divergir de sí mismo.
+
+  **Qué NO cambia.** Quipu sigue siendo Rust, entero. La rueda de PyPI se
+  construye del mismo código con maturin y PyO3 — una sola rueda `abi3` que vale
+  de Python 3.9 en adelante. `crates.io` se mantiene: es el canal de reputación,
+  donde `docs.rs` genera la API y donde `cargo-vet`/`cargo-audit` operan, y
+  además Tunjo depende de `quipu` desde ahí.
+
+  **Migración.** Quien usara `quipu-crypto` desde npm o el módulo de Go: las
+  versiones publicadas siguen instalables, pero no habrá más. La ruta soportada
+  es `pip install quipu-crypto`. Para el VOPRF desde otro lenguaje, el SDK es
+  `quipu-voprf` (Apache-2.0), que además nunca debió viajar dentro de un paquete
+  AGPL — ese era un defecto de reparto de licencias que se corrige al retirarlo.
+
+  **Vuelve cuando haga falta.** Todo está en el historial. Si aparece el cliente
+  OEM de la hoja de ruta, el ABI de C que necesite tendrá la forma que ese
+  cliente pida, no la que adivinamos hoy.
+
+  **No es un fallo de seguridad y no cierra ninguna vulnerabilidad.**
+
 - **BREAKING — the PNG channel is gone too, and with it the `image` dependency.**
   `api::encode_to_image`, `api::decode_from_image`, `api::encode_to_robust_image` and
   `api::decode_from_robust_image` no longer exist, nor does the `render` module (removed from

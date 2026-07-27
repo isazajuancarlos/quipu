@@ -880,14 +880,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quipu-capi"
-version = "0.9.1"
-dependencies = [
- "quipu",
- "zeroize",
-]
-
-[[package]]
 name = "quipu-cnsa"
 version = "0.1.0"
 dependencies = [

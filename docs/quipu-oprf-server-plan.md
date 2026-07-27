@@ -124,11 +124,14 @@ diseño (rate-limit), así que no hace falta async. TLS lo pone Nginx/Caddy dela
   `voprf::Server`.
 - **M3 ✅ Provisión**: endpoints `/admin/*` (la costura con la pasarela) + CLI de
   admin; despliegue systemd + Nginx en `deploy/`.
-- **M4 ✅ Cliente de referencia + bindings**: `examples/client.rs` (Rust) y
-  portado a **Python** (`quipu.voprf_blind/finalize` + `examples/oprf_client.py`),
-  **Node** (`voprfBlind/voprfFinalize/oprfHarden` + `examples/oprf-client.mjs`) y
-  **Go** (`VoprfBlind/VoprfFinalize/OprfHarden` en `bindings/go/oprf.go`). El C ABI
-  expone `quipu_voprf_blind/finalize`; el core añade `BlindState::to_bytes/from_bytes`.
+- **M4 ✅ Cliente de referencia**: `examples/client.rs` (Rust) y el SDK de Python
+  `quipu-voprf` (Apache-2.0, en PyPI), que es el que se le indica al cliente del
+  servicio. El core añade `BlindState::to_bytes/from_bytes`.
+
+  *Histórico: hubo también clientes en Node, Go y C ABI. Se retiraron en 0.10 con
+  el resto de envoltorios — y en su caso además estorbaban, porque llevaban el
+  VOPRF dentro de un paquete AGPL, justo lo que la separación en `quipu-voprf`
+  existe para evitar.*
 
 > Nota: implementado y autorevisado, pero **sin compilar en este entorno** (no
 > hay `cargo`). Ejecutar `cargo test -p quipu-oprf-server` antes de desplegar.

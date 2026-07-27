@@ -1,10 +1,16 @@
-# Automated dependency + GitHub Actions updates.
-# Security library hygiene: keep the supply chain current and let RustSec/npm
-# advisories surface as PRs. Minor/patch bumps are grouped to cut PR noise;
-# majors come as individual PRs so breaking changes get their own review.
+# Actualización automática de dependencias y de las acciones de GitHub.
+#
+# Higiene de una librería de seguridad: mantener la cadena de suministro al día
+# y que los avisos de RustSec lleguen como PR. Los saltos menores y de parche se
+# agrupan para no llenar de ruido; los mayores vienen sueltos, porque un cambio
+# que rompe merece su propia revisión.
+#
+# Desde 0.10 solo hay DOS ecosistemas. Los de npm y Go se retiraron con los
+# envoltorios que vigilaban: Quipu es Rust, y se distribuye como crate y como
+# rueda de PyPI construida del mismo código.
 version: 2
 updates:
-  # GitHub Actions used across ci.yml / release.yml / npm-publish.yml.
+  # Acciones de GitHub usadas en ci.yml y release.yml.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -14,7 +20,8 @@ updates:
         patterns: ["*"]
         update-types: [minor, patch]
 
-  # Rust workspace (core crate + quipu-capi + Python bindings via pyo3).
+  # El workspace de Rust: el crate raíz, quipu-nucleo, quipu-cnsa, quipu-voprf,
+  # el servidor OPRF y el binding de Python (PyO3).
   - package-ecosystem: cargo
     directory: /
     schedule:
@@ -25,18 +32,12 @@ updates:
         patterns: ["*"]
         update-types: [minor, patch]
 
-  # Node.js bindings (quipu-crypto).
-  - package-ecosystem: npm
-    directory: /bindings/node
+  # El plugin de Django, que es Python puro y depende de quipu-voprf.
+  - package-ecosystem: pip
+    directory: /integrations/django
     schedule:
       interval: weekly
     groups:
-      npm-minor:
+      pip-minor:
         patterns: ["*"]
         update-types: [minor, patch]
-
-  # Go bindings.
-  - package-ecosystem: gomod
-    directory: /bindings/go
-    schedule:
-      interval: weekly

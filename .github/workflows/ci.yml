@@ -339,65 +339,6 @@ jobs:
             cargo fuzz run "$t" -- -max_total_time=20
           done
 
-  capi:
-    name: C ABI (bindings/c)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install cbindgen
-        run: cargo install cbindgen --locked
-      - name: Build cdylib + staticlib
-        run: cargo build -p quipu-capi
-      - name: Verify quipu.h is up to date
-        run: |
-          cd bindings/c
-          cbindgen --config cbindgen.toml --crate quipu-capi --output /tmp/quipu.gen.h
-          diff -u include/quipu.h /tmp/quipu.gen.h
-      - name: Rust ABI unit tests
-        run: cargo test -p quipu-capi
-      - name: Compile and run the C integration test
-        run: |
-          cc -I bindings/c/include bindings/c/tests/roundtrip.c \
-             -L target/debug -lquipu_capi -o /tmp/capi_roundtrip
-          LD_LIBRARY_PATH=target/debug /tmp/capi_roundtrip
-
-  node:
-    name: Node.js bindings (bindings/node)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-      - name: Build native lib + copy prebuild
-        working-directory: bindings/node
-        run: node scripts/build-native.mjs
-      - name: Install dependencies
-        working-directory: bindings/node
-        run: npm ci
-      - name: Test
-        working-directory: bindings/node
-        run: npm test
-
-  go:
-    name: Go bindings (bindings/go)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "1.23"
-      - name: Build native staticlib
-        run: cargo build -p quipu-capi --release
-      - name: Test
-        working-directory: bindings/go
-        run: CGO_ENABLED=1 go test -v ./...
 
   hsm:
     name: HSM (PKCS#11 contra kryoptic)

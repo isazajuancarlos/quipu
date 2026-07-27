@@ -190,66 +190,6 @@ blob = quipu.encrypt_stream(b"...datos grandes...", "passphrase")
 assert quipu.decrypt_stream(blob, "passphrase") == b"...datos grandes..."
 ```
 
-## Uso (Node.js)
-
-```bash
-npm install quipu-crypto   # binarios precompilados: linux-x64, darwin-x64, darwin-arm64, win32-x64 (sin toolchain de Rust)
-```
-
-```js
-import * as quipu from 'quipu-crypto';
-
-const blob = quipu.encryptStream(Buffer.from('...datos grandes...'), 'passphrase');
-quipu.decryptStream(blob, 'passphrase'); // -> Buffer
-
-const { publicKey, secretKey } = quipu.generateKeypair(); // post-cuántico
-const c = quipu.encryptToRecipient(Buffer.from('secreto'), publicKey);
-quipu.decryptAsRecipient(c, secretKey);
-```
-
-La API es **síncrona** (corre Argon2id; para servidores, invócala desde un
-`worker_thread`). Ver [`bindings/node/README.md`](bindings/node/README.md).
-
-## Uso (Go)
-
-```bash
-go get github.com/isazajuancarlos/quipu/bindings/go@v0.9.1   # cgo: requiere CGO_ENABLED=1 y un compilador de C
-```
-
-```go
-import quipu "github.com/isazajuancarlos/quipu/bindings/go"
-
-blob, err := quipu.EncryptStream([]byte("...datos grandes..."), "passphrase", quipu.StreamOptions{})
-plain, err := quipu.DecryptStream(blob, "passphrase", nil)
-```
-
-API idiomática `(result, error)`; errores centinela con `errors.Is`. Nota: hoy el
-enlazado requiere un checkout del repo (cgo enlaza `target/release/libquipu_capi.a`);
-compila el staticlib con `cargo build -p quipu-capi --release` primero. Ver
-[`bindings/go/README.md`](bindings/go/README.md).
-
-## Uso (C / otros lenguajes)
-
-Un ABI de C estable vive en [`bindings/c`](bindings/c) (crate `quipu-capi`).
-Compila una librería compartida/estática y un header `quipu.h` generado con
-cbindgen, de modo que cualquier lenguaje con FFI de C (Node.js, Go, Ruby, …)
-puede consumir Quipu. Expone el **núcleo canónico** —lo que está garantizado en
-los cinco lenguajes: cifrar y descifrar con passphrase, cifrar hacia un
-destinatario post-cuántico, firmar y verificar, y el modo flujo—, no la
-superficie entera de Python: la custodia por umbral y el firmante PKCS#11 solo
-existen en Rust y Python. Lo que compone ese núcleo, y el nombre que recibe en
-cada lenguaje, está en [`tests/paridad.rs`](tests/paridad.rs), que falla si un
-binding se queda atrás. Ver [`bindings/c/README.md`](bindings/c/README.md).
-
-```c
-#include "quipu.h"
-uint8_t *blob = NULL; size_t n = 0;
-if (quipu_encrypt_stream(data, len, "passphrase", NULL, 0, 0, &blob, &n) == QUIPU_OK) {
-    /* ... usar blob ... */
-    quipu_bytes_free(blob, n);   /* se limpia al liberar: sin residuo de secretos */
-}
-```
-
 ## Ejemplos funcionales
 
 Round-trip de todos los modos, listo para correr:
