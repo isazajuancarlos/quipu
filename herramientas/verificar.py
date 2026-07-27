@@ -56,6 +56,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -977,7 +978,51 @@ def verificar_desplegado(inf: Informe, base: str) -> None:
     if cod != 0:
         inf.omitido("servicio alcanzable", f"curl no pudo conectar con {base}")
         return
-    vivo = salida.strip().endswith("200")
+    # UN NOMBRE QUE REDIRIGE A OTRO NO ES UN SERVICIO: ES UN REDIRECTOR, Y
+    # AUDITARLO COMO SI ALOJARA ALGO MIDE LA CAPA EQUIVOCADA.
+    #
+    # `www.xiliux.com` manda todo al canónico con un 301. Contra él, cada
+    # comprobación de contenido veía la redirección en vez de una respuesta:
+    # `GET /healthz` se declaraba FALLO por «devolvió 301» —o sea, denunciaba el
+    # canónico que se acababa de montar bien— y ninguna ruta daba 200, así que
+    # cinco comprobaciones más morían en SIN COMPROBAR. Ruido, no hallazgos.
+    #
+    # Seguir la redirección en silencio sería peor: informaría «9 comprobados»
+    # sobre `www` habiendo medido en realidad el canónico. Se dice lo que hay y
+    # se manda a auditar el nombre que sí sirve el contenido.
+    codigo = salida.strip()[-3:]
+    if codigo.startswith("3"):
+        _, destino = _curl(
+            ["-L", "--max-redirs", "5", "-o", "/dev/null",
+             "-w", "%{url_effective}", f"{base}/healthz"]
+        )
+        origen = urllib.parse.urlsplit(base).netloc
+        llegada = urllib.parse.urlsplit(destino.strip()).netloc
+
+        # NO BASTA CON QUE REDIRIJA `/healthz`. Saltarse el resto de la auditoría
+        # porque UNA ruta se va a otro sitio es dar por supuesto que se van
+        # TODAS, y un servidor puede redirigir casi todo y servir el panel. El
+        # atajo se ganó así un agujero en el minuto siguiente a escribirlo, en la
+        # comprobación que más importa: se apagaba sola sin haber mirado.
+        # Se exige que la ruta que nunca debe estar abierta también salga fuera.
+        _, destino_admin = _curl(
+            ["-L", "--max-redirs", "5", "-o", "/dev/null",
+             "-w", "%{url_effective}", f"{base}/admin/keys"]
+        )
+        admin_fuera = urllib.parse.urlsplit(destino_admin.strip()).netloc == llegada
+
+        if llegada and llegada != origen and admin_fuera:
+            inf.ok(
+                f"{origen} es un redirector hacia {llegada}",
+                "no aloja contenido propio; la postura se audita en el destino",
+            )
+            inf.omitido(
+                f"superficie de {origen}",
+                f"todo redirige a {llegada}: repetir con --base https://{llegada}",
+            )
+            return
+
+    vivo = codigo == "200"
     if vivo:
         inf.ok("GET /healthz responde 200")
     else:
@@ -1076,33 +1121,56 @@ def verificar_desplegado(inf: Informe, base: str) -> None:
         inf.fallo("TLS 1.0/1.1 ACEPTADO", "protocolos obsoletos siguen negociando")
 
     # --- lo que nunca debe estar abierto ----------------------------------
+    #
+    # SOLO UN 2xx ES «ABIERTO». Todo lo demás, o es un cierre explícito, o es
+    # una respuesta que NO DICE NADA sobre si /admin está protegido.
+    #
+    # La regla anterior era la contraria —«cerrado si 401/403/404, ABIERTO en
+    # cualquier otro caso»— y eso convierte en denuncia de brecha cualquier
+    # código que no se hubiera previsto. Cazado dos veces el mismo día, en el
+    # chequeo más serio que tiene esta herramienta:
+    #
+    #   · un 502 en `proyecto.xiliux.com`, cuyo backend estaba muerto: la
+    #     petición no llegó a ninguna aplicación, así que no hay nada que
+    #     concluir sobre sus permisos;
+    #   · un 301 en `www.xiliux.com`, que redirige al canónico: la redirección
+    #     lleva a un 404: cerrado. Denunciarla como brecha señalaba justo el
+    #     mecanismo que se acababa de montar bien.
+    #
+    # La primera vez parcheé el 5xx y dejé la regla intacta. Corregir el CASO en
+    # vez de la REGLA es lo que permitió la segunda: un 405, un 429 o un 400
+    # habrían gritado igual. Una alarma que resulta falsa dos veces es una
+    # alarma que a la tercera nadie mira, y esta protege el panel de admin.
     for metodo, extra in (("GET", []), ("POST", ["-X", "POST", "-d", "{}"])):
         _, cod_admin = _curl(
             ["-o", "/dev/null", "-w", "%{http_code}", *extra, f"{base}/admin/keys"]
         )
         c = cod_admin.strip()[-3:]
+        detalle = f"código {c}"
+
+        # Una redirección no se juzga: se SIGUE. Es lo que hace un navegador y
+        # lo que haría quien busca el panel, así que el veredicto tiene que
+        # salir del destino real, no del salto.
+        if c.startswith("3"):
+            _, cod_final = _curl(
+                ["-L", "--max-redirs", "5", "-o", "/dev/null", "-w", "%{http_code}",
+                 *extra, f"{base}/admin/keys"]
+            )
+            final = cod_final.strip()[-3:]
+            detalle = f"{c} y, siguiendo la redirección, {final}"
+            c = final
+
         if c in ("401", "403", "404"):
-            inf.ok(f"{metodo} /admin/keys cerrado sin credenciales", f"código {c}")
-        elif c.startswith("5"):
-            # UN 5xx NO ES «ABIERTO», Y CONFUNDIRLOS DA UNA FALSA ALARMA EN EL
-            # CHEQUEO MÁS SERIO DE TODOS.
-            #
-            # Un 502 significa que la petición ni siquiera llegó a una
-            # aplicación: nginx habló con un backend caído. No dice nada sobre
-            # si /admin estaría protegido cuando ese backend vuelva — y decir
-            # «ABIERTO» invita a correr a arreglar una brecha que no existe,
-            # mientras esconde la que sí hay, que es que el servicio está roto.
-            #
-            # Detectado el 2026-07-27 auditando `proyecto.xiliux.com`, un
-            # subdominio con el backend muerto: la herramienta gritó «ABIERTO»
-            # por partida doble.
+            inf.ok(f"{metodo} /admin/keys cerrado sin credenciales", detalle)
+        elif c.startswith("2"):
+            inf.fallo(f"{metodo} /admin/keys ABIERTO", detalle)
+        else:
             inf.omitido(
                 f"{metodo} /admin/keys",
-                f"devolvió {c}: el backend no responde, así que no se puede saber "
-                f"si estaría cerrado. Arreglar el servicio y repetir",
+                f"devolvió {detalle}: no es ni un cierre explícito (401/403/404) "
+                f"ni un acceso concedido (2xx), así que no dice si el panel está "
+                f"protegido. Averiguar por qué responde eso y repetir",
             )
-        else:
-            inf.fallo(f"{metodo} /admin/keys ABIERTO", f"devolvió {c}")
 
     # --- higiene ----------------------------------------------------------
     servidor = ""
