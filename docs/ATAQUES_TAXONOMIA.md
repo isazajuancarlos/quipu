@@ -191,8 +191,26 @@ Distingue a propósito lo que SÍ puede diferenciarse: los errores de FORMATO
 ocurren antes de que el secreto entre en juego, así que separarlos no filtra nada
 y le sirve a quien integra. Lo que no puede discriminar es lo que pasa después.
 
-*Falta todavía:* el **tiempo**. Que dos caminos devuelvan el mismo error no
-implica que tarden lo mismo; eso es trabajo del distinguidor y de dudect.
+El **tiempo** se cubrió el 2026-07-27 con `lab::timing::dudect_rechazo_por_causa`
+(feature `lab-offline`): compara el rechazo por passphrase equivocada contra el
+rechazo por tag alterado, que es el par que importa — los dos pagan Argon2id
+entero y fallan en el AEAD, así que si el reloj los separa, el atacante sabe si
+acertó la contraseña aunque el error no se lo diga.
+
+Se mide con parámetros KDF **baratos** a propósito: con los de producción,
+Argon2id domina y taparía cualquier diferencia del AEAD — saldría limpio por el
+motivo equivocado. Es la condición más exigente, no la más cómoda.
+
+Y hay una comparación que NO se hace, deliberadamente: un contenedor con
+parámetros KDF absurdos se rechaza en microsegundos porque `is_sane()` corta
+antes de derivar, contra los milisegundos de los otros dos. Mismo error, órdenes
+de magnitud de diferencia — y **no es un oráculo**: lo que ese tiempo revela es
+que la cabecera traía basura, un dato que el atacante puso él mismo. I4 exige que
+el fallo no revele nada SOBRE EL SECRETO, no que todo rechazo tarde igual.
+Medirlo como fuga llenaría el informe de falsos positivos.
+
+*Falta todavía:* extender esta medición al resto de rutas con secreto, que es el
+punto 4 del orden (dudect sistemático).
 
 **Invariante:** I1 + I4.
 
