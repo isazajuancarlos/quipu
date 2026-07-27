@@ -407,17 +407,6 @@ def verificar_rueda_publicada(inf: Informe, version: str, tmp: Path) -> None:
             inf.fallo(f"la rueda trae «{feature}»", f"faltan símbolos: {testigos}")
 
 
-def verificar_npm_publicado(inf: Informe, version: str) -> None:
-    meta = leer_json("https://registry.npmjs.org/quipu-crypto")
-    if meta is None:
-        inf.omitido("npm alcanzable", "no se pudo consultar el registro")
-        return
-    if version in meta.get("versions", {}):
-        inf.ok(f"npm tiene quipu-crypto {version}")
-    else:
-        inf.fallo(f"npm tiene quipu-crypto {version}", "no aparece en el registro")
-
-
 # =========================== coherencia de versiones ===========================
 #
 # El error que más veces se ha repetido en este proyecto es publicar con la
@@ -1136,7 +1125,7 @@ def main() -> int:
     )
     prom.add_argument("--a", required=True, choices=["testing", "estable"],
                       dest="destino", help="rama destino")
-    pub = sub.add_parser("publicado", help="artefactos en crates.io, PyPI y npm")
+    pub = sub.add_parser("publicado", help="artefactos en crates.io y PyPI")
     pub.add_argument("--version", required=True)
     desp = sub.add_parser("desplegado", help="postura del servicio EN PRODUCCIÓN (I7)")
     desp.add_argument("--base", default=OPRF_POR_DEFECTO)
@@ -1178,13 +1167,24 @@ def main() -> int:
             tmp = Path(d)
             verificar_crate_publicado(inf, args.version, tmp)
             verificar_rueda_publicada(inf, args.version, tmp)
-            verificar_npm_publicado(inf, args.version)
+            # npm YA NO se comprueba: desde 0.10 no se publica ahí. El paquete
+            # `quipu-crypto` sigue en el registro con sus versiones antiguas y
+            # deprecado, así que esta comprobación pasaría en verde para 0.9.1 y
+            # fallaría para todo lo que venga — un vigilante que empieza a
+            # mentir en el próximo release. Ver el CHANGELOG de 0.10.
     if args.orden == "desplegado":
         print(f"{GRIS}Auditando la superficie desplegada en {args.base}…{FIN}")
         verificar_desplegado(inf, args.base.rstrip("/"))
     if args.orden == "pr":
         verificar_pr(inf, args.numero)
-    return inf.imprimir()
+
+    codigo = inf.imprimir()
+
+    # El PR se abre SOLO si no hubo fallos NI cosas sin comprobar. `imprimir`
+    # devuelve 2 para lo segundo, y 2 no es un aprobado: es «no lo miré».
+    if args.orden == "promover" and codigo == 0:
+        return abrir_pr_de_promocion(args.destino)
+    return codigo
 
 
 if __name__ == "__main__":

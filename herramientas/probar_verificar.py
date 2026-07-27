@@ -220,7 +220,9 @@ def probar_red_caida() -> None:
         verificar.leer_json = lambda url: None  # simula el índice caído
         inf = verificar.Informe()
         with tempfile.TemporaryDirectory() as d:
-            verificar.verificar_npm_publicado(inf, "0.9.1")
+            # Antes esto cubría también npm. Se quitó con la comprobación, que
+            # se retiró en 0.10 porque npm dejó de ser destino de publicación:
+            # un vigilante que empieza a mentir en el próximo release.
             verificar.verificar_rueda_publicada(inf, "0.9.1", Path(d))
         estados = [e for e, _, _ in inf.lineas]
         comprobar(
