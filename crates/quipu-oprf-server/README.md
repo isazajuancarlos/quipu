@@ -84,6 +84,41 @@ curl -s -X POST https://oprf.tudominio.com/admin/keys/quipu_live_ab12cd34ef56/de
 `/admin/*` **no** debe exponerse a Internet: restríngelo a la IP del portafolio
 (ver el bloque `location /admin/` del ejemplo de Nginx).
 
+## Atender a un cliente sin tener que adivinar si dice la verdad
+
+Estas operaciones las ejecuta **una persona**, y a una persona se la convence.
+«Hola, soy el técnico de tal empresa, nos revocaron la key por error, ¿me la
+reactivas?» es un correo que cualquiera puede escribir, y quien atiende no tiene
+forma de distinguir al cliente de quien lo suplanta. Es el invariante **I6**: el
+humano es parte del sistema.
+
+**La regla no es esforzarse en acertar. Es que no haga falta acertar.**
+
+| Petición | ¿Hay que verificar quién la hace? | Por qué |
+|---|---|---|
+| «Desactívame / revócame la key» | **No.** Hazlo y ya | Equivocarse aquí es una molestia reversible. Negarse a cerrar por dudar es el error caro |
+| «Reactívame una key **suspendida**» | Solo el estado del pago | Lo hace el webhook solo; es la operación normal de un cliente que se pone al día |
+| «Reactívame una key **revocada**» | **No se puede.** Ni tú | El servidor devuelve `409` y no la toca. Revocar es definitivo |
+| «Emíteme una key nueva» | Sí, y no por el canal que pide | Es la única que concede acceso. Va contra el registro de pagos, no contra la palabra de quien escribe |
+
+Revocar es **definitivo por diseño**. `activate` no resucita una key revocada, y
+`verify` la rechaza aunque alguien levante su `active` por otra vía —un `UPDATE`
+a mano, un respaldo restaurado de antes—. Si el cliente vuelve de verdad, se le
+emite una key **nueva**: un acto deliberado, con su propio registro, en vez de
+una reversión silenciosa que nadie recuerda haber autorizado.
+
+Así, ante una petición sospechosa, la respuesta segura y la cómoda son la misma:
+**cerrar**. Y la peligrosa no está disponible ni para quien atiende.
+
+### Sobre el «modo de coacción»
+
+No lo hay, y es deliberado. Un modo de coacción mal hecho —un botón, una clave
+alternativa que borra— es **peor que nada**: le da a quien está siendo coaccionado
+una falsa salida que su coaccionador puede ver o sospechar, y le añade un motivo
+para insistir. Aquí no existe hoy una operación en la que aplique: el peor caso
+de coacción sobre este servicio es revocar keys, que es reversible emitiendo
+otras. Cuando exista custodia de secretos con valor propio, se diseña; antes, no.
+
 ## CLI de administración (alternativa manual)
 
 ```sh

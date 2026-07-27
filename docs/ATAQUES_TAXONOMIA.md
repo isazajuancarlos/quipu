@@ -44,7 +44,7 @@ cinco propiedades, no cien ataques.
 | **I3** | Entropía fresca y nonce único | RNG débil, reutilización de nonce, semilla predecible | monitor de salud del RNG + detector de reúso de nonce |
 | **I4** | El fallo no revela nada | oráculos de error, mensajes distintos por causa | verificador de uniformidad de errores |
 | **I5** | Procedencia verificada | dependencia comprometida, primitiva con puerta trasera | cargo-vet/audit + vectores publicados + build reproducible |
-| **I6** | **El humano es parte del sistema** | pretexto, phishing, coacción, hombro | procedimiento de custodia que no exija juzgar una petición + modo de coacción |
+| **I6** | **El humano es parte del sistema** | pretexto, phishing, coacción, hombro | asimetría cerrar/abrir en `/admin/*`: cerrar sin verificar a nadie, reabrir lo revocado no está disponible |
 | **I7** | **La superficie desplegada responde por sí misma** | XSS/SQLi/hardening del servidor OPRF, proveedor caído, canal de actualización tumbado | pruebas de la aplicación web + plan de continuidad + modo degradado |
 
 Un ataque nuevo casi siempre es una forma nueva de romper **uno** de estos. Si el
@@ -59,10 +59,19 @@ bruta—. Y sus frecuencias lo resumen: 54 menciones de XSS, 41 de ingeniería
 social, 27 de SQL injection, **6 de criptografía**.
 
 Para Quipu no son teóricos. `oprf.xiliux.com` es un servicio desplegado y
-cobrando (I7), y la custodia en papel pone a una persona en el camino crítico
-(I6): alguien fotografía la hoja, alguien lee las palabras por teléfono, alguien
-atiende un correo que pide «verificar la clave de respaldo». Un señuelo perfecto
-no defiende de una llamada.
+cobrando (I7), y las operaciones de `/admin/*` las ejecuta una persona (I6):
+«nos revocaron la key por error, reactívanos» es un correo que cualquiera puede
+escribir, y quien atiende no distingue al cliente de quien lo suplanta. Un
+señuelo perfecto no defiende de una llamada.
+
+**La justificación de I6 cambió el 2026-07-27.** Nació apoyada en la custodia en
+papel —alguien fotografía la hoja, alguien lee las palabras por teléfono—, y ese
+canal se eliminó entero en el PR #93. Reencuadrado sobre la operación que existe
+hoy, I6 se defiende con una ASIMETRÍA y no con acertar en el juicio: cerrar se
+puede hacer ante cualquiera, porque equivocarse cerrando es una molestia
+reversible; reabrir lo que se cerró a propósito no está disponible ni para quien
+atiende. Un invariante defendido sobre un caso de uso que ya no se tiene no
+defiende nada.
 
 ---
 

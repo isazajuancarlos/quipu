@@ -244,6 +244,15 @@ fn admin_action(req: &mut Request, cfg: &Config, store: &Store, path: String) ->
         _ => return text(404, "acción desconocida"),
     };
     match result {
+        // `updated: 0` en un `activate` significa que la key está REVOCADA y no
+        // se resucita (I6). Se dice en voz alta en vez de devolver un 200 mudo:
+        // quien opera tiene que enterarse de que su acción no surtió efecto, o
+        // le dirá al cliente que ya está arreglado y no lo estará. Un aviso que
+        // nadie ve equivale a no fallar.
+        Ok(0) if action == "activate" => text(
+            409,
+            "esta key está revocada y no se reactiva: emite una nueva",
+        ),
         Ok(n) => json(200, format!("{{\"updated\":{n}}}")),
         Err(_) => text(500, "error de almacén"),
     }
