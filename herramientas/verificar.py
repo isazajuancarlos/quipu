@@ -554,19 +554,50 @@ def verificar_desplegado(inf: Informe, base: str) -> None:
     else:
         inf.fallo("GET /healthz", f"devolvió {salida.strip()}")
 
+    # LA RUTA VIVA, una sola vez: la usan la sonda y las cabeceras.
+    #
+    # Antes cada bloque elegía la suya y el de HEAD estaba clavado a `/healthz`.
+    # Contra un servicio SIN esa ruta —el portafolio, por ejemplo— HEAD y GET
+    # daban 404 los dos, «coincidían», y la sonda se declaraba sana mientras
+    # `GET /` respondía 200 y `HEAD /` respondía 405. O sea: el falso verde
+    # exacto que esta función existe para impedir, en la misma herramienta que
+    # lo denuncia. Medido contra https://xiliux.com el 2026-07-27.
+    #
+    # La lección no es «arreglar el HEAD»: es que comparar dos respuestas de
+    # ERROR no compara nada. Dos 404 coinciden siempre y no dicen si la sonda
+    # miente. Hay que preguntar donde la aplicación de verdad contesta.
+    ruta_viva = None
+    for candidata in ("/healthz", "/"):
+        _, cab = _curl(["-D", "-", "-o", "/dev/null", f"{base}{candidata}"])
+        primera = cab.splitlines()[0] if cab.splitlines() else ""
+        if " 200" in primera:
+            ruta_viva = candidata
+            break
+
     # --- la sonda no puede mentir -----------------------------------------
     # HEAD es lo que usan los monitores de disponibilidad. Si difiere de GET, el
     # monitor da el servicio por caído aunque esté sano — o al revés, y entonces
     # no avisa cuando se cae. Detectado el 2026-07-27: HEAD devolvía 404 donde
     # GET devolvía 200, así que la sonda estándar habría mentido siempre.
-    _, cabeza = _curl(["-o", "/dev/null", "-w", "%{http_code}", "-I", f"{base}/healthz"])
-    if cabeza.strip().endswith("200") == vivo:
-        inf.ok("HEAD /healthz coincide con GET", "los monitores de disponibilidad no mienten")
-    else:
-        inf.fallo(
-            "HEAD /healthz NO coincide con GET",
-            f"HEAD={cabeza.strip()} vs GET={salida.strip()}: un monitor estándar reportaría mal",
+    if ruta_viva is None:
+        inf.omitido(
+            "HEAD coincide con GET",
+            "ninguna ruta responde 200: comparar dos errores no dice si la sonda miente",
         )
+    else:
+        _, cabeza = _curl(
+            ["-o", "/dev/null", "-w", "%{http_code}", "-I", f"{base}{ruta_viva}"]
+        )
+        if cabeza.strip().endswith("200"):
+            inf.ok(
+                f"HEAD {ruta_viva} coincide con GET",
+                "los monitores de disponibilidad no mienten",
+            )
+        else:
+            inf.fallo(
+                f"HEAD {ruta_viva} NO coincide con GET",
+                f"HEAD={cabeza.strip()} vs GET=200: un monitor estándar reportaría mal",
+            )
 
     # --- transporte -------------------------------------------------------
     # LAS CABECERAS SE MIRAN SOBRE UNA RESPUESTA 200, NO SOBRE UN 404.
@@ -576,12 +607,9 @@ def verificar_desplegado(inf: Informe, base: str) -> None:
     # capa equivocada. Si ninguna ruta responde 200 no se emite veredicto, porque
     # entonces «falta la cabecera» y «esto lo contestó otra capa» son
     # indistinguibles.
-    cabeceras, ruta = "", None
-    for candidata in ("/healthz", "/"):
-        _, cab = _curl(["-D", "-", "-o", "/dev/null", f"{base}{candidata}"])
-        if cab.splitlines() and " 200" in cab.splitlines()[0]:
-            cabeceras, ruta = cab, candidata
-            break
+    cabeceras, ruta = "", ruta_viva
+    if ruta is not None:
+        _, cabeceras = _curl(["-D", "-", "-o", "/dev/null", f"{base}{ruta}"])
     bajas = cabeceras.lower()
 
     if ruta is None:
