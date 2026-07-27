@@ -46,3 +46,15 @@ path = "fuzz_targets/codec_roundtrip.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "parse_signed"
+path = "fuzz_targets/parse_signed.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "parse_recipient"
+path = "fuzz_targets/parse_recipient.rs"
+test = false
+doc = false
