@@ -782,7 +782,169 @@ def verificar_pr(inf: Informe, numero: int) -> None:
         )
 
 
-# --------------------------------------------------------------------------
+# ===========================================================================
+# PROMOCIÓN ENTRE RAMAS — el robot que Debian sí tiene
+# ===========================================================================
+#
+# El modelo de tres ramas (`docs/RAMAS.md`) vale lo que valga su promoción. En
+# Debian, quien migra paquetes de `unstable` a `testing` es un ROBOT con reglas:
+# diez días sin fallos críticos, dependencias satisfacibles. Sin ese robot,
+# `testing` es solo una rama que alguien tiene que acordarse de fusionar — y
+# acordarse no escala, que es la lección que este archivo entero documenta.
+#
+# Esto es ese robot. No fusiona: las ramas están protegidas y saltárselo siendo
+# administrador es justo lo que rompe el CI. Lo que hace es NEGARSE, y solo
+# cuando no tiene motivo para negarse, abrir el PR.
+#
+# Se niega también si algo quedó SIN COMPROBAR. Meter lo no verificado en el
+# montón de lo aprobado es el defecto que esta herramienta existe para impedir.
+
+_DESTINOS = {
+    "testing": {
+        "desde": None,  # cualquier rama de trabajo
+        "porque": "candidata a la próxima versión: integrada y verde",
+    },
+    "estable": {
+        "desde": "testing",  # a estable solo se llega por testing
+        "porque": "lo publicado: de aquí salen los tags, y poner un tag ES publicar",
+    },
+}
+
+
+def _rama_actual() -> str | None:
+    cod, salida = correr(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=RAIZ, timeout=30)
+    return salida.strip() if cod == 0 else None
+
+
+def verificar_promocion(inf: Informe, destino: str) -> None:
+    """Comprueba que esta rama puede promoverse a `destino`. No fusiona."""
+    if destino not in _DESTINOS:
+        inf.fallo("destino de promoción", f"«{destino}» no es una rama del modelo")
+        return
+    regla = _DESTINOS[destino]
+
+    if not hay("git"):
+        inf.omitido("promoción", "git no está instalado")
+        return
+
+    rama = _rama_actual()
+    if rama is None:
+        inf.omitido("rama actual", "git no supo decir en qué rama estamos")
+        return
+
+    # --- ¿desde dónde se promueve? ------------------------------------------
+    if rama == destino:
+        inf.fallo(
+            f"promover a {destino}",
+            f"ya estás EN {destino}: una rama no se promueve a sí misma",
+        )
+        return
+    exigida = regla["desde"]
+    if exigida and rama != exigida:
+        inf.fallo(
+            f"promover a {destino}",
+            f"se promueve desde «{exigida}», no desde «{rama}» — nada baja a "
+            f"{destino} sin pasar por ahí",
+        )
+        return
+    inf.ok(f"origen de la promoción: {rama} → {destino}", regla["porque"])
+
+    # --- el árbol tiene que estar limpio ------------------------------------
+    #
+    # Un cambio sin commitear NO viaja en la promoción, así que lo que se
+    # verifica aquí no sería lo que llega al destino. Verde sobre algo distinto
+    # de lo que se promueve es el peor de los verdes.
+    cod, salida = correr(["git", "status", "--porcelain"], cwd=RAIZ, timeout=60)
+    if cod != 0:
+        inf.omitido("árbol limpio", "git status no respondió")
+    elif salida.strip():
+        n = len(salida.strip().splitlines())
+        inf.fallo(
+            "árbol limpio",
+            f"{n} cambio(s) sin commitear: lo verificado NO sería lo que se promueve",
+        )
+    else:
+        inf.ok("árbol limpio", "lo que se verifica es lo que viaja")
+
+    # --- y estar empujada, o el PR no vería estos commits -------------------
+    cod, salida = correr(
+        ["git", "rev-list", "--count", f"origin/{rama}..{rama}"], cwd=RAIZ, timeout=60
+    )
+    if cod != 0:
+        inf.omitido("rama empujada", f"no hay origin/{rama}: empújala primero")
+    elif salida.strip() not in ("", "0"):
+        inf.fallo("rama empujada", f"{salida.strip()} commit(s) sin empujar")
+    else:
+        inf.ok("rama empujada", f"origin/{rama} está al día")
+
+    # --- la versión no puede estar ya publicada -----------------------------
+    #
+    # Solo al ir a `estable`, porque es de donde sale el tag. Publicar una
+    # versión que ya existe no falla ruidosamente en todas partes: PyPI la
+    # rechaza, pero el resto del flujo ya arrancó. Y PyPI NO deja re-subir, así
+    # que equivocarse cuesta un yank — pasó con la 0.9.0.
+    if destino == "estable":
+        try:
+            v = _version_de_referencia()
+        except Exception as e:
+            inf.omitido("versión no publicada aún", f"no se pudo leer Cargo.toml: {e}")
+            return
+        meta = leer_json(f"https://pypi.org/pypi/quipu-crypto/{v}/json")
+        if meta is None:
+            # Un fallo de red NO es un aprobado. Que se note.
+            inf.omitido(
+                f"la versión {v} no está publicada aún",
+                "PyPI no respondió: sin ese dato no se puede promover con seguridad",
+            )
+        elif meta.get("info"):
+            inf.fallo(
+                f"la versión {v} YA está en PyPI",
+                "sube la versión antes de promover, o el release publicará algo "
+                "distinto con el mismo número (PyPI no deja re-subir)",
+            )
+        else:
+            inf.ok(f"la versión {v} no está publicada", "el tag será nuevo")
+
+
+def abrir_pr_de_promocion(destino: str) -> int:
+    """Abre el PR de la promoción. Se llama SOLO si la verificación salió limpia."""
+    rama = _rama_actual()
+    if not hay("gh"):
+        print(f"\n{AMARILLO}gh no está instalado. Abre el PR a mano:{FIN}")
+        print(f"  https://github.com/isazajuancarlos/quipu/compare/{destino}...{rama}")
+        return 0
+
+    # ¿Ya hay uno? Abrir un duplicado sería ruido, y cerrarlo, trabajo.
+    cod, salida = correr(
+        ["gh", "pr", "list", "--head", rama, "--base", destino, "--json", "number,url"]
+    )
+    if cod == 0:
+        try:
+            existentes = json.loads(salida)
+        except ValueError:
+            existentes = []
+        if existentes:
+            print(f"\n{VERDE}Ya hay un PR abierto para esta promoción:{FIN}")
+            print(f"  {existentes[0]['url']}")
+            return 0
+
+    titulo = f"promoción: {rama} → {destino}"
+    cuerpo = (
+        f"Promoción verificada con `verificar.py promover --a {destino}`.\n\n"
+        "Se abrió porque la verificación salió sin fallos **y sin nada pendiente de "
+        "comprobar**. Los checks del PR siguen siendo la última palabra: esta "
+        "herramienta no fusiona ni se salta la protección de la rama.\n"
+    )
+    cod, salida = correr(
+        ["gh", "pr", "create", "--base", destino, "--head", rama,
+         "--title", titulo, "--body", cuerpo]
+    )
+    if cod == 0:
+        print(f"\n{VERDE}PR de promoción abierto:{FIN}\n  {salida.strip().splitlines()[-1]}")
+        return 0
+    print(f"\n{ROJO}No se pudo abrir el PR:{FIN} {salida.strip()[:200]}")
+    return 1
+
 
 # ===========================================================================
 # I7 — LA SUPERFICIE DESPLEGADA RESPONDE POR SÍ MISMA
@@ -968,6 +1130,12 @@ def main() -> int:
     sub.add_parser("local", help="pruebas, doctests, clippy y cargo-vet del árbol")
     sub.add_parser("version", help="todos los sitios que llevan la versión llevan la misma")
     sub.add_parser("portada", help="la description publicada no promete lo que no existe")
+    prom = sub.add_parser(
+        "promover",
+        help="¿puede esta rama promoverse? (modelo de tres ramas, ver docs/RAMAS.md)",
+    )
+    prom.add_argument("--a", required=True, choices=["testing", "estable"],
+                      dest="destino", help="rama destino")
     pub = sub.add_parser("publicado", help="artefactos en crates.io, PyPI y npm")
     pub.add_argument("--version", required=True)
     desp = sub.add_parser("desplegado", help="postura del servicio EN PRODUCCIÓN (I7)")
@@ -985,6 +1153,17 @@ def main() -> int:
     if args.orden == "portada":
         print(f"{GRIS}Comprobando que las descripciones publicadas no mientan…{FIN}")
         verificar_promesas_de_la_portada(inf)
+    if args.orden == "promover":
+        print(f"{GRIS}¿Puede promoverse a {args.destino}?{FIN}")
+        # El orden importa: primero las condiciones baratas de la promoción. Si
+        # estás en la rama equivocada no tiene sentido gastar cuatro minutos de
+        # suite para decírtelo.
+        verificar_promocion(inf, args.destino)
+        if not any(e == "fallo" for e, _, _ in inf.lineas):
+            verificar_local(inf)
+            verificar_versiones(inf)
+            verificar_promesas_de_la_portada(inf)
+            verificar_coherencia_de_features(inf)
     if args.orden in ("local", "todo"):
         print(f"{GRIS}Verificando el árbol de trabajo…{FIN}")
         verificar_local(inf)

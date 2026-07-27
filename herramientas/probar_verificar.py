@@ -233,18 +233,28 @@ def probar_red_caida() -> None:
 
 
 def main() -> int:
-    for prueba in (
-        probar_los_tres_estados,
-        probar_correr,
-        probar_hay,
-        probar_testigos,
-        probar_lectura_de_features,
-        probar_coherencia_de_features,
-        probar_red_caida,
-        probar_desplegado_sin_curl_no_aprueba,
-        probar_desplegado_con_host_inalcanzable_no_aprueba,
-        probar_desplegado_declara_lo_que_no_puede_mirar,
-    ):
+    # LAS PRUEBAS SE DESCUBREN, NO SE ENUMERAN.
+    #
+    # Aquí había una lista escrita a mano, y falló exactamente como fallan las
+    # listas escritas a mano: se añadieron tres pruebas del promotor y NO se
+    # ejecutaron. El banco siguió diciendo «41 comprobaciones, todas correctas»
+    # —cierto, y a la vez inútil— porque las nuevas ni siquiera se llamaron.
+    #
+    # Es el mismo defecto que este repositorio lleva un mes corrigiendo en otros
+    # sitios: la lista de doce archivos de versión, la matriz de paridad entre
+    # bindings. Un registro que hay que acordarse de ampliar es un registro que
+    # diverge. Y que le pasara al BANCO DE PRUEBAS del verificador, que existe
+    # para que nada pase sin comprobar sin comprobar, es lo bastante irónico
+    # como para dejarlo escrito.
+    pruebas = sorted(
+        (nombre, f)
+        for nombre, f in globals().items()
+        if nombre.startswith("probar_") and callable(f)
+    )
+    if not pruebas:
+        print("el banco no encontró ninguna prueba: eso NO es un aprobado")
+        return 1
+    for _nombre, prueba in pruebas:
         prueba()
 
     if fallos:
@@ -252,7 +262,8 @@ def main() -> int:
         for f in fallos:
             print(f"  ✗ {f}")
         return 1
-    print(f"banco del verificador: {hechas} comprobaciones, todas correctas")
+    print(f"banco del verificador: {len(pruebas)} pruebas, "
+          f"{hechas} comprobaciones, todas correctas")
     return 0
 
 
@@ -308,6 +319,67 @@ def probar_desplegado_declara_lo_que_no_puede_mirar() -> None:
     # Con curl ausente sale pronto; lo que se fija aquí es que el modo NUNCA
     # devuelve un informe vacío, porque un informe vacío también sale 0.
     comprobar(len(inf.lineas) > 0, "el modo desplegado nunca puede devolver un informe vacío")
+
+
+def probar_promocion_rechaza_la_rama_equivocada() -> None:
+    """A `estable` solo se llega desde `testing`, y nunca desde sí misma.
+
+    Es la regla que sostiene el modelo: si se puede promover desde cualquier
+    sitio, `testing` no filtra nada y las tres ramas son decoración.
+    """
+    original = verificar._rama_actual
+    try:
+        # Promoverse a uno mismo.
+        verificar._rama_actual = lambda: "estable"
+        inf = verificar.Informe()
+        verificar.verificar_promocion(inf, "estable")
+        comprobar(salida_de(inf) == 1, "una rama no puede promoverse a sí misma")
+
+        # Saltarse `testing`.
+        verificar._rama_actual = lambda: "feat/lo-que-sea"
+        inf = verificar.Informe()
+        verificar.verificar_promocion(inf, "estable")
+        comprobar(salida_de(inf) == 1, "a estable NO se llega saltándose testing")
+
+        # Una rama de trabajo SÍ puede ir a testing: si esto fallara, el modelo
+        # sería inusable y nadie lo usaría, que es la otra forma de que se pudra.
+        verificar._rama_actual = lambda: "feat/lo-que-sea"
+        inf = verificar.Informe()
+        verificar.verificar_promocion(inf, "testing")
+        primera = inf.lineas[0]
+        comprobar(primera[0] == "ok", "una rama de trabajo SÍ puede ir a testing")
+    finally:
+        verificar._rama_actual = original
+
+
+def probar_promocion_a_destino_inventado() -> None:
+    """Un destino que no es del modelo se rechaza, no se acepta por descuido."""
+    inf = verificar.Informe()
+    verificar.verificar_promocion(inf, "produccion")
+    comprobar(salida_de(inf) == 1, "un destino fuera del modelo debe fallar")
+
+
+def probar_promocion_sin_red_no_aprueba() -> None:
+    """Si PyPI no contesta, NO se puede promover a estable.
+
+    Es el caso que más fácil se cuela: sin respuesta, la tentación es asumir
+    que la versión no está publicada y seguir. Eso convierte «no lo sé» en
+    «adelante», y publicar sobre una versión existente cuesta un yank — PyPI no
+    deja re-subir. Tiene que salir SIN COMPROBAR, que no es un aprobado.
+    """
+    orig_rama, orig_json = verificar._rama_actual, verificar.leer_json
+    verificar._rama_actual = lambda: "testing"
+    verificar.leer_json = lambda _url: None          # la red no contesta
+    try:
+        inf = verificar.Informe()
+        verificar.verificar_promocion(inf, "estable")
+        comprobar(
+            any(e == "omitido" for e, _, _ in inf.lineas),
+            "sin respuesta de PyPI, la versión queda SIN COMPROBAR",
+        )
+        comprobar(salida_de(inf) != 0, "y un SIN COMPROBAR nunca sale 0")
+    finally:
+        verificar._rama_actual, verificar.leer_json = orig_rama, orig_json
 
 
 if __name__ == "__main__":
