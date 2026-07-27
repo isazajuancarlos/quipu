@@ -91,7 +91,9 @@ Since the primitives are vetted and there is no first-party `unsafe`, the audito
 should concentrate on:
 - The hybrid KEM combiner (F2) and the construction of the asymmetric mode.
 - The VOPRF and the online protocol (rate-limit, replay).
-- Container and image/PNG parsing (untrusted input; expand fuzzing).
+- Container parsing (untrusted input; expand fuzzing). The image/PNG parsing that
+  used to sit here is gone: the PNG channel and the `image` dependency were
+  removed, so there is no longer an image decoder on the attack surface.
 - Domain separation and key management/zeroization.
 - The threat model vs. the real guarantees of each mode.
 

@@ -26,6 +26,40 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PR #93, que lo eliminó.
 
 ### Removed
+- **BREAKING — the PNG channel is gone too, and with it the `image` dependency.**
+  `api::encode_to_image`, `api::decode_from_image`, `api::encode_to_robust_image` and
+  `api::decode_from_robust_image` no longer exist, nor does the `render` module (removed from
+  `quipu`, `quipu-cnsa` and `quipu-nucleo`).
+
+  **Why.** Two reasons, neither of them "it was dead code" — it ran, and it had its own tests.
+
+  First, **custody**. A greyscale PNG of raw bytes can only be decoded by Quipu, which is exactly
+  the property this project rejected when it chose a standard 2D symbology (Data Matrix, QR) as
+  the paper carrier: what decides at twenty years is that the decoder still exists in 2050. The
+  PNG channel was the same bet as the glyphs, made in a simpler way — and just as unproven for
+  the print-and-photograph path it claimed to serve. `encode_to_robust_image` layered
+  Reed-Solomon over a **lossless** container: error correction against a corruption the container
+  does not have, unless it is printed, which was never measured.
+
+  Second, **audit surface**. It was the only user of the `image` crate, which pulled 12
+  transitive crates: `image`, `png`, `flate2`, `miniz_oxide`, `bytemuck`, `moxcms`, `pxfm`,
+  `crc32fast`, `fdeflate`, `simd-adler32`, `adler2`, `byteorder-lite`. The lock file drops from
+  156 packages to 144. In a project whose argument is auditability — and which turned down
+  `rxing` for precisely this reason — carrying an image decoder for an unused channel was
+  incoherent. PNG parsing over attacker-controlled input was listed in `docs/PRE_AUDIT.md` as an
+  area needing more fuzzing; now there is nothing to fuzz.
+
+  **Kept: `ecc` (Reed-Solomon).** It stays public and unchanged. The planned paper carrier needs
+  it for the fallback layer (Base32 with Reed-Solomon in groups), so removing it would be
+  deleting what the plan asks for.
+
+  **Migration.** `encode`/`decode` with any `dictionaries::*` alphabet produces the same
+  ciphertext as dense text; `encrypt_stream` produces bytes. Neither changed. For an image, wrap
+  the output yourself, or wait for the standard-symbology carrier.
+
+  **This is not a security fix and closes no vulnerability.** Like the glyph removal, it drops a
+  representation layer that never carried one.
+
 - **BREAKING — the native glyph channel is gone in its entirety.** `api::encode_to_glyph_image`,
   `api::decode_from_glyph_image` and `api::huella_del_portador` no longer exist, nor do the
   `glyphfont`, `glyphopt` and `glyphscan` modules, the `glyph_min_distance` / `select_separable`
@@ -40,11 +74,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **This is not a security fix and closes no vulnerability.** It removes a representation layer
   that never carried one.
 
-  **Migration.** The dense-text and PNG channels are unchanged and cover the same use cases:
-  `encode`/`decode` with any `dictionaries::*` alphabet, `encode_to_image`/`decode_from_image`,
-  and `encode_to_robust_image`/`decode_from_robust_image` for print, which keeps Reed-Solomon.
-  For a paper carrier, a standard 2D symbology (Data Matrix, QR) is the recommended route: the
-  decoder will still exist in twenty years, which a proprietary alphabet cannot promise.
+  **Migration.** The dense-text channel is unchanged and covers the same use cases:
+  `encode`/`decode` with any `dictionaries::*` alphabet. *(The PNG channel was offered here as a
+  migration route and has since been removed as well — see the entry above. Use `encode`/`decode`
+  or `encrypt_stream`.)* For a paper carrier, a standard 2D symbology (Data Matrix, QR) is the
+  recommended route: the decoder will still exist in twenty years, which a proprietary alphabet
+  cannot promise.
 
   Unaffected: `dictionaries::flagship()` and the other dictionaries. Those are Unicode glyphs in
   the **text** channel, a different thing that merely shares the word.

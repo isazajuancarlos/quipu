@@ -108,7 +108,6 @@ fips205 = { version = "0.4.1", optional = true, default-features = false, featur
 proptest = "1"
 # Solo para dañar a propósito una tira de glifos en las pruebas del canal
 # analógico. Ya está en el árbol vía quipu-nucleo y exento en cargo-vet.
-image = { version = "0.25", default-features = false, features = ["png"] }
 wycheproof = "0.6"
 # Solo para leer/generar los vectores de interoperabilidad (tests/vectors/).
 # Ya está en el árbol vía wycheproof y exento en cargo-vet.

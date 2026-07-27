@@ -254,51 +254,6 @@ pub fn decode_online(
     decode(symbols, passphrase, dict, &pepper).map_err(OnlineError::Decode)
 }
 
-// ============================ Canal visual (imagen) ============================
-
-/// Cifra `data` y lo representa como una imagen PNG en escala de grises.
-pub fn encode_to_image(data: &[u8], passphrase: &str, opts: &Options) -> Vec<u8> {
-    let blob = encode_to_blob(data, passphrase, [0u8; 8], opts);
-    crate::render::bytes_to_png(&blob)
-}
-
-/// Operación inversa de [`encode_to_image`].
-pub fn decode_from_image(
-    png: &[u8],
-    passphrase: &str,
-    pepper: &[u8],
-) -> Result<Vec<u8>, DecodeError> {
-    let blob = crate::render::png_to_bytes(png)
-        .ok_or(DecodeError::Container(ContainerError::TooShort))?;
-    decode_from_blob(&blob, passphrase, [0u8; 8], pepper)
-}
-
-/// Como [`encode_to_image`] pero añade corrección de errores Reed-Solomon
-/// (`parity` bytes/bloque) para tolerar ruido del canal (foto/impreso).
-pub fn encode_to_robust_image(
-    data: &[u8],
-    passphrase: &str,
-    opts: &Options,
-    parity: u8,
-) -> Vec<u8> {
-    let blob = encode_to_blob(data, passphrase, [0u8; 8], opts);
-    let protected = crate::ecc::protect(&blob, parity);
-    crate::render::bytes_to_png(&protected)
-}
-
-/// Operación inversa de [`encode_to_robust_image`]: corrige errores y descifra.
-pub fn decode_from_robust_image(
-    png: &[u8],
-    passphrase: &str,
-    pepper: &[u8],
-) -> Result<Vec<u8>, DecodeError> {
-    let protected = crate::render::png_to_bytes(png)
-        .ok_or(DecodeError::Container(ContainerError::TooShort))?;
-    let blob = crate::ecc::recover(&protected).ok_or(DecodeError::Decrypt)?;
-    decode_from_blob(&blob, passphrase, [0u8; 8], pepper)
-}
-
-
 // ============================ Modo híbrido post-cuántico ============================
 
 /// Magic del contenedor híbrido (X25519 + ML-KEM).
@@ -683,42 +638,6 @@ mod tests {
             let back = decode(&symbols, "clave", &dict, b"").unwrap();
             prop_assert_eq!(back, data);
         }
-    }
-
-    #[test]
-    fn image_channel_round_trips() {
-        let data = b"secreto representado como imagen";
-        let png = encode_to_image(data, "clave", &test_opts());
-        assert_eq!(
-            &png[0..8],
-            &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]
-        );
-        assert_eq!(decode_from_image(&png, "clave", b"").unwrap(), data);
-    }
-
-    #[test]
-    fn image_wrong_passphrase_fails() {
-        let png = encode_to_image(b"x", "correcta", &test_opts());
-        assert!(decode_from_image(&png, "incorrecta", b"").is_err());
-    }
-
-    #[test]
-    fn robust_image_survives_channel_noise() {
-        let data = b"este mensaje sobrevive al ruido del canal impreso";
-        let png = encode_to_robust_image(data, "clave", &test_opts(), 16);
-        // Simula ruido: voltea 8 bytes del CUERPO (corregibles con parity=16).
-        // El desplazamiento sale del módulo y no se escribe a mano: cuando la
-        // cabecera pasó de 5 bytes desnudos a un bloque RS de 15, un `5` fijo
-        // metía el daño DENTRO de la cabecera y la prueba fallaba por un
-        // motivo que no era el que mide.
-        let inicio = crate::ecc::tamano_cabecera();
-        let mut payload = crate::render::png_to_bytes(&png).unwrap();
-        for byte in &mut payload[inicio..inicio + 8] {
-            *byte ^= 0xFF;
-        }
-        let noisy = crate::render::bytes_to_png(&payload);
-        let recovered = decode_from_robust_image(&noisy, "clave", b"").unwrap();
-        assert_eq!(recovered, data);
     }
 
     fn spawn_voprf_server(

@@ -2,25 +2,14 @@
 //!
 //!   cargo run --example v2demo
 //!
-//! Muestra: (1) cifrado híbrido post-cuántico a clave pública, (2) endurecimiento
-//! OPRF con rate-limit de servidor, (3) canal visual (PNG).
+//! Muestra: (1) cifrado híbrido post-cuántico a clave pública y (2) endurecimiento
+//! OPRF con rate-limit de servidor.
 
-use quipu::api::{decode_as_recipient, decode_from_image, encode_to_image, encode_to_recipient, Options};
+use quipu::api::{decode_as_recipient, encode_to_recipient};
 use quipu::dictionaries;
-use quipu::kdf::KdfParams;
 use quipu::{oprf, pqhybrid};
 
 fn main() {
-    let opts = Options {
-        pepper: b"",
-        kdf_params: KdfParams {
-            mem_kib: 512,
-            iterations: 1,
-            parallelism: 1,
-        },
-        codebook_id: 0,
-    };
-
     println!("================ QUIPU v2 ================\n");
 
     // (1) Híbrido post-cuántico (X25519 + ML-KEM-1024).
@@ -58,16 +47,6 @@ fn main() {
     println!("    tras agotar el presupuesto, el servidor rechaza: {}",
         server.evaluate(&b4).is_none());
 
-    // (3) Canal visual: imagen PNG.
-    println!("\n[3] Canal visual (PNG)");
-    let png = encode_to_image(mensaje, "clave-imagen", &opts);
-    let ruta = std::env::temp_dir().join("quipu_demo.png");
-    std::fs::write(&ruta, &png).unwrap();
-    println!("    imagen escrita: {} ({} bytes)", ruta.display(), png.len());
-    let leido = decode_from_image(&png, "clave-imagen", b"").unwrap();
-    assert_eq!(leido, mensaje);
-    println!("    descifrado desde la imagen: OK");
-
     println!("\n========================================");
-    println!("v2: post-cuantico + OPRF + canal visual -> TODO OK");
+    println!("v2: post-cuantico + OPRF -> TODO OK");
 }

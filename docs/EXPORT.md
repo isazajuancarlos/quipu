@@ -65,9 +65,9 @@ classification arguable rather than obvious:
    combiner. A composition of standard primitives that no standards body has
    adopted **as that composition**.
 
-2. **The container format** (`SPEC.md` §3.2), the Padmé padding layer, the
-   base-N codec and the PNG channel. All published and documented here, none
-   adopted by a standards body.
+2. **The container format** (`SPEC.md` §3.2), the Padmé padding layer and the
+   base-N codec. All published and documented here, none adopted by a standards
+   body.
 
 A reasonable person can argue either way: *"every primitive is standard, so this
 is standard cryptography"* against *"the combiner is an unpublished construction,
