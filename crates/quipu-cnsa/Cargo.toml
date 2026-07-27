@@ -13,7 +13,7 @@ homepage = "https://github.com/isazajuancarlos/quipu"
 documentation = "https://docs.rs/quipu-cnsa"
 
 [dependencies]
-# Formato, contenedor, codec y canal visual: COMPARTIDOS con `quipu`. Es la
+# Formato, contenedor, codec, padding Padmé y ECC: COMPARTIDOS con `quipu`. Es la
 # razón de existir de ese crate — un fallo de formato se arregla una vez, no
 # dos. Ver crates/quipu-nucleo.
 quipu-nucleo = { version = "0.1.0", path = "../quipu-nucleo" }
