@@ -42,6 +42,61 @@ fn get(addr: &str, path: &str) -> String {
     buf
 }
 
+/// Petición cruda con el método que se le pida. Igual que `get`, pero HEAD.
+fn peticion(addr: &str, metodo: &str, path: &str) -> String {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(addr).unwrap();
+    write!(s, "{metodo} {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n").unwrap();
+    let mut buf = String::new();
+    s.read_to_string(&mut buf).unwrap();
+    buf
+}
+
+/// La sonda del servicio no puede mentir sobre el servicio.
+///
+/// HEAD es lo que usan los monitores de disponibilidad, y aquí devolvía 404
+/// donde GET devolvía 200: el enrutador solo contemplaba `Method::Get` y HEAD
+/// caía al 404 final. Un monitor estándar habría dado el servicio por caído
+/// desde el primer día — o alguien lo habría configurado para aceptar ese 404,
+/// y entonces no avisaría el día que se cayera de verdad.
+///
+/// RFC 9110 §9.3.2: la respuesta a HEAD es la de GET sin cuerpo. Invariante I7.
+/// Detectado el 2026-07-27 auditando producción con `verificar.py desplegado`.
+#[test]
+fn head_responde_igual_que_get_en_las_rutas_de_lectura() {
+    let seed = [9u8; 32];
+    let server_key = voprf::Server::from_seed(&seed, b"quipu-oprf-server-v1").unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let addr = free_addr();
+    let cfg = Config {
+        addr: addr.clone(),
+        admin_token: None,
+    };
+    thread::spawn(move || {
+        let _ = http::serve(store, server_key, cfg);
+    });
+    wait_ready(&addr);
+
+    for ruta in ["/healthz", "/v1/public-key", "/v1/plans"] {
+        let g = peticion(&addr, "GET", ruta);
+        let h = peticion(&addr, "HEAD", ruta);
+        let estado = |r: &str| r.lines().next().unwrap_or("").to_string();
+        assert_eq!(
+            estado(&g),
+            estado(&h),
+            "HEAD {ruta} no coincide con GET: un monitor de disponibilidad mentiría",
+        );
+    }
+
+    // Y que DISCRIMINE: una ruta que no existe debe seguir siendo 404 por los
+    // dos métodos. Sin esto, «responder 200 a todo» pasaría la prueba de arriba.
+    let inexistente = peticion(&addr, "HEAD", "/no-existe");
+    assert!(
+        inexistente.contains("404"),
+        "HEAD sobre una ruta inexistente debe dar 404, no 200",
+    );
+}
+
 #[test]
 fn end_to_end_hardening() {
     let seed = [7u8; 32];

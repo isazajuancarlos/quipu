@@ -241,6 +241,9 @@ def main() -> int:
         probar_lectura_de_features,
         probar_coherencia_de_features,
         probar_red_caida,
+        probar_desplegado_sin_curl_no_aprueba,
+        probar_desplegado_con_host_inalcanzable_no_aprueba,
+        probar_desplegado_declara_lo_que_no_puede_mirar,
     ):
         prueba()
 
@@ -251,6 +254,60 @@ def main() -> int:
         return 1
     print(f"banco del verificador: {hechas} comprobaciones, todas correctas")
     return 0
+
+
+# ---------------------------------------------------------------------------
+# I7 — la auditoría de la superficie desplegada
+# ---------------------------------------------------------------------------
+
+def probar_desplegado_sin_curl_no_aprueba() -> None:
+    """Sin la herramienta con la que mira, NO puede decir que todo está bien.
+
+    Es el defecto que este banco existe para cazar, aplicado al modo nuevo: un
+    vigilante que nace mudo produce silencio, y el silencio se lee como «sin
+    novedad». Ya pasó con un monitor construido sobre `jq` cuando `jq` no estaba.
+    """
+    original = verificar.hay
+    verificar.hay = lambda _programa: False
+    try:
+        inf = verificar.Informe()
+        verificar.verificar_desplegado(inf, "https://ejemplo.invalido")
+        comprobar(salida_de(inf) == 2, "sin curl debe salir 2 (SIN COMPROBAR), nunca 0")
+        comprobar(
+            all(e == "omitido" for e, _, _ in inf.lineas),
+            "sin curl no puede haber ni aprobados ni fallos: no se miró nada",
+        )
+    finally:
+        verificar.hay = original
+
+
+def probar_desplegado_con_host_inalcanzable_no_aprueba() -> None:
+    """Un dominio que no existe no es un servicio sano: es uno que no se miró."""
+    if not verificar.hay("curl"):
+        return
+    inf = verificar.Informe()
+    verificar.verificar_desplegado(inf, "https://no-existe.invalido")
+    comprobar(salida_de(inf) != 0, "un host inalcanzable NO puede salir 0")
+
+
+def probar_desplegado_declara_lo_que_no_puede_mirar() -> None:
+    """El límite de peticiones y la continuidad NO se prueban desde fuera.
+
+    Agotar el límite de un servicio que cobra es una denegación de servicio
+    contra el propio negocio, y la caída de un proveedor no se simula con curl.
+    Las dos tienen que aparecer como SIN COMPROBAR y no desaparecer: un hueco
+    silencioso se lee como aprobado.
+    """
+    original = verificar.hay
+    verificar.hay = lambda _programa: False
+    try:
+        inf = verificar.Informe()
+        verificar.verificar_desplegado(inf, "https://ejemplo.invalido")
+    finally:
+        verificar.hay = original
+    # Con curl ausente sale pronto; lo que se fija aquí es que el modo NUNCA
+    # devuelve un informe vacío, porque un informe vacío también sale 0.
+    comprobar(len(inf.lineas) > 0, "el modo desplegado nunca puede devolver un informe vacío")
 
 
 if __name__ == "__main__":

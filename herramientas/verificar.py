@@ -506,6 +506,153 @@ def verificar_pr(inf: Informe, numero: int) -> None:
 
 # --------------------------------------------------------------------------
 
+# ===========================================================================
+# I7 — LA SUPERFICIE DESPLEGADA RESPONDE POR SÍ MISMA
+# ===========================================================================
+
+OPRF_POR_DEFECTO = "https://oprf.xiliux.com"
+
+
+def _curl(args: list[str], timeout: int = 15) -> tuple[int, str]:
+    """Devuelve (código de salida, salida). `curl` y nada más: cero dependencias."""
+    cod, salida = correr(["curl", "-sS", "--max-time", str(timeout), *args], timeout=timeout + 5)
+    return cod, salida
+
+
+def verificar_desplegado(inf: Informe, base: str) -> None:
+    """Audita el servicio EN PRODUCCIÓN, no el archivo de configuración.
+
+    Existe porque el invariante I7 —«la superficie desplegada responde por sí
+    misma»— era el único de los siete sin ninguna herramienta, y es el que cubre
+    lo que está expuesto a internet cobrando suscripciones. La taxonomía lo
+    añadió el 2026-07-26 tras contrastarla con casos reales: de los nueve
+    capítulos de *Hacking Ético*, cuatro tratan de aplicación web y hardening y
+    ninguno cruzaba con las cinco familias que teníamos.
+
+    NO ES INTRUSIVO a propósito. Comprueba postura, no explota: nada de fuerza
+    bruta, ni fuzzing, ni agotar el límite de peticiones de un servicio que está
+    cobrando. Lo que no se puede mirar sin dañar, se declara SIN COMPROBAR.
+
+    Lo que NO se exige, y es deliberado: CSP, X-Frame-Options, Permissions-Policy
+    y Referrer-Policy protegen a un NAVEGADOR. Esto es una API JSON que consumen
+    SDK, así que pedirlas sería inflar la lista con hallazgos que ningún cliente
+    legítimo necesita — la regla se prueba antes de escribirla contra «¿a quién
+    de verdad protege?».
+    """
+    if not hay("curl"):
+        inf.omitido("superficie desplegada", "no hay curl: el vigilante nacería mudo")
+        return
+
+    # --- ¿está vivo? ------------------------------------------------------
+    cod, salida = _curl(["-o", "/dev/null", "-w", "%{http_code}", f"{base}/healthz"])
+    if cod != 0:
+        inf.omitido("servicio alcanzable", f"curl no pudo conectar con {base}")
+        return
+    vivo = salida.strip().endswith("200")
+    if vivo:
+        inf.ok("GET /healthz responde 200")
+    else:
+        inf.fallo("GET /healthz", f"devolvió {salida.strip()}")
+
+    # --- la sonda no puede mentir -----------------------------------------
+    # HEAD es lo que usan los monitores de disponibilidad. Si difiere de GET, el
+    # monitor da el servicio por caído aunque esté sano — o al revés, y entonces
+    # no avisa cuando se cae. Detectado el 2026-07-27: HEAD devolvía 404 donde
+    # GET devolvía 200, así que la sonda estándar habría mentido siempre.
+    _, cabeza = _curl(["-o", "/dev/null", "-w", "%{http_code}", "-I", f"{base}/healthz"])
+    if cabeza.strip().endswith("200") == vivo:
+        inf.ok("HEAD /healthz coincide con GET", "los monitores de disponibilidad no mienten")
+    else:
+        inf.fallo(
+            "HEAD /healthz NO coincide con GET",
+            f"HEAD={cabeza.strip()} vs GET={salida.strip()}: un monitor estándar reportaría mal",
+        )
+
+    # --- transporte -------------------------------------------------------
+    # LAS CABECERAS SE MIRAN SOBRE UNA RESPUESTA 200, NO SOBRE UN 404.
+    #
+    # Una ruta inexistente la contesta a menudo el servidor de delante y no la
+    # aplicación, con otro juego de cabeceras: auditar ahí mide la postura de la
+    # capa equivocada. Si ninguna ruta responde 200 no se emite veredicto, porque
+    # entonces «falta la cabecera» y «esto lo contestó otra capa» son
+    # indistinguibles.
+    cabeceras, ruta = "", None
+    for candidata in ("/healthz", "/"):
+        _, cab = _curl(["-D", "-", "-o", "/dev/null", f"{base}{candidata}"])
+        if cab.splitlines() and " 200" in cab.splitlines()[0]:
+            cabeceras, ruta = cab, candidata
+            break
+    bajas = cabeceras.lower()
+
+    if ruta is None:
+        # Ni aprobado ni suspenso: sin una respuesta de la APLICACIÓN no se puede
+        # distinguir «falta la cabecera» de «esto lo contestó otra capa».
+        inf.omitido(
+            "cabeceras de seguridad",
+            "ninguna ruta devolvió 200; un 404 lo sirve el servidor de delante y miente",
+        )
+    else:
+        if "strict-transport-security:" in bajas:
+            inf.ok("HSTS presente", f"visto en {ruta}")
+        else:
+            # El 301 de HTTP a HTTPS no basta: la PRIMERA petición de un cliente
+            # nuevo viaja en claro y ahí se intercepta. Es la única cabecera que
+            # de verdad importa en una API sin navegador.
+            inf.fallo("falta HSTS", "el 301 no protege la primera petición de un cliente nuevo")
+
+        if "x-content-type-options:" in bajas:
+            inf.ok("X-Content-Type-Options presente")
+        else:
+            inf.fallo("falta X-Content-Type-Options: nosniff", "barato y aplica también a una API")
+
+    sin_tls = base.replace("https://", "http://")
+    _, red = _curl(["-o", "/dev/null", "-w", "%{http_code}", f"{sin_tls}/healthz"])
+    if red.strip().startswith("3"):
+        inf.ok("HTTP redirige a HTTPS", f"código {red.strip()}")
+    else:
+        inf.fallo("HTTP no redirige", f"devolvió {red.strip()}")
+
+    cod_viejo, _ = _curl(["-o", "/dev/null", "--tls-max", "1.1", f"{base}/healthz"])
+    if cod_viejo != 0:
+        inf.ok("TLS 1.0/1.1 rechazado")
+    else:
+        inf.fallo("TLS 1.0/1.1 ACEPTADO", "protocolos obsoletos siguen negociando")
+
+    # --- lo que nunca debe estar abierto ----------------------------------
+    for metodo, extra in (("GET", []), ("POST", ["-X", "POST", "-d", "{}"])):
+        _, cod_admin = _curl(
+            ["-o", "/dev/null", "-w", "%{http_code}", *extra, f"{base}/admin/keys"]
+        )
+        c = cod_admin.strip()[-3:]
+        if c in ("401", "403", "404"):
+            inf.ok(f"{metodo} /admin/keys cerrado sin credenciales", f"código {c}")
+        else:
+            inf.fallo(f"{metodo} /admin/keys ABIERTO", f"devolvió {c}")
+
+    # --- higiene ----------------------------------------------------------
+    servidor = ""
+    for linea in cabeceras.splitlines():
+        if linea.lower().startswith("server:"):
+            servidor = linea.split(":", 1)[1].strip()
+    if servidor and any(ch.isdigit() for ch in servidor):
+        inf.fallo("la cabecera Server filtra la versión", servidor)
+    elif servidor:
+        inf.ok("la cabecera Server no filtra versión", servidor)
+    else:
+        inf.omitido("cabecera Server", "no vino en la respuesta")
+
+    # --- lo que esta herramienta NO puede comprobar ------------------------
+    # Se declara en vez de callarse: un hueco silencioso se lee como aprobado.
+    inf.omitido(
+        "límite de peticiones",
+        "agotarlo en producción es un ataque de denegación contra un servicio que cobra",
+    )
+    inf.omitido(
+        "continuidad ante caída del proveedor",
+        "riesgo R7: Supersalud y MIPRES cayeron porque cayó IFX, su proveedor. No se prueba desde fuera",
+    )
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description="Verificador de Quipu: comprueba lo local y lo PUBLICADO.",
@@ -515,6 +662,8 @@ def main() -> int:
     sub.add_parser("local", help="pruebas, doctests, clippy y cargo-vet del árbol")
     pub = sub.add_parser("publicado", help="artefactos en crates.io, PyPI y npm")
     pub.add_argument("--version", required=True)
+    desp = sub.add_parser("desplegado", help="postura del servicio EN PRODUCCIÓN (I7)")
+    desp.add_argument("--base", default=OPRF_POR_DEFECTO)
     pr = sub.add_parser("pr", help="estado de los checks de un PR")
     pr.add_argument("numero", type=int)
     todo = sub.add_parser("todo", help="local + publicado")
@@ -533,6 +682,9 @@ def main() -> int:
             verificar_crate_publicado(inf, args.version, tmp)
             verificar_rueda_publicada(inf, args.version, tmp)
             verificar_npm_publicado(inf, args.version)
+    if args.orden == "desplegado":
+        print(f"{GRIS}Auditando la superficie desplegada en {args.base}…{FIN}")
+        verificar_desplegado(inf, args.base.rstrip("/"))
     if args.orden == "pr":
         verificar_pr(inf, args.numero)
     return inf.imprimir()
