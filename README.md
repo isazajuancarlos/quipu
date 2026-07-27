@@ -235,8 +235,13 @@ compila el staticlib con `cargo build -p quipu-capi --release` primero. Ver
 Un ABI de C estable vive en [`bindings/c`](bindings/c) (crate `quipu-capi`).
 Compila una librería compartida/estática y un header `quipu.h` generado con
 cbindgen, de modo que cualquier lenguaje con FFI de C (Node.js, Go, Ruby, …)
-puede consumir Quipu. La superficie es paritaria con los bindings de Python.
-Ver [`bindings/c/README.md`](bindings/c/README.md).
+puede consumir Quipu. Expone el **núcleo canónico** —lo que está garantizado en
+los cinco lenguajes: cifrar y descifrar con passphrase, cifrar hacia un
+destinatario post-cuántico, firmar y verificar, y el modo flujo—, no la
+superficie entera de Python: la custodia por umbral y el firmante PKCS#11 solo
+existen en Rust y Python. Lo que compone ese núcleo, y el nombre que recibe en
+cada lenguaje, está en [`tests/paridad.rs`](tests/paridad.rs), que falla si un
+binding se queda atrás. Ver [`bindings/c/README.md`](bindings/c/README.md).
 
 ```c
 #include "quipu.h"

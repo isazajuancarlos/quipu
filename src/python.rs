@@ -417,9 +417,26 @@ fn honey_decrypt_pin(blob: &[u8], passphrase: &str, pepper: Option<&[u8]>) -> Py
         .map_err(|e| PyValueError::new_err(format!("{e:?}")))
 }
 
+/// Versión de la librería nativa.
+///
+/// La tenían los otros cuatro bindings (`quipu_version`, `version()`,
+/// `Version()`) y Python no. No es cosmético: publicar una versión toca DOCE
+/// archivos, así que el número que uno cree tener y el que de verdad está
+/// cargado se separan con facilidad. Quien depura desde Python no tenía forma
+/// de preguntárselo al binario — solo a los metadatos del paquete, que son otra
+/// cosa: describen la rueda instalada, no la `.so` que se está ejecutando.
+#[pyfunction]
+fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 /// Módulo `quipu`.
 #[pymodule]
 fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(version, m)?)?;
+    // `__version__` además de `version()`: es lo que un pythonista mira primero,
+    // y sale de la MISMA constante, así que no pueden discrepar.
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_function(wrap_pyfunction!(encode, m)?)?;
     m.add_function(wrap_pyfunction!(decode, m)?)?;
     m.add_function(wrap_pyfunction!(generate_keypair, m)?)?;
