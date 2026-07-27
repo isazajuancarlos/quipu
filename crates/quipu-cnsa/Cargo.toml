@@ -2,7 +2,7 @@
 name = "quipu-cnsa"
 version = "0.1.0"
 edition = "2024"
-description = "Perfil de Quipu alineado con los algoritmos de CNSA 2.0: AES-256-GCM, HKDF-SHA-384 y ML-KEM-1024. NO validado FIPS 140-3."
+description = "Perfil de Quipu con los algoritmos de CNSA 2.0 que cubre: AES-256-GCM y HKDF-SHA-384. Solo cifrado simetrico: sin firma ni establecimiento de clave. NO validado FIPS 140-3."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
 license = "AGPL-3.0-or-later"
 keywords = ["cryptography", "post-quantum", "cnsa", "aes-gcm", "fips"]
