@@ -43,7 +43,16 @@ pub fn serve(store: Store, server_key: voprf::Server, cfg: Config) -> io::Result
     let public_key_hex = to_hex(&server_key.public_key());
     let mut limiter = RateLimiter::new();
 
-    eprintln!("quipu-oprf-server escuchando en http://{}", cfg.addr);
+    // La dirección REAL, no la pedida. Con `:0` el sistema asigna un puerto
+    // efímero y `cfg.addr` seguiría diciendo «127.0.0.1:0», que no sirve para
+    // conectarse ni para saber dónde quedó el proceso. Se vio montando la
+    // prueba de restauración del seed, que arranca en un puerto libre.
+    let escuchando = http
+        .server_addr()
+        .to_ip()
+        .map(|a| a.to_string())
+        .unwrap_or_else(|| cfg.addr.clone());
+    eprintln!("quipu-oprf-server escuchando en http://{escuchando}");
     eprintln!("clave pública (pinnear en el cliente): {public_key_hex}");
     if cfg.admin_token.is_none() {
         eprintln!("ℹ️  Sin QUIPU_OPRF_ADMIN_TOKEN: endpoints /admin deshabilitados.");

@@ -12,9 +12,21 @@ description = "Servidor OPRF/VOPRF autenticado y medido para Quipu."
 repository = "https://github.com/isazajuancarlos/quipu"
 publish = false
 
+[features]
+default = []
+# Custodia del seed por umbral (Shamir k-de-n). NO-default a propósito: es una
+# herramienta de OPERADOR, se usa en una máquina de confianza al respaldar o al
+# restaurar, y no tiene nada que hacer en el binario que corre en el VPS. Misma
+# línea que `escrow` en el núcleo — superficie que no se usa no se compila.
+#
+#   cargo test -p quipu-oprf-server --features custodia
+custodia = ["quipu/escrow", "dep:zeroize"]
+
 [dependencies]
 # El servidor comparte la MISMA primitiva que el cliente.
 quipu = { path = "../.." }
+# Solo con `custodia`: el seed reconstruido se limpia al soltarlo.
+zeroize = { version = "1", optional = true }
 # `default-features = false` a propósito: la 0.40 activa por defecto
 # `ffi-sqlite-wasm-rs`, un backend para wasm32 que arrastra wasm-bindgen, js-sys
 # y bumpalo. Está acotado por target y aquí nunca se compila, pero SÍ entra al

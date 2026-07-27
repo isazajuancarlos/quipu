@@ -130,13 +130,71 @@ exactamente el oráculo offline que el modo existe para impedir.
 
 ---
 
+---
+
+## Custodia del seed: el procedimiento
+
+El seed es la única fila irreversible del inventario, así que su respaldo no
+puede ser una copia en otro disco: eso cambia un punto único de **fallo** por
+dos puntos únicos de **compromiso**. Se reparte con Shamir k-de-n — hacen falta
+`k` partes para reconstruir y `k-1` no revelan **nada**, que es la propiedad de
+seguridad perfecta del esquema, no una aproximación.
+
+La herramienta vive tras una feature no-default del crate del servidor, para que
+no viaje en el binario del VPS:
+
+```bash
+cargo test -p quipu-oprf-server --features custodia --all-targets
+```
+
+### Respaldar
+
+1. **Anotar la clave pública actual** — es la huella con la que se verificará
+   cualquier restauración futura, y no es secreta: el servicio ya la publica en
+   `GET /v1/public-key` y la imprime al arrancar.
+2. Repartir el seed con `custodia::repartir(&seed, 2, 3)`.
+3. Guardar cada compartición **en un sitio distinto** y ninguno en el VPS. Con
+   2-de-3, perder un sitio no cuesta nada y comprometer uno tampoco.
+4. `Share::to_bytes()` da la forma en que viajan; sobreviven al ida y vuelta
+   (hay prueba).
+
+### Restaurar
+
+**El criterio no es «el fichero se recuperó», es que la clave pública coincida.**
+Un seed que se restaura íntegro pero deriva otra clave es peor que perderlo: el
+servicio arranca, responde 200, e invalida a todos los clientes en silencio.
+
+```rust
+// Falla si el material reconstruido no deriva la clave que se anotó.
+let seed = custodia::verificar_restauracion(&partes, &clave_publica_anotada)?;
+```
+
+Y después, comprobarlo contra el proceso: levantar con ese seed y confirmar que
+`GET /v1/public-key` devuelve la clave de siempre.
+
+### Qué garantiza la prueba, y qué no
+
+`tests/restauracion_del_seed.rs` ejecuta el ciclo entero **contra el binario
+real** —repartir, perder el original, reconstruir con dos de tres, arrancar el
+servicio— y exige que sirva la misma clave. Lleva su control negativo: un seed
+distinto por un solo bit levanta un servicio que arranca **perfectamente** y
+sirve otra clave. Sin ese control, la prueba no distinguiría «restauré bien» de
+«arrancó algo».
+
+Lo que NO garantiza: que las comparticiones existan de verdad, estén donde deben
+y sean legibles. Eso es operación, no código, y es el punto 1 de la lista de
+abajo.
+
+---
+
 ## Lo que NO está resuelto
 
 Se dice para que nadie lo lea como una garantía:
 
-1. **No hay respaldo verificado del seed fuera del VPS**, ni procedimiento
-   escrito de restauración. Es el único dato irreversible del sistema y hoy su
-   custodia no está documentada. Es lo primero que hay que cerrar de esta lista.
+1. **No consta que exista hoy un respaldo real del seed fuera del VPS.** El
+   mecanismo y el procedimiento ya están arriba y probados; lo que falta es
+   ejecutarlos una vez y comprobar dónde quedó cada compartición. Un respaldo
+   que nadie ha restaurado no es un respaldo, y uno que nadie ha creado tampoco.
 2. **No hay réplica ni conmutación por error.** Una caída del VPS es una caída
    del servicio, y su duración es el tiempo de reacción de una persona.
 3. **No hay objetivo de disponibilidad declarado** — ni RTO ni RPO — así que hoy
