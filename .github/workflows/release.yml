@@ -261,5 +261,5 @@ jobs:
           generate_release_notes: true
           body: |
             Artefactos firmados con sigstore/cosign (keyless, OIDC).
-            Verificación: ver [`docs/RELEASES.md`](https://github.com/isazajuancarlos/quipu/blob/main/docs/RELEASES.md)
+            Verificación: ver [`docs/RELEASES.md`](https://github.com/isazajuancarlos/quipu/blob/estable/docs/RELEASES.md)
             (attestations PEP 740 en PyPI + `cosign verify-blob --bundle` para cada `.sigstore`).

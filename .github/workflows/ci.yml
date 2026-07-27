@@ -4,7 +4,7 @@ name: CI
 # local es `scripts/audit.sh`.
 on:
   push:
-    branches: [main, master]
+    branches: [estable, testing, desarrollo]
   pull_request:
   schedule:
     # Auditoría semanal de dependencias aunque no haya cambios (nuevas CVEs).
