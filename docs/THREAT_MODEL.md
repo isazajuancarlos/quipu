@@ -16,7 +16,7 @@ out of scope.
 
 Guiding principle (Kerckhoffs): security lives in the **keys** and the vetted
 primitives, **never** in the secrecy of the representation (codebook, symbology,
-glyphs, format). All symbology is public and versioned. If anything depends on
+format). All symbology is public and versioned. If anything depends on
 hiding the format, it is a design defect.
 
 ## 1. Assets to protect
@@ -33,7 +33,7 @@ hiding the format, it is a design defect.
 ## 2. Adversaries and capabilities
 
 - **T1. Observer of data at rest / in transit:** has the full encrypted container
-  (bytes, PNG image, or glyphs) and the public codebook. Does **not** have the
+  (bytes or PNG image) and the public codebook. Does **not** have the
   passphrase, pepper, or secret keys. Goal: read the plaintext or distinguish it
   from random.
 - **T2. Active tamperer:** can alter, truncate, or forge containers and hand them
@@ -106,8 +106,8 @@ the operation, a local physical side channel, or control of the binary/OS.
 - VERIFIABILITY (VOPRF + DLEQ proof): the client checks the server used the pinned
   key; a dishonest server (T4) is DETECTED and the operation aborts (closes F1).
 
-**Visual channel (glyphs / PNG) and ECC:**
-- Purely representation: adds/subtracts no security. The PNG/glyph carries exactly
+**Visual channel (PNG) and ECC:**
+- Purely representation: adds/subtracts no security. The PNG carries exactly
   the encrypted container. Reed-Solomon corrects channel errors; it is not a
   cryptographic defense. Parsing treats input as UNtrusted (fuzzing + anti-DoS
   guards).
@@ -131,7 +131,7 @@ the operation, a local physical side channel, or control of the binary/OS.
 
 ## 6. Attack surface (for the auditor)
 
-- Container parsing (`container::parse`) and image/PNG/glyph parsing: untrusted
+- Container parsing (`container::parse`) and image/PNG parsing: untrusted
   input. Covered by fuzzing (`parse_container`, `unpad`, `codec_roundtrip`).
 - The hybrid KEM combiner and the construction of the asymmetric mode.
 - The VOPRF: DLEQ proof, network protocol (replay, rate limiting, denial).

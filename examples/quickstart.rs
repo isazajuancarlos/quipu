@@ -6,8 +6,8 @@
 //! con `assert_eq!`. Si el ejemplo termina, TODO funcionó.
 
 use quipu::api::{
-    Options, decode, decode_as_recipient, decode_from_glyph_image, decode_verified, encode,
-    encode_signed, encode_to_glyph_image, encode_to_recipient,
+    Options, decode, decode_as_recipient, decode_verified, encode,
+    encode_signed, encode_to_recipient,
 };
 use quipu::dictionaries;
 use quipu::{pqhybrid, pqsign};
@@ -55,16 +55,6 @@ fn main() {
     // -------------------------------------------------------------------------
     // 4) Canal visual: glifos nativos (PNG) -> reconocer -> descifrar.
     // -------------------------------------------------------------------------
-    let png = encode_to_glyph_image(secret, "clave-visual", &opts);
-    std::fs::write("quickstart_glifos.png", &png).expect("escribir PNG");
-    let from_glyphs = decode_from_glyph_image(&png, "clave-visual", b"")
-        .expect("reconocer glifos y descifrar");
-    assert_eq!(from_glyphs, secret, "round-trip por glifos");
-    println!(
-        "[4] Glifos: {} bytes PNG (guardado en quickstart_glifos.png) -> round-trip OK ✔\n",
-        png.len()
-    );
-
     // -------------------------------------------------------------------------
     // 5) Modo asimétrico POST-CUÁNTICO (cifrar a una clave pública).
     // -------------------------------------------------------------------------

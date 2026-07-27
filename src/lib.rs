@@ -23,7 +23,7 @@ pub mod hackerbot;
 // lo que no es criptografía. Se re-exporta módulo a módulo para que
 // `quipu::codec::*`, `quipu::ecc::*`, etc. sigan funcionando igual: ningún
 // consumidor tiene que cambiar nada. Mismo patrón que `quipu-voprf`.
-pub use quipu_nucleo::{codec, ecc, glyphfont, glyphopt, glyphscan, prelayers, render};
+pub use quipu_nucleo::{codec, ecc, prelayers, render};
 /// Honey Encryption (modo con señuelos, opt-in). Ver el modelo de amenaza del
 /// módulo: **sin autenticación** por diseño, solo para secretos uniformes de
 /// baja entropía; no sustituye al núcleo AEAD.

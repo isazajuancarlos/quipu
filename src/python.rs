@@ -35,7 +35,6 @@ use crate::api::{
     encode_signed as core_encode_signed, encode_to_recipient as core_encode_pq, Options,
 };
 use crate::dictionary::Dictionary;
-use crate::glyphopt;
 use crate::kdf::KdfParams;
 use crate::stream::{
     decrypt_stream_bytes as core_decrypt_stream, encrypt_stream as core_encrypt_stream,
@@ -297,18 +296,6 @@ fn decrypt_stream<'py>(
     }
 }
 
-/// Distancia mínima entre cualquier par de huellas (métrica de separabilidad).
-#[pyfunction]
-fn glyph_min_distance(fingerprints: Vec<Vec<u8>>) -> u32 {
-    glyphopt::min_pairwise_distance(&fingerprints)
-}
-
-/// Selecciona los `k` glifos más separables (farthest-point). Devuelve índices.
-#[pyfunction]
-fn select_separable(fingerprints: Vec<Vec<u8>>, k: usize) -> Vec<usize> {
-    glyphopt::select_separable_subset(&fingerprints, k)
-}
-
 /// Parte `secret` en `shares` comparticiones, de las que `threshold` bastan.
 ///
 /// Devuelve una lista de `bytearray`, cada una una compartición serializada que
@@ -445,8 +432,6 @@ fn quipu(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CustodioHsm>()?;
     m.add_function(wrap_pyfunction!(encrypt_stream, m)?)?;
     m.add_function(wrap_pyfunction!(decrypt_stream, m)?)?;
-    m.add_function(wrap_pyfunction!(glyph_min_distance, m)?)?;
-    m.add_function(wrap_pyfunction!(select_separable, m)?)?;
     #[cfg(feature = "escrow")]
     m.add_function(wrap_pyfunction!(split_secret, m)?)?;
     #[cfg(feature = "escrow")]
