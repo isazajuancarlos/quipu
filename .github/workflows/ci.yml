@@ -236,6 +236,29 @@ jobs:
           python -m build --outdir dist
           twine check dist/*
 
+  # La versión, en los 13 sitios donde vive, tiene que ser LA MISMA.
+  #
+  # Es el error que más veces se ha repetido en este proyecto, y hasta hoy la
+  # defensa era una lista en prosa dentro del CLAUDE.md más un `grep`. Auditada
+  # el 2026-07-27, esa defensa no veía `Cargo.lock` (el `grep` filtraba por
+  # `*.toml` y `Cargo.lock` no lo es), contaba `pyproject.toml` que no lleva
+  # versión, y trataba un rango de dependencia como si fuera una versión propia.
+  #
+  # Segundos de CI contra un `yank` de PyPI, que es lo que costó equivocarse la
+  # última vez. Va en su propio job y no dentro de `test + clippy` para que falle
+  # en diez segundos en vez de en cuatro minutos: quien sube una versión quiere
+  # saberlo ya.
+  versiones:
+    name: coherencia de versiones
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+      - name: Todos los sitios de versión concuerdan
+        run: python3 herramientas/verificar.py version
+
   # La rueda de Python: se construye y se PRUEBA, con las features del release.
   #
   # `tests/python/test_quipu.py` existía con quince pruebas y NINGÚN workflow lo
