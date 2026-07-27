@@ -74,7 +74,28 @@ fn route(
     let method = req.method().clone();
     let path = req.url().split('?').next().unwrap_or("").to_string();
 
-    match (&method, path.as_str()) {
+    // HEAD SE ENRUTA COMO GET.
+    //
+    // RFC 9110 §9.3.2: la respuesta a HEAD debe ser idéntica a la de GET salvo
+    // por el cuerpo. Aquí no lo era: HEAD no encajaba en ninguna rama y caía al
+    // 404 final, así que `HEAD /healthz` devolvía 404 mientras `GET /healthz`
+    // devolvía 200.
+    //
+    // No es cosmético. HEAD es lo que usan los monitores de disponibilidad, así
+    // que el servicio venía con su propia sonda mintiendo: un monitor estándar
+    // lo habría dado por caído desde el primer día — o, peor, alguien habría
+    // ajustado el monitor para aceptar el 404 y entonces no avisaría cuando se
+    // cayera de verdad. Es el invariante I7: la superficie desplegada tiene que
+    // poder responder por sí misma.
+    //
+    // Detectado el 2026-07-27 auditando producción con `verificar.py desplegado`.
+    let ruta = if method == Method::Head {
+        Method::Get
+    } else {
+        method.clone()
+    };
+
+    match (&ruta, path.as_str()) {
         (Method::Get, "/healthz") => text(200, "ok"),
         (Method::Get, "/v1/public-key") => {
             json(200, format!("{{\"public_key\":\"{public_key_hex}\"}}"))

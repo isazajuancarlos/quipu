@@ -12,6 +12,27 @@ server {
     ssl_certificate     /etc/letsencrypt/live/oprf.tudominio.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/oprf.tudominio.com/privkey.pem;
 
+    # Solo TLS 1.2 y 1.3. Los anteriores están rotos y ningún cliente legítimo
+    # de este servicio los necesita: el SDK habla TLS moderno.
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # HSTS. El `return 301` de abajo NO basta: la PRIMERA petición de un cliente
+    # nuevo viaja en claro y ahí es donde se intercepta. Con esto, el cliente
+    # recuerda que este dominio es solo HTTPS y no vuelve a intentarlo en claro.
+    #
+    # Es la única cabecera de las «de seguridad» que de verdad aplica a una API
+    # sin navegador. CSP, X-Frame-Options, Referrer-Policy y Permissions-Policy
+    # protegen a un navegador y aquí no tendrían a quién proteger: exigirlas
+    # sería alargar la lista sin defender nada.
+    #
+    # OJO CON `preload`: no se pone a la ligera. Entrar en la lista precargada de
+    # los navegadores es difícil de revertir y afecta a TODOS los subdominios.
+    # Se deja fuera a propósito; añádelo solo con la decisión tomada.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Que nadie adivine el tipo de contenido. Barato, y aplica también a JSON.
+    add_header X-Content-Type-Options "nosniff" always;
+
     # /admin es la costura con la pasarela de pagos: NO exponer a Internet.
     # Solo desde el backend del portafolio (ajusta la IP permitida).
     location /admin/ {
