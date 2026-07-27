@@ -15,7 +15,7 @@ proyectos y no sirve para trabajar aquí.
 | | |
 |---|---|
 | Publicado en | crates.io y PyPI (la versión, en `Cargo.toml`) |
-| Pruebas | 244 en verde, 0 fallidas · 883 sumando todas las combinaciones de features |
+| Pruebas | 255 en verde, 0 fallidas (`cargo test --workspace --all-targets`, 2026-07-27) · 883 sumando todas las combinaciones de features, medido antes y no vuelto a medir |
 | `unsafe` de primera parte | **0** en todo el repositorio |
 | Superficies publicadas | 2 — crates.io y PyPI |
 | Sitios de versión | 4, verificados por el CI en 5 segundos |
@@ -45,15 +45,25 @@ aprovisionamiento contra `quipu-oprf-server` y entregar la clave al cliente.
 Mientras eso no esté comprobado, mejorar el producto es pulir algo que no puede
 cobrar.
 
-### 3. Desbloquear la publicación antes de necesitarla
+### 3. Desbloquear la publicación antes de necesitarla — **HECHO el 2026-07-27**
 
-- **`quipu-nucleo` no está en crates.io** y `quipu` depende de él por
-  `path` + `version`. La próxima publicación fallará. Es la misma trampa que ya
-  ocurrió con `quipu-voprf`, repetida al extraer el núcleo. Confirmar con
-  `cargo publish --dry-run -p quipu`.
-- **La rueda de `quipu-voprf` va una versión por detrás** del crate: 0.2.1 en
-  PyPI contra 0.2.2 en crates.io. Y es el paquete que se le indica al cliente
-  del SaaS, o sea el que más manos ajenas toca.
+Los dos bloqueos que este punto describía están cerrados, y se comprueba en los
+índices, no en el recuerdo:
+
+- **`quipu-nucleo` ya está en crates.io**, así que la dependencia por
+  `path` + `version` de `quipu` sobre él no volverá a tumbar un release.
+- **La rueda de `quipu-voprf` alcanzó al crate**: misma versión en PyPI y en
+  crates.io, y es el paquete que se le indica al cliente del SaaS.
+- Queda fuera del índice el perfil `quipu-cnsa`, y no bloquea a nadie: no es
+  dependencia de `quipu`.
+
+Los números concretos NO se copian aquí a propósito: este documento no es un
+sitio de versión, y duplicarlos garantizaría que un día digan algo distinto de
+la verdad. Se preguntan a los índices con `verificar.py publicado`.
+
+TRAMPA AL COMPROBARLO, y cuesta media hora: la API de crates.io responde **403**
+a una petición sin cabecera `User-Agent`, y un script descuidado lee esa
+respuesta como «no publicado». Hay que mandar `User-Agent` y mirar el cuerpo.
 
 Descubrir esto en mitad de un release es cómo se perdió la 0.9.0.
 
@@ -74,15 +84,16 @@ auditar — ya no hay ABI de C ni cuatro envoltorios.
 
 ## Los invariantes sin vigilancia
 
-De los siete del modelo de amenaza, dos no tienen herramienta continua y tres la
-tienen a medias. Todos vienen del mismo sitio: el plan que los nombraba se cerró
-como entregado porque el *documento* se entregó, y el documento era un mapa.
+Actualizado el 2026-07-27 tras los PR #110 a #117: de los cuatro que aquí
+figuraban, **I4 se cierra entero** y los otros tres bajan a un resto nombrado.
+Todos venían del mismo sitio: el plan que los nombraba se cerró como entregado
+porque el *documento* se entregó, y el documento era un mapa.
 
 | | Estado | Falta |
 |---|---|---|
-| **I1** Ningún observable depende del secreto | parcial | dudect sistemático sobre cada ruta con secreto |
-| **I3** Entropía fresca y nonce único | primer trozo hecho | el banco de `tests/simulacion.rs` mide colisiones de sal y nonce en 800 cifrados; falta el detector continuo y la batería estadística del RNG |
-| **I4** El fallo no revela nada | parcial | verificador de uniformidad de errores |
+| **I1** Ningún observable depende del secreto | casi | seis rutas cubiertas por `dudect_*` en `src/lab/timing.rs` — `ct_eq`, decapsulación válida-vs-corrupta, dos claves, rechazo por causa, verificación de firma y derivación de subclaves. Falta **solo** la alarma si un build cae a una implementación con tablas |
+| **I3** Entropía fresca y nonce único | hecho, sin exponer | `tests/simulacion.rs` mide colisiones de sal y nonce en 800 cifrados, y `tests/taxonomia.rs` (PR #113) añade el detector de reúso —que dice QUÉ pares colisionan— y la batería del RNG: monobit y rachas sobre 131 072 bits, 0,27σ y 0,73σ. Falta promoverlo a **API pública** para que un integrador lo corra sobre su propio almacén |
+| **I4** El fallo no revela nada | **hecho** | nada. El mensaje y el tipo en el PR #110 (`tests/invariantes.rs`) y el TIEMPO en el #114 (`lab::timing::dudect_rechazo_por_causa`) |
 | **I5** Procedencia verificada | parcial | build reproducible (punto 4) |
 
 ## Producto: lo que aún no existe
@@ -140,5 +151,22 @@ número. Mientras no lo tenga, el modo no debe extenderse a más superficies.
 ## Lo que este documento no cubre
 
 `quipu-cnsa` (perfil CNSA 2.0) espera una cotización de laboratorio: es una
-gestión, no código. Y el modelo de tres ramas está descrito en
-[`RAMAS.md`](RAMAS.md), pendiente de crearlas.
+gestión, no código. Lo que sí es código —y no está decidido— es si ese perfil se
+queda en cifrado simétrico o crece a firma y KEM: hoy implementa AES-256-GCM y
+HKDF-SHA-384, y su README declara que ML-DSA-87 y ML-KEM-1024 no están.
+
+El modelo de tres ramas está descrito en [`RAMAS.md`](RAMAS.md) y **ya no está
+pendiente**: `estable`, `testing` y `desarrollo` existen, y las dos primeras
+tienen `enforce_admins` activo.
+
+Y una asimetría que había entre lo escrito y lo configurado, corregida el
+2026-07-27: `RAMAS.md` promete que a `estable` se le exija «todo lo anterior
+**más**», pero en GitHub `testing` requería el check «coherencia de versiones» y
+`estable` no. La rama publicada tenía la puerta más floja que la candidata. Los
+cuatro checks son ya los mismos en las dos. Se comprueba así, y no leyendo esta
+frase:
+
+```bash
+gh api repos/isazajuancarlos/quipu/branches/estable/protection \
+  -q '.required_status_checks.contexts'
+```

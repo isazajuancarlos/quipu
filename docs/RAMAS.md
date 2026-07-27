@@ -101,6 +101,20 @@ Lo que exige cada salto:
 | → `testing` | suite completa, clippy, doctests, cargo-vet, coherencia de versiones |
 | → `estable` | todo lo anterior **más** que la versión no esté ya publicada y que el árbol esté limpio |
 
+Y esa tabla estuvo escrita antes de ser cierta: hasta el 2026-07-27 GitHub
+exigía «coherencia de versiones» en `testing` y **no** en `estable`, de modo que
+la rama publicada tenía la puerta más floja que la candidata. Ya son los cuatro
+mismos checks en las dos. La diferencia del «más» la sigue poniendo
+`verificar.py promover`, no GitHub — el árbol limpio y la versión sin publicar
+no los puede comprobar un check de CI.
+
+Lo escrito no configura nada. Se comprueba en la fuente:
+
+```bash
+gh api repos/isazajuancarlos/quipu/branches/estable/protection \
+  -q '.required_status_checks.contexts, .enforce_admins.enabled'
+```
+
 ## Lo que este modelo NO arregla
 
 No convierte a `estable` en reproducible por sí sola: para eso hace falta la build
