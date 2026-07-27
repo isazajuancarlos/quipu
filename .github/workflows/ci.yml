@@ -236,6 +236,68 @@ jobs:
           python -m build --outdir dist
           twine check dist/*
 
+  # La rueda de Python: se construye y se PRUEBA, con las features del release.
+  #
+  # `tests/python/test_quipu.py` existía con quince pruebas y NINGÚN workflow lo
+  # ejecutaba. Es la misma clase de defecto que el binding de honey que este PR
+  # borra —algo que parece cubierto y no opera—, pero al revés: aquí borrarlo
+  # habría quitado cobertura de verdad, así que lo que faltaba era encenderlo.
+  # Hasta hoy, el binding de Python solo se compilaba; nada lo ejecutaba fuera
+  # del release, que es el peor momento para enterarse.
+  #
+  # Se construye SIN `--features` a propósito: así maturin lee
+  # `[tool.maturin] features` de `pyproject.toml`, exactamente como el release.
+  # Pasarlas a mano aquí reproduciría el defecto de 0.9.0, cuando `release.yml`
+  # llevaba su propia lista y publicó una rueda sin `hsm` mientras el README ya
+  # la anunciaba — y PyPI no deja re-subir una versión.
+  #
+  # El paso de superficie es el que habría cazado aquello: comprueba que la
+  # rueda TRAE lo que sus features prometen, en vez de dar por hecho que el
+  # `success` del build lo garantiza.
+  rueda-python:
+    name: rueda de Python (build + pruebas)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+      - name: Construir la rueda como la construye el release
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin pytest
+          maturin build --out dist
+      - name: Instalar la rueda recién construida
+        run: pip install --no-index --find-links dist quipu-crypto
+      - name: La rueda trae lo que sus features prometen
+        run: |
+          python - <<'PY'
+          import tomllib, sys, quipu
+          with open("pyproject.toml", "rb") as f:
+              features = tomllib.load(f)["tool"]["maturin"]["features"]
+          # Qué símbolo demuestra que cada feature viajó de verdad.
+          testigo = {
+              "escrow": ["split_secret", "combine_secret"],
+              "hsm": ["CustodioHsm"],
+              "honey": ["honey_encrypt_pin", "honey_decrypt_pin"],
+          }
+          faltan = [n for f in features for n in testigo.get(f, []) if not hasattr(quipu, n)]
+          if faltan:
+              sys.exit(f"la rueda declara {features} pero no expone: {faltan}")
+          # Y al revés: nada de lo que la rueda NO declara puede aparecer.
+          sobran = [
+              n for f, ns in testigo.items() if f not in features
+              for n in ns if hasattr(quipu, n)
+          ]
+          if sobran:
+              sys.exit(f"la rueda expone lo que no declara ({features}): {sobran}")
+          print(f"features {features}; version {quipu.version()}")
+          PY
+      - name: Pruebas del binding
+        run: python -m pytest tests/python -q
+
   fuzz:
     name: fuzz (smoke, nightly)
     runs-on: ubuntu-latest

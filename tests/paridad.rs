@@ -187,6 +187,64 @@ fn el_nucleo_canonico_esta_en_los_cinco_bindings() {
     );
 }
 
+/// Lo que Python declara tras una feature tiene que ir en la rueda.
+///
+/// Las features del binding se deciden en DOS archivos que no se hablan:
+/// `src/python.rs` pone el `#[cfg(feature = "X")]` y `pyproject.toml` dice con
+/// cuáles construye maturin. Cuando divergen no falla nada: el código compila
+/// —el CI lo cubre con `--all-features`—, la rueda se publica, y lo que queda es
+/// una función que ningún usuario puede llamar. Ni error, ni aviso, ni prueba
+/// roja. Solo una característica que existe en la fuente y no en el producto.
+///
+/// Pasó con `honey_encrypt_pin`/`honey_decrypt_pin`: vivían tras `honey`, que la
+/// rueda nunca encendió. Quien leyera la fuente concluiría que Python tiene
+/// honey, y honey es precisamente donde una suposición equivocada hace daño,
+/// porque no autentica. Se borraron; esta prueba impide que vuelvan a entrar así.
+///
+/// La regla es simétrica a propósito: no exige que la rueda lleve todas las
+/// features del crate —`lab` y `slh` no tienen por qué—, sino que **nada de lo
+/// que este binding declara quede fuera de ella**. Añadir una capacidad a Python
+/// obliga a encenderla en `pyproject.toml` en el mismo commit, que es cuando
+/// alguien está mirando.
+#[test]
+fn ninguna_feature_del_binding_de_python_queda_fuera_de_la_rueda() {
+    let python = fuente("src/python.rs");
+    let pyproject = fuente("pyproject.toml");
+
+    let linea = pyproject
+        .lines()
+        .find(|l| l.trim_start().starts_with("features"))
+        .expect("pyproject.toml debe declarar [tool.maturin] features");
+
+    let mut declaradas: Vec<&str> = Vec::new();
+    let mut resto = python.as_str();
+    while let Some(i) = resto.find("#[cfg(feature = \"") {
+        resto = &resto[i + "#[cfg(feature = \"".len()..];
+        if let Some(j) = resto.find('"') {
+            declaradas.push(&resto[..j]);
+        }
+    }
+    declaradas.sort_unstable();
+    declaradas.dedup();
+
+    let fuera: Vec<&str> = declaradas
+        .iter()
+        .copied()
+        .filter(|f| !linea.contains(&format!("\"{f}\"")))
+        .collect();
+
+    assert!(
+        fuera.is_empty(),
+        "src/python.rs declara código tras {:?}, pero la rueda no enciende esa(s) \
+         feature(s):\n  {}\n\n\
+         Ese código NO llega a quien hace `pip install`: compila en el CI bajo \
+         --all-features y nadie puede llamarlo. O se añade la feature a \
+         `[tool.maturin] features` en pyproject.toml, o se borra el binding.",
+        fuera,
+        linea.trim()
+    );
+}
+
 /// El VOPRF no puede colarse en el núcleo AGPL de Python.
 ///
 /// No es una regla de estilo, es la que sostiene el negocio del servicio OPRF.
