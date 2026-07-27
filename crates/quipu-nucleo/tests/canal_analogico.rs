@@ -15,7 +15,7 @@
 //! Sin esta medición, «el canal analógico está a medias» es una frase; con
 //! ella, es una lista de lo que falta.
 
-use image::{GenericImageView, GrayImage, ImageFormat, Luma};
+use image::{GrayImage, ImageFormat, Luma};
 use std::io::Cursor;
 
 use quipu_nucleo::glyphfont;

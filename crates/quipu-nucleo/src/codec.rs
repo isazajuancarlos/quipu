@@ -45,52 +45,6 @@ pub fn decode_base_n(indices: &[u32], n: u32) -> Vec<u8> {
     bytes[1..].to_vec()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proptest::prelude::*;
-
-    #[test]
-    fn round_trips_simple_bytes() {
-        let data = b"hello";
-        let encoded = encode_base_n(data, 94);
-        let decoded = decode_base_n(&encoded, 94);
-        assert_eq!(decoded, data);
-    }
-
-    #[test]
-    fn round_trips_empty_input() {
-        let data = b"";
-        let encoded = encode_base_n(data, 94);
-        let decoded = decode_base_n(&encoded, 94);
-        assert_eq!(decoded, data);
-    }
-
-    #[test]
-    fn round_trips_leading_zero_bytes() {
-        // El marcador 0x01 debe preservar los ceros a la izquierda.
-        let data = &[0u8, 0, 0, 42];
-        let encoded = encode_base_n(data, 94);
-        let decoded = decode_base_n(&encoded, 94);
-        assert_eq!(decoded, data);
-    }
-
-    proptest! {
-        #[test]
-        fn round_trips_any_bytes_any_base(
-            data in proptest::collection::vec(any::<u8>(), 0..256),
-            n in 2u32..=4096,
-        ) {
-            let encoded = encode_base_n(&data, n);
-            // Todo índice debe estar en el rango [0, n).
-            prop_assert!(encoded.iter().all(|&d| d < n));
-            let decoded = decode_base_n(&encoded, n);
-            prop_assert_eq!(decoded, data);
-        }
-    }
-}
-
-
 // ===========================================================================
 // CODIFICACIÓN POR GRUPOS, PARA QUE EL DAÑO SEA LOCAL
 // ===========================================================================
@@ -180,3 +134,50 @@ pub fn decode_grupos(indices: &[Option<u32>], n: u32) -> (Vec<u8>, Vec<usize>) {
     }
     (out, corruptos)
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    #[test]
+    fn round_trips_simple_bytes() {
+        let data = b"hello";
+        let encoded = encode_base_n(data, 94);
+        let decoded = decode_base_n(&encoded, 94);
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn round_trips_empty_input() {
+        let data = b"";
+        let encoded = encode_base_n(data, 94);
+        let decoded = decode_base_n(&encoded, 94);
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn round_trips_leading_zero_bytes() {
+        // El marcador 0x01 debe preservar los ceros a la izquierda.
+        let data = &[0u8, 0, 0, 42];
+        let encoded = encode_base_n(data, 94);
+        let decoded = decode_base_n(&encoded, 94);
+        assert_eq!(decoded, data);
+    }
+
+    proptest! {
+        #[test]
+        fn round_trips_any_bytes_any_base(
+            data in proptest::collection::vec(any::<u8>(), 0..256),
+            n in 2u32..=4096,
+        ) {
+            let encoded = encode_base_n(&data, n);
+            // Todo índice debe estar en el rango [0, n).
+            prop_assert!(encoded.iter().all(|&d| d < n));
+            let decoded = decode_base_n(&encoded, n);
+            prop_assert_eq!(decoded, data);
+        }
+    }
+}
+
