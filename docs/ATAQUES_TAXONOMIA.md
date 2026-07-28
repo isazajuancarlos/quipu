@@ -446,8 +446,11 @@ La lectura vertical de la tabla de invariantes da el diseño:
    nulls, indistinguibles. El núcleo va bajo `lab` (lo corre el CI); el puente a
    dudect, bajo `lab-offline`, como `timing`.
 2. ~~**Detector de reúso de nonce** y batería estadística del RNG (I3).~~
-   **HECHO** el 2026-07-27 (`tests/taxonomia.rs`). Queda promover el detector a
-   API pública.
+   **HECHO** el 2026-07-27 (`tests/taxonomia.rs`), y el detector **promovido a
+   API pública** el 2026-07-28: `antihacker::nonces_repetidos` en el crate
+   PUBLICADO —la vacuna se abre—, para que un integrador lo corra sobre su propio
+   almacén. Devuelve los pares que colisionan (no un booleano), ignora lo que no
+   parsea como contenedor, y usa el parser real en vez de cortar bytes a mano.
 3. ~~**Verificador de uniformidad de errores** (I4) recorriendo cada punto de
    fallo.~~ **HECHO** el 2026-07-27: el mensaje y el tipo en `tests/invariantes.rs`,
    y el **tiempo** en `lab::timing::dudect_rechazo_por_causa`.
