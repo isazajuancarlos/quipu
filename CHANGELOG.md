@@ -6,6 +6,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Planned
+- Independent security audit and public remediation of findings.
+- Reference deployment of the online VOPRF hardening server.
+
+## [0.10.0] — 2026-07-28
+
 ### Fixed
 - **`quipu-cnsa` anunciaba ML-KEM-1024 sin implementarlo.** El titular del README y —peor— el
   campo `description` del `Cargo.toml`, que es el texto que se publica en crates.io, decían
@@ -166,6 +172,46 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   written into the YAML: a duplicated list is a list that diverges.
 - **CI: doctests.** `--all-targets` excludes them despite the name, so they had
   never run in this project's history.
+- **Sondas de invariantes** (`tests/invariantes.rs`, `tests/taxonomia.rs`): las
+  que la taxonomía de ataques pedía y no existían. Fallo inyectado en **las dos
+  mitades** de la firma híbrida por separado (un fallo en una no autoriza nada);
+  uniformidad de errores (mismo tipo y mensaje ante cualquier fallo de
+  autenticación); el material sensible no viaja dentro de un error; detector de
+  reúso de nonce y batería estadística del RNG (monobit + rachas, 5σ); sondas de
+  downgrade y confusión de versión.
+- **dudect ampliado** (`src/lab/timing.rs`): sobre la verificación de firma, la
+  derivación de subclaves, y el **tiempo del rechazo por causa** — que el reloj
+  no delate si se acertó la contraseña aunque el error no lo diga.
+- **Banco de indistinguibilidad** (`src/lab/indistinguibilidad.rs`): un
+  vocabulario de veredicto ÚNICO para I1 e I4 sobre tres señales —tiempo,
+  ciphertext y error—. dudect (t de Welch) y el distinguidor entrenado (σ) se
+  convierten a él sin reescribir ninguno; un conductor los junta en un informe
+  comparable. Cada señal trae su fuga sembrada como control de que discrimina.
+- **KAT contra norma EXTERNA** (`tests/vectores_de_norma.rs`): las primitivas
+  atadas a vectores de un estándar, no a los que genera Quipu. HKDF-SHA256
+  (Wycheproof/RFC 5869), Ed25519 (Wycheproof/RFC 8032), **Argon2id (RFC 9106)** y
+  **ML-KEM-1024 y ML-DSA-87 keyGen (NIST ACVP)**, con los vectores ACVP
+  vendorizados en `tests/vectors/`. Cierra la familia 1 de la taxonomía: caza una
+  subida regresiva de una dependencia —como la que RustSec persiguió en `ml-dsa`—
+  antes de una release.
+- **`antihacker::nonces_repetidos`** — detector de reúso de nonce como API
+  PÚBLICA, para que un integrador lo corra sobre su propio almacén. Devuelve los
+  pares que colisionan (no un booleano) e ignora lo que no parsea como contenedor.
+- **`custodia-seed`** (`quipu-oprf-server`, feature `custodia`) — respaldo Shamir
+  k-de-n del *seed* del OPRF, verificado por que reconstruye la MISMA clave
+  pública (un seed que restaura íntegro pero da otra clave es peor que perderlo).
+- **`verificar.py desplegado`** — invariante I7: audita la superficie en
+  PRODUCCIÓN (HSTS, `/admin` no 2xx, HEAD coincide con GET, TLS 1.0/1.1 rechazado)
+  sin ser intrusivo. Y `verificar.py promover` comprueba la promoción entre ramas.
+
+### Security
+- **Reauditoría de amenazas recientes (2026-07-28), contrastada contra la pila
+  PINEADA**: `ml-dsa 0.1.1` ya trae la corrección de **RUSTSEC-2025-0144**
+  (canal lateral de división en tiempo variable, ML-DSA Decompose); `ml-kem 0.3.2`
+  está por encima de KyberSlash/Clangover; y los parámetros Argon2id por defecto
+  (64 MiB / t=3) superan el mínimo OWASP 2025. La defensa que valió fue la
+  procedencia (versión pineada + `cargo-audit`), no una sonda nueva. Ninguno era
+  explotable en Quipu; se documenta como constancia, no como parche.
 
 ### Fixed
 - **`--features lab-offline` did not compile** — not just here: the published
@@ -192,11 +238,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `symmetric_container_is_byte_exact` still passes byte for byte.
 - `container::Header` is now generic over the salt and nonce lengths. `quipu`
   pins `<16, 24>` behind a type alias, so nothing downstream changes.
-
-### Planned
-- Independent security audit and public remediation of findings.
-- A non-blocking `worker_threads` wrapper for the Node.js bindings.
-- Reference deployment of the online VOPRF hardening server.
 
 ## [0.9.1] — 2026-07-20
 
