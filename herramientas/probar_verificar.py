@@ -234,6 +234,74 @@ def probar_red_caida() -> None:
         verificar.leer_json = original
 
 
+def probar_barrido_distingue_version_de_dependencia() -> None:
+    """El barrido no puede marcar «0.9.1» cuando es de una DEPENDENCIA.
+
+    Punto ciego 2 de la tarea #138: `docs/ATAQUES_TAXONOMIA.md` decía que
+    `quipu-cnsa` depende de `aes 0.9.1` y el barrido lo marcó como si 0.9.1 fuera
+    la versión de Quipu — la misma trampa que el grep original ya documentaba.
+    Es LA prueba que importa: que la regla DISCRIMINE de quién es la versión.
+    """
+    deps = verificar._nombres_de_dependencias()
+    comprobar("aes" in deps, "aes debe estar en el grafo de dependencias (Cargo.lock)")
+    comprobar("poly1305" in deps, "poly1305 también: es la otra que tiene 0.9.x")
+    comprobar("quipu" not in deps, "quipu NO es dependencia ajena: se excluye del grafo")
+
+    # La versión de una dependencia, en todas sus formas, NO cuenta como Quipu.
+    for texto in (
+        "quipu-cnsa depende de aes 0.9.1 para el modo simétrico",
+        'aes = "0.9.1"',
+        "aes-0.9.1",
+        "aes@0.9.1",
+        "poly1305 0.9.1 y aes 0.9.1",
+    ):
+        comprobar(
+            not verificar._version_a_espaldas(texto, "0.9.1", deps),
+            f"«{texto}» es versión de dependencia: marcarlo sería el falso positivo de #138",
+        )
+
+    # La versión de Quipu, sin nombre de dependencia pegado, SÍ cuenta: quitar el
+    # falso positivo no puede cegar el barrido a lo que existe para vigilar.
+    for texto in (
+        "Versión 0.9.1 de Quipu",
+        "quipu 0.9.1",
+        "0.9.1",
+        "release 0.9.1",  # «release» no es un crate: sigue contando como Quipu
+    ):
+        comprobar(
+            verificar._version_a_espaldas(texto, "0.9.1", deps),
+            f"«{texto}» es la versión de Quipu: el barrido DEBE poder verla",
+        )
+
+    # Un archivo con AMBAS —la de Quipu y la de una dependencia— se marca: basta
+    # una aparición sin coartada. Para una salvaguarda, la duda cierra.
+    comprobar(
+        verificar._version_a_espaldas("Quipu 0.9.1, que usa aes 0.9.1", "0.9.1", deps),
+        "si hay una aparición de Quipu, da igual que también cite una dependencia",
+    )
+
+
+def probar_barrido_respeta_fronteras_numericas() -> None:
+    """«0.9.1» no puede casar dentro de «0.9.10» ni de «10.9.1».
+
+    El barrido viejo usaba `v in texto` (subcadena), que sí casaba dentro de un
+    número mayor. Un falso positivo tan tonto como real.
+    """
+    deps = verificar._nombres_de_dependencias()
+    comprobar(
+        not verificar._version_a_espaldas("subimos a 0.9.10 la semana pasada", "0.9.1", deps),
+        "0.9.1 no debe casar dentro de 0.9.10",
+    )
+    comprobar(
+        not verificar._version_a_espaldas("el build 10.9.1 del kernel", "0.9.1", deps),
+        "0.9.1 no debe casar dentro de 10.9.1",
+    )
+    comprobar(
+        not verificar._version_a_espaldas("un texto sin ninguna versión", "0.9.1", deps),
+        "un texto sin la versión no la contiene",
+    )
+
+
 def main() -> int:
     # LAS PRUEBAS SE DESCUBREN, NO SE ENUMERAN.
     #
