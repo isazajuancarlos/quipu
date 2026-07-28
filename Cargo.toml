@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "quipu"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2024"
 description = "Codec criptográfico post-cuántico híbrido (X25519+ML-KEM-1024, Ed25519+ML-DSA-87) con endurecimiento online verificable por VOPRF conforme a RFC 9497. Datos en reposo."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
