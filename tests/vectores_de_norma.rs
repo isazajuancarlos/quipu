@@ -281,3 +281,93 @@ fn derive_master_key_es_argon2id_v0x13_y_no_argon2i() {
         "y NO Argon2i: sin este assert el test no discriminaría el algoritmo"
     );
 }
+
+/// Decodifica hex (mayúsculas o minúsculas). Los vectores ACVP vienen como cadena
+/// hex; no se transcriben, se parsean del JSON vendorizado, así que el único
+/// riesgo aquí es un decodificador mal escrito — y este falla ruidoso.
+fn hex_a_bytes(s: &str) -> Vec<u8> {
+    assert!(s.len().is_multiple_of(2), "hex de longitud impar");
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("dígito hex válido"))
+        .collect()
+}
+
+/// ML-KEM-1024 conforma con el vector de keyGen de NIST (FIPS 203 / ACVP).
+///
+/// PROCEDENCIA de la primitiva insignia: que el crate `ml-kem` derive la clave de
+/// encapsulación FIPS-correcta a partir de la semilla del vector. Es lo que
+/// faltaba de la familia 1 de la taxonomía; wycheproof NO trae ML-KEM, así que el
+/// vector viene de NIST ACVP-Server, vendorizado en `tests/vectors/` y parseado
+/// del JSON — NO transcrito a mano (el `ek` son 1568 bytes).
+///
+/// FIPS 203: la semilla de keygen es `d ‖ z` (64 bytes); `DecapsulationKey::
+/// from_seed` la parte con `seed.split()` en ese orden. Se afirma la `ek`
+/// derivada, que es la parte NO trivial de la keygen (K-PKE); el `dk` es
+/// `ek ‖ H(ek) ‖ z`, así que una `ek` correcta cubre la derivación.
+///
+/// Cazaría una subida regresiva de `ml-kem` —el tipo de fallo que RustSec
+/// persiguió en la familia PQ— antes de que llegara a una release.
+#[test]
+fn ml_kem_1024_conforma_con_el_vector_acvp_de_nist() {
+    use ml_kem::{DecapsulationKey, KeyExport, MlKem1024, Seed};
+
+    let v: serde_json::Value =
+        serde_json::from_str(include_str!("vectors/acvp_mlkem1024_keygen.json"))
+            .expect("vector ACVP ML-KEM legible");
+    let d = hex_a_bytes(v["d"].as_str().expect("campo d"));
+    let z = hex_a_bytes(v["z"].as_str().expect("campo z"));
+    let ek_esperado = hex_a_bytes(v["ek"].as_str().expect("campo ek"));
+
+    let mut semilla = d;
+    semilla.extend_from_slice(&z); // d ‖ z, FIPS 203
+    let seed = Seed::try_from(semilla.as_slice()).expect("semilla de 64 bytes");
+
+    let dk = DecapsulationKey::<MlKem1024>::from_seed(seed);
+    let ek = dk.encapsulation_key().to_bytes();
+
+    assert_eq!(
+        ek.as_slice(),
+        ek_esperado.as_slice(),
+        "ml-kem dejó de derivar la ek FIPS del vector ACVP ML-KEM-1024 keyGen tc {}",
+        v["tcId"]
+    );
+    println!(
+        "ML-KEM-1024 contra ACVP tc {}: ek de {} bytes conforme",
+        v["tcId"],
+        ek.as_slice().len()
+    );
+}
+
+/// ML-DSA-87 conforma con el vector de keyGen de NIST (FIPS 204 / ACVP).
+///
+/// La otra primitiva insignia: que `ml-dsa` derive la clave de verificación
+/// FIPS-correcta desde la semilla `ξ` de 32 bytes del vector. Mismo encuadre que
+/// ML-KEM: vector de NIST ACVP-Server, vendorizado y parseado, no transcrito (la
+/// `pk` son 2592 bytes).
+#[test]
+fn ml_dsa_87_conforma_con_el_vector_acvp_de_nist() {
+    use ml_dsa::{Keypair, MlDsa87, Seed, SigningKey};
+
+    let v: serde_json::Value =
+        serde_json::from_str(include_str!("vectors/acvp_mldsa87_keygen.json"))
+            .expect("vector ACVP ML-DSA legible");
+    let semilla = hex_a_bytes(v["seed"].as_str().expect("campo seed"));
+    let pk_esperado = hex_a_bytes(v["pk"].as_str().expect("campo pk"));
+
+    let xi = Seed::try_from(semilla.as_slice()).expect("semilla ξ de 32 bytes");
+    let sk = SigningKey::<MlDsa87>::from_seed(&xi);
+    let pk = sk.verifying_key().encode();
+
+    assert_eq!(
+        pk.as_slice(),
+        pk_esperado.as_slice(),
+        "ml-dsa dejó de derivar la pk FIPS del vector ACVP ML-DSA-87 keyGen tc {}",
+        v["tcId"]
+    );
+    println!(
+        "ML-DSA-87 contra ACVP tc {}: pk de {} bytes conforme",
+        v["tcId"],
+        pk.as_slice().len()
+    );
+}

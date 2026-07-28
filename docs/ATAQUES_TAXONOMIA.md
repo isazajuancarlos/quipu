@@ -502,6 +502,15 @@ lo vigile. La versión de la dependencia es el control, no el criptoanálisis.
 **Añadido en esta pasada:** el KAT de Argon2id contra el RFC 9106 §5.3
 (`tests/vectores_de_norma.rs`), que era el primer «falta» de la familia 1 — cierra
 la procedencia de Argon2id igual que los de HKDF y Ed25519, y un test de cableado
-que exige que `derive_master_key` sea Argon2id V0x13 y no Argon2i. Siguen faltando
-las KAT de NIST para ML-KEM-1024 y ML-DSA-87 (vectores ACVP grandes; no se
-transcriben a mano).
+que exige que `derive_master_key` sea Argon2id V0x13 y no Argon2i.
+
+**Y el último «falta» de la familia 1, cerrado el mismo día:** las KAT de NIST
+para **ML-KEM-1024** (keyGen, `ek` de 1568 bytes) y **ML-DSA-87** (keyGen, `pk` de
+2592 bytes), contra los vectores ACVP de NIST. Como `wycheproof` no los trae, se
+vendorizó **un** vector de cada uno en `tests/vectors/acvp_*.json` —tomados del
+ACVP-Server de NIST, parseados del JSON, NO transcritos: el `ek`/`pk` son
+demasiado grandes— y se reproducen con `DecapsulationKey::from_seed` (semilla
+`d‖z`) y `SigningKey::from_seed`. Es procedencia: cazaría una subida regresiva de
+`ml-kem`/`ml-dsa` —el mismo tipo de fallo que RUSTSEC-2025-0144— antes de una
+release. Con esto, **la familia 1 (criptoanálisis de la primitiva, I5) queda
+cerrada**.
