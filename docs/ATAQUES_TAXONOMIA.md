@@ -466,3 +466,30 @@ válidas + 62 inválidas», medidos corriendo las pruebas— y dos no: I6 figura
 como pendiente estando hecho, y el punto 4 pedía una alarma para un riesgo que
 este stack no tiene. Un mapa que manda construir lo que no hace falta cuesta más
 que uno incompleto.
+
+---
+
+## Reauditoría 2026-07-28 — amenazas recientes contra la pila real
+
+Barrido de documentación reciente (2025–2026) de los métodos de ataque y las
+primitivas que Quipu usa, contrastado contra las versiones PINEADAS, no contra la
+teoría:
+
+| Amenaza reciente | ¿Toca a Quipu? | Estado, medido |
+|---|---|---|
+| **RUSTSEC-2025-0144 / CVE-2026-22705** — canal lateral de temporización en `ml-dsa` (algoritmo *Decompose* al firmar; división en tiempo variable), publicado 2026-01-27, corregido en `>=0.1.0-rc.3` | Sí — Quipu firma con ML-DSA-87 | **CUBIERTO.** El árbol pinea `ml-dsa 0.1.1`, que ya trae la reducción de Barrett en tiempo constante. `cargo-audit` (obligatorio en CI) lo confirmaría en rojo si se bajara |
+| **KyberSlash 1/2 + Clangover** (CVE-2024-37880) — timing por división dependiente del secreto en ML-KEM; el segundo lo introducía el optimizador de Clang | Sí — `ml-kem 0.3.2` | Parcheado aguas arriba; la familia 1 ya lo daba por ausente en la fuente vendida |
+| **OWASP 2025 — Argon2id mínimo 19 MiB / t=2 / p=1** | Sí — KDF offline | Quipu por defecto **64 MiB / t=3 / p=1**, por encima del mínimo |
+
+Lo que confirma la reauditoría, y es la tesis del bloque ALCANCE otra vez: el CVE
+reciente que sí tocaba a Quipu era **un canal lateral de división en tiempo
+variable** —exactamente la familia 2, I1— y la defensa que valió no fue una sonda
+nueva sino **la procedencia (I5)**: pinear la versión corregida y que `cargo-audit`
+lo vigile. La versión de la dependencia es el control, no el criptoanálisis.
+
+**Añadido en esta pasada:** el KAT de Argon2id contra el RFC 9106 §5.3
+(`tests/vectores_de_norma.rs`), que era el primer «falta» de la familia 1 — cierra
+la procedencia de Argon2id igual que los de HKDF y Ed25519, y un test de cableado
+que exige que `derive_master_key` sea Argon2id V0x13 y no Argon2i. Siguen faltando
+las KAT de NIST para ML-KEM-1024 y ML-DSA-87 (vectores ACVP grandes; no se
+transcriben a mano).
