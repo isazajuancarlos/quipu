@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -531,6 +532,63 @@ def _sitios_de_version(v: str) -> list[tuple[str, str, str, object]]:
     return sitios
 
 
+def _nombres_de_dependencias() -> set[str]:
+    """Nombres de crates del `Cargo.lock` que NO son de Quipu.
+
+    Son la referencia DURA para saber si un «0.9.1» suelto en un texto es la
+    versión de una dependencia (aes, poly1305, ml-kem…) o la de Quipu. Se leen
+    del grafo real, no se adivina por la forma: así «release 0.10.0» —que no es
+    un crate— sigue contando como versión de Quipu, y «aes 0.9.1» no.
+    """
+    try:
+        import tomllib
+        with open(RAIZ / "Cargo.lock", "rb") as f:
+            lock = tomllib.load(f)
+    except (OSError, ValueError, ModuleNotFoundError):
+        return set()
+    return {
+        p["name"].lower()
+        for p in lock.get("package", [])
+        if isinstance(p.get("name"), str) and not p["name"].startswith("quipu")
+    }
+
+
+_SEP_VERSION = re.compile(r'[\s="@:^~<>\-]+$')
+_TOKEN_FINAL = re.compile(r'([A-Za-z][A-Za-z0-9_-]*)$')
+
+
+def _version_a_espaldas(texto: str, v: str, deps: set[str]) -> bool:
+    """¿`texto` nombra `v` COMO VERSIÓN DE QUIPU (no de una dependencia)?
+
+    Devuelve True si hay al menos una aparición de `v` que NO está pegada al
+    nombre de una dependencia conocida (`aes 0.9.1`, `aes = "0.9.1"`, `aes-0.9.1`,
+    `aes@0.9.1`…). Una aparición sin ese contexto cuenta como versión de Quipu:
+    para una salvaguarda, la duda se resuelve señalando, no callando
+    (directiva 21).
+
+    Es el punto ciego 2 de la tarea #138: el barrido marcaba
+    `docs/ATAQUES_TAXONOMIA.md` por contener «aes 0.9.1» como si 0.9.1 fuera la
+    versión de Quipu — la MISMA trampa que el grep original ya documentaba
+    («Cargo.lock tiene 0.9.1 para aes y poly1305, que no son de Quipu»),
+    reaparecida dentro de la herramienta que vino a sustituirlo. Se arregla en la
+    REGLA, no exentando el archivo (directiva 23): el falso positivo volvería con
+    la próxima dependencia que se documente.
+
+    El límite `(?<![\\d.]) … (?![\\d.])` evita que «0.9.1» case dentro de
+    «0.9.10» o «10.9.1».
+    """
+    patron = re.compile(r"(?<![\d.])" + re.escape(v) + r"(?![\d.])")
+    for m in patron.finditer(texto):
+        izquierda = texto[max(0, m.start() - 40):m.start()]
+        cola = _SEP_VERSION.sub("", izquierda)
+        mtok = _TOKEN_FINAL.search(cola)
+        nombre = mtok.group(1).lower() if mtok else ""
+        if nombre in deps:
+            continue  # esta aparición es la versión de esa dependencia
+        return True   # aparición sin coartada: cuenta como versión de Quipu
+    return False      # o no aparece, o todas son de dependencias
+
+
 def verificar_versiones(inf: Informe) -> None:
     """Todos los sitios que llevan la versión llevan LA MISMA."""
     try:
@@ -566,31 +624,61 @@ def verificar_versiones(inf: Informe) -> None:
         )
 
     # --- barrido: ¿hay algún archivo con la versión que nadie vigila? --------
+    #
+    # LOS DOS PUNTOS CIEGOS QUE TUVO ESTE BARRIDO Y CÓMO SE CIERRAN (tarea #138):
+    #
+    # 1. SOLO VE LO RASTREADO POR GIT. Un archivo ignorado —CLAUDE.md, las
+    #    skills— puede llevar la versión y quedarse atrás en un salto sin que
+    #    esto lo vea. NO se escanean a ciegas: llevan versiones AJENAS en prosa
+    #    (dependencias, Python, plugins) que dispararían falsos positivos, y un
+    #    escaneo que se equivoca es una salvaguarda que hay que desactivar
+    #    —justo lo que la directiva 23 prohíbe—. Se DECLARA el alcance para que
+    #    el silencio no se lea como «comprobado»: lo ignorado se revisa a mano al
+    #    subir de versión. El registro cubre lo VERSIONADO, y ahora lo dice.
+    #
+    # 2. NO DISTINGUÍA DE QUIÉN ES LA VERSIÓN: «aes 0.9.1» marcaba el archivo
+    #    aunque 0.9.1 fuera de una dependencia. Ahora `_version_a_espaldas`
+    #    contrasta el contexto contra Cargo.lock y solo cuenta lo que es de Quipu.
     cod, salida = correr(["git", "ls-files"], cwd=RAIZ, timeout=60)
     if cod != 0:
         inf.omitido("barrido de archivos no vigilados", "git ls-files no respondió")
         return
+    deps = _nombres_de_dependencias()
+    if not deps:
+        inf.omitido(
+            "barrido de archivos no vigilados",
+            "no se pudo leer Cargo.lock: sin el grafo de dependencias el barrido no "
+            "puede distinguir la versión de Quipu de la de un paquete ajeno",
+        )
+        return
     vigilados = {a for a, _, _, _ in _sitios_de_version(v)} | _BARRIDO_EXENTO
-    sueltos = []
+    sueltos, rastreados = [], 0
     for rel in salida.splitlines():
         rel = rel.strip()
         if not rel or rel in vigilados:
             continue
         if not rel.endswith((".toml", ".json", ".md", ".yml", ".yaml", ".cfg", ".txt")):
             continue
+        rastreados += 1
         try:
-            if v in (RAIZ / rel).read_text(encoding="utf-8", errors="ignore"):
-                sueltos.append(rel)
+            texto = (RAIZ / rel).read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        if _version_a_espaldas(texto, v, deps):
+            sueltos.append(rel)
+    alcance = (
+        f"{rastreados} archivos rastreados revisados — los IGNORADOS por git "
+        "(CLAUDE.md, .claude/skills) quedan fuera: revísalos a mano al subir de versión"
+    )
     if sueltos:
         inf.fallo(
-            "archivos con la versión que NADIE vigila",
+            "archivos con la versión de Quipu que NADIE vigila",
             ", ".join(sueltos) + " — añádelos al registro de `_sitios_de_version` o el "
             "próximo salto de versión los dejará atrás en silencio",
         )
     else:
-        inf.ok("ningún archivo lleva la versión a espaldas del registro")
+        inf.ok("ningún archivo rastreado lleva la versión de Quipu a espaldas del registro",
+               alcance)
 
 
 # =========================== la portada no promete de más ======================
