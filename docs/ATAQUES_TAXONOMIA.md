@@ -433,9 +433,18 @@ La lectura vertical de la tabla de invariantes da el diseño:
 
 ## Qué construir primero (borrador de orden)
 
-1. **Generalizar el distinguidor** a un banco que cubra I1+I4 sobre las tres
-   señales (timing, error, ciphertext), con adversario adaptativo. Máximo
-   apalancamiento.
+1. ~~**Generalizar el distinguidor** a un banco que cubra I1+I4 sobre las tres
+   señales (timing, error, ciphertext), con adversario adaptativo.~~ **HECHO**
+   el 2026-07-28 (`src/lab/indistinguibilidad.rs`). No se reescribió nada: un
+   `Veredicto` común al que dudect (t de Welch) y el distinguidor (σ) se
+   CONVIERTEN —cada uno conserva su regla de decisión afinada—, más un trait
+   `Sonda` y un conductor `evaluar_banco`. La adaptación es la del distinguidor
+   (reenfoque de pesos + remuestreo por rondas); no se añadió un motor de
+   consultas arbitrarias porque en autosabotaje el atacante controla las dos
+   clases. Discrimina en las TRES señales, con fuga sembrada por cada una
+   (directiva 8): tiempo 220σ, ciphertext 17σ, error 17σ marcados como fuga; sus
+   nulls, indistinguibles. El núcleo va bajo `lab` (lo corre el CI); el puente a
+   dudect, bajo `lab-offline`, como `timing`.
 2. ~~**Detector de reúso de nonce** y batería estadística del RNG (I3).~~
    **HECHO** el 2026-07-27 (`tests/taxonomia.rs`). Queda promover el detector a
    API pública.
