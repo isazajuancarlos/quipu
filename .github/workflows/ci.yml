@@ -10,6 +10,12 @@ on:
     # Auditoría semanal de dependencias aunque no haya cambios (nuevas CVEs).
     - cron: "0 6 * * 1"
 
+permissions:
+  # Menor privilegio (supply-chain #203): todos los jobs de este CI son de solo
+  # lectura (build/test/clippy/audit/vet/sbom/fuzz/hsm). release.yml fija sus
+  # propios permisos por job. Sin este bloque el GITHUB_TOKEN hereda permisos amplios.
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
