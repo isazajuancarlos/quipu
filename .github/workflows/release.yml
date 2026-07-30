@@ -17,7 +17,7 @@ name: release-wheels
 # `refs/tags/v`, así que cada tag dispara solo lo suyo.
 on:
   push:
-    tags: ["v*", "voprf-v*", "django-v*"]
+    tags: ["v*", "voprf-v*", "nucleo-v*", "django-v*"]
   workflow_dispatch:
 
 permissions:
@@ -263,3 +263,81 @@ jobs:
             Artefactos firmados con sigstore/cosign (keyless, OIDC).
             Verificación: ver [`docs/RELEASES.md`](https://github.com/isazajuancarlos/quipu/blob/estable/docs/RELEASES.md)
             (attestations PEP 740 en PyPI + `cosign verify-blob --bundle` para cada `.sigstore`).
+
+  # --- crates.io (Trusted Publishing OIDC, #127) ------------------------------
+  # Publica los crates a crates.io SIN token de larga vida. La acción oficial
+  # `rust-lang/crates-io-auth-action` canjea el OIDC de GitHub por un token
+  # EFÍMERO y scoped; `cargo publish` lo usa vía CARGO_REGISTRY_TOKEN. Cada crate
+  # tiene su publicador de confianza en crates.io (owner isazajuancarlos, repo
+  # quipu, workflow release.yml, environment `release`), así que solo estos jobs,
+  # en esta rama, pueden publicar. Con esto se borra el token de crates.io de
+  # larga vida (era el único registro que lo tenía; ver #127/#203).
+  #
+  # UN TAG POR CRATE, como en PyPI:  v* -> quipu · voprf-v* -> quipu-voprf ·
+  # nucleo-v* -> quipu-nucleo. `quipu` depende de nucleo y voprf ya publicados,
+  # así que un release de solo quipu basta con su tag; si se bumpean los tres, se
+  # empujan los tags en orden nucleo -> voprf -> quipu (crates.io rechaza `quipu`
+  # si sus dependencias por versión no están en el índice).
+  #
+  # El checkout de CI es limpio, así que el problema del `.crate` de 220 MiB por
+  # basura sin rastrear (que ocurre en el `cargo publish` LOCAL) aquí no aplica.
+
+  crate-quipu:
+    name: publish quipu to crates.io
+    # Mismo patrón que el publish de PyPI del núcleo: 'voprf-v*' TAMBIÉN empieza
+    # por 'refs/tags/v', así que se excluye a mano; 'nucleo-v*'/'django-v*' no,
+    # pero se excluyen por claridad.
+    if: startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/nucleo-v') && !startsWith(github.ref, 'refs/tags/django-v')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write   # crates.io trusted publishing (OIDC), sin token de larga vida
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Autenticar contra crates.io por OIDC (token efímero)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: cargo publish -p quipu
+        run: cargo publish -p quipu
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  crate-voprf:
+    name: publish quipu-voprf to crates.io
+    if: startsWith(github.ref, 'refs/tags/voprf-v')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Autenticar contra crates.io por OIDC (token efímero)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: cargo publish -p quipu-voprf
+        run: cargo publish -p quipu-voprf
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  crate-nucleo:
+    name: publish quipu-nucleo to crates.io
+    if: startsWith(github.ref, 'refs/tags/nucleo-v')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Autenticar contra crates.io por OIDC (token efímero)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: cargo publish -p quipu-nucleo
+        run: cargo publish -p quipu-nucleo
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
