@@ -98,15 +98,24 @@ Lo que exige cada salto:
 
 | Promoción | Exige |
 |---|---|
-| → `testing` | suite completa, clippy, doctests, cargo-vet, coherencia de versiones |
+| → `testing` | los SIETE checks obligatorios: `test + clippy`, `cargo-audit`, `cargo-vet`, `coherencia de versiones`, `rueda de Python`, `security lab` y `HSM` |
 | → `estable` | todo lo anterior **más** que la versión no esté ya publicada y que el árbol esté limpio |
 
 Y esa tabla estuvo escrita antes de ser cierta: hasta el 2026-07-27 GitHub
 exigía «coherencia de versiones» en `testing` y **no** en `estable`, de modo que
-la rama publicada tenía la puerta más floja que la candidata. Ya son los cuatro
-mismos checks en las dos. La diferencia del «más» la sigue poniendo
+la rama publicada tenía la puerta más floja que la candidata. Ya son los mismos
+checks en las dos. La diferencia del «más» la sigue poniendo
 `verificar.py promover`, no GitHub — el árbol limpio y la versión sin publicar
 no los puede comprobar un check de CI.
+
+**De cuatro a siete el 2026-07-31.** `rueda de Python` (que comprueba I5,
+reconstruyendo la rueda y exigiendo el mismo sha256), `security lab` y `HSM`
+llevaban corriendo en cada PR sin bloquear nada: se ponían rojos y el merge
+seguía disponible. Un check que no bloquea es un aviso, y el commit que introdujo
+la comprobación de I5 decía «y el CI lo exige» cuando la protección de rama no lo
+exigía. EL PRECIO, para que no sorprenda: `security lab` y `HSM` corren en
+contenedor y traen dependencias externas —kryoptic por `dnf`—, así que un mirror
+caído bloquea el merge hasta que vuelva.
 
 Lo escrito no configura nada. Se comprueba en la fuente:
 
