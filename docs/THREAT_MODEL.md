@@ -489,26 +489,55 @@ the operation, a local physical side channel, or control of the binary/OS.
   a freed chunk — demanding a whole-secret match reported "no residue" with 240 of
   256 bytes of the secret still sitting in freed memory.
 
-  Measured, in debug and in release: **zero residue** on all three paths —
-  the Shamir-reconstructed signing seed, the derived master key, and the
-  passphrase itself. Each result has a control that deliberately leaks a copy and
-  requires the scanner to see it; without those, a zero would be indistinguishable
-  from a scanner looking in the wrong place.
+  Measured, in debug and in release: **zero residue** across fourteen measurements
+  on six paths, each with a control that deliberately leaks a copy and requires
+  the scanner to see it; without those, a zero would be indistinguishable from a
+  scanner looking in the wrong place. Seven such controls, plus one test that
+  exercises the stack cleaner in isolation. Counted against the file, not from
+  memory: `tests/residuo_memoria.rs`.
 
   So, precisely:
 
-  - **T6 (memory read AFTER the operation) is closed and measured ON THE THREE
-    PATHS THAT WERE MEASURED**: the Shamir-reconstructed signing seed, the derived
-    master key, and the passphrase. On those, a dump, a swap image, a hibernation
-    image or a cold boot find nothing.
+  - **T6 (memory read AFTER the operation) is closed and measured on SIX PATHS**:
+    custody (`escrow`, the Shamir-reconstructed signing seed); the passphrase path
+    (`encode`/`decode`: the passphrase, the master key and the plaintext); the
+    recipient path (`decode_as_recipient`: the recipient's secret key, the content
+    key from decapsulation, and the plaintext); streaming (`QST1`) in **both**
+    directions (the plaintext when decrypting and when encrypting, plus the
+    passphrase); `honey` (the secret token sequence and the passphrase); and
+    `negacion` (the hidden volume's plaintext and the master key). On those, a
+    dump, a swap image, a hibernation image or a cold boot find nothing.
 
-    **On the paths not yet measured, nothing is claimed** — which is not the same
-    as claiming they are fine. Still to measure: `decode_as_recipient` (the
-    post-quantum hybrid, with the recipient key and the content key that comes out
-    of decapsulation), the **plaintext** returned by `decode` — the user's own
-    secret, the one that affects the most people — `stream` (`QST1`), and `honey`.
-    Each needs its own deliberate-leak control; a control for one scenario does
-    not validate another.
+    The `negacion` one carries the most weight of the six, and it is not a
+    confidentiality leak like the others: in a mode whose only promise is that
+    nobody can **prove** a second volume exists, that plaintext sitting in a swap
+    image **is** the proof. It does not weaken the guarantee — it voids it.
+
+    **Measuring changed the answer**, which is the whole point of measuring. The
+    master-key measurement used to look for a key the process had never derived —
+    the harness derived it with its own fixed salt while `encode` draws the salt
+    from the RNG — so both the measurement and its control were vacuous. With the
+    real salt, **2 copies** showed up: `[u8; 32]` is `Copy`, so returning the key
+    copies the frame instead of emptying it, and Argon2id left the rest **99 KiB
+    deep**, beyond a stack cleaner that reached 64 KiB. Streaming, in turn, was
+    dropping **the decrypted chunk without wiping it**.
+
+    And the worst one: **in `--release` the stack cleaner was not cleaning**. The
+    measurement never ran there — the file was gated on `escrow` and the release
+    pass of CI does not enable that feature — so the defence worked in debug and
+    not in what ships: 1 surviving canary copy after cleaning, 3 of the master key,
+    3 of the content key. `limpiar_pila` was being inlined, so its canvas no longer
+    landed on the dead frames; `pqhybrid::combine` had the same `Copy`-return
+    defect. Hence the general rule now stated in the code: **whoever receives a
+    secret BY VALUE cleans the stack of whoever handed it over**. The measurement
+    file no longer carries a file-level feature gate, so it runs on all four
+    passes.
+
+    **What is still NOT measured, and therefore not claimed**: the key derived by
+    streaming and by `honey`. Their headers are private, so the harness cannot
+    obtain the salt without reconstructing the format blind — and a wrongly
+    derived needle would report zero without having looked, which is precisely the
+    bug above. Both inherit the KDF fix, but inheriting is not measuring.
   - **An adversary with root on the machine WHILE the process runs is R5**, a
     compromised endpoint, and is already out of scope by declaration. Conflating
     it with T6 is what makes this gap look unclosable; they are different threats.
@@ -552,7 +581,7 @@ is worse than none — it reads as coverage. Completed 2026-08-01.
 | T3 | Argon2id (memory-hard) + pepper; online mode with rate limiting. **Argon2id raises the price of each guess; only the VOPRF caps how many there are — and that cap is classical: see T5.** |
 | T4 | VOPRF with DLEQ proof verified against a pinned public key (F1). |
 | T5 | Hybrid KEM X25519 + ML-KEM-1024 (F2, transcript with bound ek), hybrid signature Ed25519 + ML-DSA-87 — both hold. **NONE for the VOPRF hardening**: ristretto255 is classical, its public key is published by design, and Shor on it removes the rate limit retroactively for every container ever hardened. No practical PQ OPRF exists to swap in. Mitigate by *also* using a pepper, the only factor that survives T5. |
-| T6 | Best-effort zeroization of sensitive material (partial; see R3), plus `limpiar_pila` for reconstructed material, measured in `tests/residuo_memoria.rs` in both debug and release. |
+| T6 | Zeroization plus `limpiar_pila` for reconstructed material, **measured** at zero residue in `tests/residuo_memoria.rs`, in both debug and release, on every path listed there — each with a deliberate-leak case proving the meter would see a leak if there were one. Still unmeasured: the keys *derived* by streaming and honey (see R3). |
 | T7 | Not cryptographic and not solvable here: least privilege, encryption at rest so exfiltration is worthless (R8), and the operational hardening of `quipu-oprf-server`. This is the adversary every real incident studied in §10 actually was. |
 | T8 | Asymmetry of the admin operations: closing is cheap and reversible, reopening is **not available at all**. Never the requester's word; always the payment record. |
 | T9 | Reproducible builds and signed releases so a fix can be verified when it does arrive; no mitigation for the takedown itself. |

@@ -193,7 +193,30 @@ pub fn derive_master_key(
         .hash_password_into(&secret, salt, &mut out)
         .expect("derivación Argon2id no debe fallar con entradas válidas");
     secret.zeroize(); // O5: borra passphrase+pepper del buffer intermedio
-    out
+
+    // Y EL BUFFER DE SALIDA TAMBIÉN, que es lo que faltaba. `[u8; 32]` es `Copy`:
+    // devolverlo no vacía este marco, lo COPIA, y la copia de aquí sobrevive a la
+    // llamada tal cual. Medido en `tests/residuo_memoria.rs` (T6): con el salt de
+    // verdad quedaban 2 copias de la clave maestra en la pila del hilo después de
+    // `decode`, y el llamante solo puede borrar la suya. `zeroize` no lo hace solo
+    // —no hay `Drop` que corra en el origen de un movimiento—, así que se copia a
+    // mano al valor de retorno y se borra el original.
+    let clave = out;
+    out.zeroize();
+
+    // Y LA PILA DE ABAJO, que es de donde salía la otra copia: Argon2id arma el
+    // resultado en marcos que no son nuestros y que nadie borra al volver. Es la
+    // regla que documenta `antihacker::limpiar_pila` —toda función que
+    // materialice material sensible en la pila la llama antes de volver—
+    // aplicada DONDE NACE EL SECRETO, que es lo que hace que la hereden `encode`,
+    // `decode`, el streaming y honey sin que ninguno tenga que acordarse.
+    //
+    // Aquí y en un solo sitio: ponerlo además en `decode` sería un segundo
+    // mecanismo para tapar lo que dejó el primero. Lo que hizo falta no fue otra
+    // llamada sino que esta ALCANZARA — la copia estaba a 99 KiB y el limpiador
+    // llegaba a 64.
+    crate::antihacker::limpiar_pila();
+    clave
 }
 
 /// Deriva una subclave independiente desde la clave maestra y una etiqueta de

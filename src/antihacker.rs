@@ -35,14 +35,26 @@ pub fn wipe(buf: &mut [u8]) {
 /// que esto, lo que quede por debajo sobrevive — y sobrevive EN SILENCIO, que es
 /// la peor forma. No hay manera de medir en Rust seguro cuánta pila usó una
 /// llamada (haría falta aritmética de punteros, y este crate es
-/// `#![forbid(unsafe_code)]`), así que la cifra es un margen elegido, no una
-/// medida.
+/// `#![forbid(unsafe_code)]`), así que la cifra no se puede calcular: se elige
+/// con la medición de residuo delante, que es lo más parecido a saberlo.
 ///
-/// 64 KiB: holgado frente a los marcos de una firma híbrida, y un 3 % de la pila
-/// de un hilo (2 MiB por defecto; 8 MiB el principal). Si algún día una operación
-/// gastara más, la prueba que lo detecta es la de `tests/residuo_memoria.rs`, no
-/// el razonamiento de este comentario.
-const PILA_A_LIMPIAR: usize = 64 * 1024;
+/// 64 KiB bastaban para los marcos de una firma híbrida. **No bastaban para el
+/// KDF**, y lo dijo la prueba, no el razonamiento: al medir la clave maestra con
+/// el salt de verdad (2026-07-31, `tests/residuo_memoria.rs`) quedaba una copia a
+/// **99 KiB** del tope de la pila del hilo, fuera del alcance del limpiador. Con
+/// 128 KiB la cuenta baja a cero.
+///
+/// La cifra NO escala con el coste del Argon2id: se midió la misma profundidad
+/// con `mem_kib` 64 y 4096, porque los bloques de Argon2 viven en el montón. Lo
+/// hondo son los marcos, no la memoria de trabajo.
+///
+/// Y el techo tiene un motivo, que es el precio de subirla: este array vive en la
+/// pila, así que la constante ES el mínimo de pila que Quipu le exige a quien lo
+/// llama. Un hilo pequeño —128 KiB, como los que reparte algún runtime embebido—
+/// desbordaría. Un residuo es peor que nada; un desbordamiento es peor que un
+/// residuo. Si un día una operación gasta más, esto se sube CON la medición
+/// delante, igual que se subió esta vez.
+const PILA_A_LIMPIAR: usize = 128 * 1024;
 
 /// Sobreescribe con ceros la región de pila que acaba de usar una operación con
 /// material sensible.
@@ -89,6 +101,25 @@ const PILA_A_LIMPIAR: usize = 64 * 1024;
 /// `tests/residuo_memoria.rs` lo hace así desde el 2026-08-01, y hasta entonces
 /// su propio canario producía un falso fallo en release que parecía un defecto
 /// de esta función.
+///
+/// # Por qué `inline(never)`, y no es una micro-optimización al revés
+///
+/// El lienzo tiene que caer DONDE ESTUVIERON los marcos muertos, y eso solo se
+/// cumple si esta función tiene marco propio, justo debajo del de quien la llama.
+/// Si el compilador la incrusta, el array pasa a ser una variable más del marco
+/// del llamante y puede acabar por encima de la región que había que pisar.
+///
+/// No es teoría: en `--release` —donde el inlining sí ocurre— la prueba
+/// `el_limpiador_de_pila_borra_lo_que_un_marco_dejo_atras` medía **1 copia
+/// superviviente** del canario tras limpiar, y en debug cero. El limpiador
+/// parecía funcionar en las pruebas y no funcionaba en lo que se publica, que es
+/// justo la mitad que importa.
+///
+/// Las dos notas de arriba son la misma lección por los dos lados: **esta
+/// función solo puede pisar lo que quede POR DEBAJO de su propio marco**, así
+/// que necesita tener marco (de ahí `inline(never)`) y el llamante necesita
+/// haber dejado el secreto en uno más profundo que el punto de limpieza.
+#[inline(never)]
 pub fn limpiar_pila() {
     let mut lienzo = [0u8; PILA_A_LIMPIAR];
     // Sin las dos barreras el optimizador tiene todo el derecho a eliminar un

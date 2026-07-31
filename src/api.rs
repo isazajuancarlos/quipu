@@ -382,6 +382,13 @@ pub fn decode_as_recipient(
         pqhybrid::decapsulate(recipient, encapsulation).ok_or(DecodeError::Decrypt)?;
     let result = cipher::decrypt(&content_key, &nonce, ciphertext, aad);
     antihacker::wipe(&mut content_key);
+    // `wipe` borra la copia que tiene NOMBRE; la clave llegó aquí devuelta por
+    // valor desde `decapsulate`, y ese viaje deja copias en el marco —ya muerto—
+    // de quien la produjo. Solo el llamante puede pisarlo, y solo después de que
+    // vuelva. Medido en release (T6): sin esta línea quedaba 1 copia de la clave
+    // de contenido. La regla general: quien recibe un secreto POR VALOR limpia la
+    // pila del que se lo dio.
+    antihacker::limpiar_pila();
 
     let mut padded = result.map_err(|_| DecodeError::Decrypt)?;
     let data = prelayers::unpad(&padded).map_err(|_| DecodeError::Decrypt);

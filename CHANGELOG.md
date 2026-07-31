@@ -275,6 +275,87 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exigía `refs/tags/v`. Añadir `!padme-v` habría arreglado el caso dejando la
   regla igual de rota para el siguiente crate.
 
+- **`limpiar_pila` no limpiaba nada en `--release`, y nadie lo había visto porque
+  la prueba que lo mide no corría ahí** (#265, T6). El medidor de residuo estaba
+  gateado con `feature = "escrow"`, y la pasada de release del CI
+  (`cargo test --features slh --release`) no activa ese feature: el archivo
+  entero se saltaba. Al quitar el gate y correrlo, en release quedaban **1 copia
+  del canario tras limpiar la pila**, **3 de la clave maestra** y **3 de la clave
+  de contenido**; en debug, cero. La defensa funcionaba justo en la mitad que no
+  se publica.
+
+  Tres causas, y las tres son la misma forma de error —el marco muerto que nadie
+  puede borrar desde dentro—:
+
+  1. `limpiar_pila` **se incrustaba**. Sin marco propio, su lienzo pasa a ser una
+     variable más del marco del llamante y puede quedar por encima de la región
+     que había que pisar. Lleva `#[inline(never)]`, que es lo que garantiza que
+     el lienzo caiga DONDE estuvieron los marcos muertos.
+  2. `pqhybrid::combine` devolvía la clave de contenido por valor con el mismo
+     defecto que el KDF (`[u8; 32]` es `Copy`). Ahora borra su buffer y limpia la
+     pila de HKDF, y lo heredan encapsulación y decapsulación.
+  3. `decode_as_recipient` borraba con `wipe` la copia que tiene NOMBRE, pero la
+     clave le llegaba devuelta por valor desde `decapsulate` y ese viaje deja
+     copias en el marco —ya muerto— de quien la produjo. La regla que sale de
+     aquí, y que vale para toda la librería: **quien recibe un secreto por valor
+     limpia la pila del que se lo dio**.
+
+  El archivo ya no lleva gate de feature: cada escenario pide el suyo, así que
+  las mediciones corren en la pasada por defecto, en la de `honey`, en la de
+  `escrow` **y en la de release**.
+
+- **La medición de residuo de la clave maestra buscaba una clave que el proceso
+  nunca había derivado, y al arreglarla aparecieron copias de verdad** (#265, T6).
+  El arnés derivaba la clave con un salt fijo suyo mientras `encode` lo saca del
+  RNG en cada llamada, así que la aguja no existía en el hijo más que en el
+  escenario de fuga —donde se derivaba igual de mal—. El control pasaba, la
+  medición no medía nada, y el verde era indistinguible del verde real.
+
+  Con el salt REAL —el padre parsea la cabecera y comprueba que la clave derivada
+  abre el contenedor— quedaban **2 copias de la clave maestra** en la pila del
+  hilo después de `decode`. Dos causas, las dos arregladas en `kdf.rs`:
+
+  1. `[u8; 32]` es `Copy`: devolver la clave no vacía el marco del KDF, lo COPIA.
+     Ahora el buffer de salida se borra tras copiarlo al valor de retorno.
+  2. Argon2id deja el resto en marcos que no son nuestros, **a 99 KiB de
+     profundidad**, y `limpiar_pila` llegaba a 64 KiB. El limpiador pasa a 128 KiB
+     —medido, no elegido: con 64 quedaba 1 copia, con 128 quedan 0— y se llama
+     desde `derive_master_key`, donde nace el secreto, para que lo hereden
+     `encode`, `decode`, el streaming y honey sin tener que acordarse cada uno.
+     La profundidad NO escala con `mem_kib` (se midió con 64 y con 4096): los
+     bloques de Argon2 viven en el montón; lo hondo son los marcos.
+
+- **El streaming soltaba el texto en claro sin borrarlo, en las dos direcciones**
+  (#265, T6). Al descifrar, cada trozo salía de `cipher::decrypt` en un `Vec` que
+  se escribía al destino y se soltaba tal cual: **1 copia del claro en el montón**
+  tras `decrypt_stream_bytes`, con el llamante habiendo borrado la suya. Al
+  cifrar, los dos buffers de lectura por trozo se soltaban igual. Ahora son
+  `Zeroizing`, que además cubre los retornos por error de en medio, donde un
+  borrado al final no llegaría.
+
+### Added
+- **El medidor de residuo (T6) cubre CINCO caminos, con doce mediciones y sus doce
+  controles** (#265). Antes cubría tres, y la taxonomía lo decía; ahora se añaden
+  `decode_as_recipient` —la clave secreta del destinatario, la clave de contenido
+  que sale de la decapsulación y el texto en claro—, el **texto en claro** que
+  devuelve `decode`, el streaming `QST1` **al descifrar y al cifrar**, y `honey`.
+
+  Cada camino trae su propia fuga deliberada: el control de un escenario no valida
+  otro, y de eso ya hay tres precedentes en este mismo archivo. Dos piezas nuevas
+  del arnés hacen que las agujas sean las de verdad y no una reconstrucción:
+
+  - el **padre** monta los sobres y le pasa al hijo el material sensible en
+    hexadecimal —que no es la aguja—, porque quien mide tiene que conocer el
+    secreto y plantárselo al hijo lo convertiría en residuo propio;
+  - las claves que exigen abrir una cabecera a mano (la de contenido del híbrido,
+    la maestra del camino de contraseña) se **validan descifrando** el contenedor
+    con ellas: si el formato cambia, la prueba rompe en voz alta en vez de medir
+    humo.
+
+  Lo que sigue sin medirse va escrito en `docs/ATAQUES_TAXONOMIA.md` y en
+  `docs/THREAT_MODEL.md`: la clave que derivan el streaming y honey, cuyas
+  cabeceras son privadas. Heredan el arreglo del KDF, pero heredar no es medir.
+
 - **Dos objetivos de fuzz llevaban desde el 2026-07-27 en verde sin tocar el parser
   que decían fuzzear.** Se descubrió al ir a encadenar el corpus (#131.1): antes de
   encadenar nada se midió lo que había, y lo que había era nada.

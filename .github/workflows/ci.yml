@@ -184,10 +184,27 @@ jobs:
       #
       # El caso que esta línea existe para cazar es el contrario: que una
       # optimización de release deje residuo que el debug no muestra.
-      - name: Tests (residuo de memoria, RELEASE — es lo que se publica)
-        run: cargo test --features escrow --test residuo_memoria --release
-      - name: Tests (residuo de memoria del contenedor con negación)
-        run: cargo test --features "escrow negacion lab" --test residuo_memoria
+      # UNA SOLA PASADA CON TODAS LAS FEATURES QUE GATEAN UNA MEDICIÓN, y en
+      # release. Aquí había dos líneas y entre las dos se colaba justo el fallo
+      # que #265 vino a cerrar:
+      #
+      #   · `--features escrow ... --release` medía en release, pero honey y
+      #     negación no están tras `escrow`: sus pruebas ni se compilaban.
+      #   · `--features "escrow negacion lab"` sí las compilaba, y corría en
+      #     DEBUG.
+      #
+      # O sea que el camino de negación —el que más pesa de los seis, porque su
+      # residuo no filtra un secreto sino la PRUEBA de que hay un volumen
+      # oculto— y el de honey se medían solo donde el compilador no optimiza. Es
+      # la misma forma del fallo de #265 («la medición nunca corría en release»)
+      # con otras features, y por eso el arreglo va en la REGLA (directiva 23):
+      # la pasada de residuo lleva TODAS las features que gatean una medición
+      # suya, y va en release. Si nace una medición tras una feature nueva, se
+      # añade aquí o no se mide donde importa.
+      #
+      # Medido el 2026-08-03 antes de escribir la línea: 22 pruebas, exit 0.
+      - name: Tests (residuo de memoria, RELEASE y con TODAS sus features — es lo que se publica)
+        run: cargo test --features "escrow negacion lab honey" --test residuo_memoria --release
       - name: Clippy (lab + negacion, deny warnings)
         run: cargo clippy --features "lab negacion" --all-targets -- -D warnings
       - name: Red-team (all surfaces consolidated)
