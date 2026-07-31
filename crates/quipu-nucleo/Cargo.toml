@@ -1,6 +1,6 @@
 [package]
 name = "quipu-nucleo"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Núcleo agnóstico de primitivas de Quipu: formato del contenedor, codec base-N, Reed-Solomon y relleno Padmé. No contiene criptografía."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
