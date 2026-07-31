@@ -351,8 +351,10 @@ Y una asimetría que había entre lo escrito y lo configurado, corregida el
 2026-07-27: `RAMAS.md` promete que a `estable` se le exija «todo lo anterior
 **más**», pero en GitHub `testing` requería el check «coherencia de versiones» y
 `estable` no. La rama publicada tenía la puerta más floja que la candidata. Los
-cuatro checks son ya los mismos en las dos. Se comprueba así, y no leyendo esta
-frase:
+checks son ya los mismos en las dos, y desde el 2026-07-31 son **siete**: a los
+cuatro de entonces se suman `rueda de Python` —la que comprueba I5—,
+`security lab` y `HSM`, que corrían en cada PR sin bloquear nada. Un check que no
+bloquea es un aviso. Se comprueba así, y no leyendo esta frase:
 
 ```bash
 gh api repos/isazajuancarlos/quipu/branches/estable/protection \
