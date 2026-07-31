@@ -76,6 +76,25 @@ además vale dinero. Permite que cualquiera compruebe que la rueda de PyPI sali�
 del código publicado. Es lo que mira un financiador tipo OTF, y lo que convierte
 «confía en mí» en «compruébalo».
 
+**Medido el 2026-07-31, y estaba mucho más cerca de lo que este punto suponía.**
+El compilador nunca fue el problema: el `.crate` ya se reconstruía byte a byte
+(cargo normaliza mtimes y uid/gid) y el `quipu.abi3.so` también. Lo ÚNICO no
+determinista de la rueda eran dos campos del SBOM CycloneDX que escribe maturin
+—un `serialNumber` UUID aleatorio y un `timestamp` de reloj—; el `RECORD` cambiaba
+solo porque los hashea. Con `SOURCE_DATE_EPOCH` tomado de la fecha del commit, la
+rueda sale idéntica. Y con `--remap-path-prefix` desaparecen las rutas absolutas
+de la máquina que el binario llevaba dentro (`/home/<usuario>/.cargo/...`, de los
+metadatos de `panic`), que es lo que lo rompería en otra máquina.
+
+Ya no se afirma: el CI reconstruye dos veces y exige el mismo sha256, y comprueba
+que el binario no lleve rutas de quien lo construyó. Los dos checks se probaron
+contra una rueda hecha a propósito sin el remap, y ahí se ponen rojos.
+
+La receta para terceros está en `docs/REPRODUCIBILIDAD.md`, con lo que **falta**
+dicho al lado: la rueda **manylinux publicada** todavía no se ha reconstruido en
+su propio contenedor —el CI construye en `ubuntu-latest` y el release en el
+contenedor de `maturin-action`—, y aquí solo hay una máquina física.
+
 ### 5. Auditoría independiente
 
 `docs/PRE_AUDIT.md` deja el terreno preparado: primitivas vetadas, cero `unsafe`
@@ -94,7 +113,7 @@ porque el *documento* se entregó, y el documento era un mapa.
 | **I1** Ningún observable depende del secreto | casi | seis rutas cubiertas por `dudect_*` en `src/lab/timing.rs` — `ct_eq`, decapsulación válida-vs-corrupta, dos claves, rechazo por causa, verificación de firma y derivación de subclaves. Falta **solo** la alarma si un build cae a una implementación con tablas |
 | **I3** Entropía fresca y nonce único | hecho, sin exponer | `tests/simulacion.rs` mide colisiones de sal y nonce en 800 cifrados, y `tests/taxonomia.rs` (PR #113) añade el detector de reúso —que dice QUÉ pares colisionan— y la batería del RNG: monobit y rachas sobre 131 072 bits, 0,27σ y 0,73σ. Falta promoverlo a **API pública** para que un integrador lo corra sobre su propio almacén |
 | **I4** El fallo no revela nada | **hecho** | nada. El mensaje y el tipo en el PR #110 (`tests/invariantes.rs`) y el TIEMPO en el #114 (`lab::timing::dudect_rechazo_por_causa`) |
-| **I5** Procedencia verificada | parcial | build reproducible (punto 4) |
+| **I5** Procedencia verificada | casi | la rueda ya se reconstruye byte a byte y el CI lo exige (punto 4). Falta **solo** rehacer la rueda **manylinux publicada** dentro de su propio contenedor y comparar: hoy el CI construye en `ubuntu-latest` y el release en el de `maturin-action`, así que se caza el no-determinismo de origen pero no se demuestra lo del artefacto que se descarga |
 
 ## Producto: lo que aún no existe
 
