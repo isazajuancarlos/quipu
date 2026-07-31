@@ -117,7 +117,16 @@ y comparar a igual área de papel. Nunca se hizo, y es el dato que decide.
 
 Honey no generaliza —su señuelo está atado a la distribución del secreto— pero
 un contenedor con negación sí. Tres hallazgos verificados fijan el diseño.
-Ahora es más barato que antes: solo hay que exponerlo en un binding.
+
+**Diseño cerrado el 2026-07-31 en `docs/DISENO_NEGACION.md`; sin implementar, que
+es lo que autorizaba la luz verde.** Ya no es «exponerlo en un binding»: al
+decidir Juan que se cubran los dos frentes —la prueba Y la sospecha— el alcance
+cambió. Cubrir la sospecha exige un contenedor indistinguible de aleatorio, y hoy
+**28 de los 68 bytes de cabecera gritan «Quipu»** (mágico, versión, banderas,
+`codebook_id`, huella del alfabeto y los tres enteros del KDF). Eso obliga a
+cifrar la cabecera, y cifrarla obliga a sacar del contenedor los parámetros del
+KDF, porque hacen falta para derivar la clave que la abriría. **Esa es la decisión
+que bloquea el código**, y está planteada con recomendación en el §5 del diseño.
 
 ### 8. El laboratorio no manda sobre nada
 

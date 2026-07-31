@@ -327,7 +327,52 @@ Y la lista del CI **se deriva** con `cargo fuzz list` en vez de escribirse: la
 anterior tenía cuatro nombres a mano y habría dejado los dos nuevos fuera sin que
 nadie lo notara — el job seguiría verde fuzzeando menos de lo que hay.
 
-*Falta todavía:* el corpus encadenado entre objetivos.
+### Los dos objetivos que estaban verdes sin fuzzear nada (2026-07-31)
+
+Al ir a encadenar el corpus se midió primero lo que había, y lo que había era
+esto: **`parse_signed` y `parse_recipient` no llegaban al parser**. Ninguno de los
+dos. Desde que se añadieron, con el CI en verde.
+
+- **`parse_signed` no ejecutaba ni una línea de su cuerpo.** Fijaba la clave con
+  `VerifyingKey::from_bytes(&[0x42; 2624])` dentro de un `if let Some(vk)`. Esa
+  clave no parsea —sus 32 primeros bytes son un punto Ed25519 comprimido, y `0x42`
+  repetido no lo es—, así que la condición era falsa en cada iteración y el
+  `if let` se saltaba todo en silencio. Medido: 96.923 ejecuciones, cobertura
+  congelada desde la nº 5, y un corpus que degeneró a unidades de **un byte**
+  porque alargar la entrada no abría nada.
+- **`parse_recipient` sí corría, pero moría en la puerta del alfabeto.** Los dos
+  reciben `&str` y empiezan por `dict.decode`, que exige que CADA carácter esté
+  entre los 4096 glifos CJK del alfabeto insignia. Los bytes crudos del fuzzer no
+  lo están casi nunca, y nunca en cadena larga.
+- **Y aunque hubieran pasado, no cabían.** `decode_verified` rechaza por
+  `TooShort` todo blob de menos de 4701 bytes; el `-max_len` por defecto de
+  libFuzzer es 4096. Sin semilla larga la puerta era infranqueable por
+  construcción.
+
+Corregido en tres piezas, y cada una arregla la REGLA, no el caso: la clave se
+deriva de una semilla de 64 bytes (válida por construcción, porque son semillas y
+no puntos) y el `return` silencioso pasa a ser un `panic!` —un objetivo de fuzz
+que no fuzzea tiene que doler—; cada objetivo traduce su entrada al alfabeto por
+el mismo camino que usa al construir, y además la pasa cruda si es UTF-8, para no
+perder el decodificador; y `examples/gen_semillas_fuzz.rs` siembra artefactos
+reales con sus mutaciones de frontera, lo que de paso sube solo el `-max_len`.
+
+Lo sostiene una prueba, no este párrafo:
+`tests/taxonomia.rs::el_fuzz_de_los_contenedores_alcanza_el_parser_y_no_muere_en_el_alfabeto`
+exige que la clave del objetivo parsee y que el error que sale no sea el del
+alfabeto, y comprueba que discrimina. Fue esa prueba la que encontró lo de la
+clave; el comentario del objetivo afirmaba justo lo contrario.
+
+### El corpus encadenado
+
+Encadenar «entre objetivos» solo sirve dentro de un mismo **idioma de entrada**.
+`parse_container`, `unpad`, `parse_signed` y `parse_recipient` consumen todos blob
+crudo —mágico, versión, banderas, longitudes en offsets fijos—, así que el CI le
+pasa a cada uno el corpus de sus tres hermanos como entrada de solo lectura.
+`honey_decrypt` (formato `QHNY` propio) y `codec_roundtrip` (dos bytes de base +
+payload) quedan fuera: su primer byte significa otra cosa y mezclarlos sería ruido
+disfrazado de cobertura. La tabla de familias está en `fuzz/README.md`, y lo que
+hay que decidir al añadir un objetivo nuevo es en qué fila entra.
 
 **Invariante:** I2.
 
@@ -354,7 +399,43 @@ El riesgo que cubre no es criptográfico sino de comodidad: basta con que alguie
 añada la passphrase a un error «para depurar mejor» y esa cadena acaba en un log
 o en la consola de un cliente.
 
-*Falta todavía:* `mlock` opcional para el material reconstruido.
+#### El residuo del material reconstruido: por qué no lleva `mlock` (2026-07-31)
+
+Aquí decía «falta `mlock` opcional para el material reconstruido». No va a
+llegar, y la razón no es pereza sino que **no cumple el criterio**: la defensa que
+se acepte tiene que cerrar la brecha ENTERA, no una parte.
+
+La brecha entera son cinco caminos por los que el material reconstruido puede
+salir de RAM: el **swap**, un **volcado de proceso** (core dump), el **cold
+boot**, un **ptrace** desde otro proceso del mismo usuario, y la **imagen de
+hibernación**. `mlock` cierra el primero y a medias el último, a cambio de meter
+`libc` como dependencia directa del árbol. Sus primos del sistema —`mlockall`,
+`prctl(PR_SET_DUMPABLE, 0)`, `madvise(MADV_DONTDUMP)`— tienen la misma forma:
+cada uno tapa un camino, todos piden la misma dependencia. Cinco parches
+parciales no suman uno entero, y dejan un README diciendo que la memoria está
+protegida cuando lo está contra uno de cinco.
+
+Lo que sí se hizo fue **comprobar el lado del código, en vez de suponerlo**. El
+camino del material reconstruido está limpio: `shamir::combine` devuelve
+`Zeroizing<Vec<u8>>` y zeroiza sus intermedios (`lambdas`, `coeficientes`);
+`SigningKey` zeroiza sus semillas al soltarse; y `firmar_con_comparticiones` acota
+la vida del secreto a una llamada, de la que solo sobrevive la firma. No había
+rutas sin `zeroize` que añadir: es un negativo medido, no una tarea pendiente
+disfrazada.
+
+De modo que la defensa entera **no vive en la librería**, y decirlo es más útil
+que fingir lo contrario:
+
+- **Con HSM**: cerrada del todo, y ya está. La clave privada no sale del
+  dispositivo, así que ninguno de los cinco caminos la ve.
+- **Sin HSM**: es un **requisito de despliegue**, no una opción de compilación —
+  swap cifrado o desactivado, hibernación desactivada, volcados de proceso
+  desactivados, y cifrado de disco completo. Eso sí cierra swap, hibernación y
+  cold-boot-del-disco a la vez.
+- **Lo que no cierra nadie**: un adversario con root en la máquina mientras el
+  proceso corre. Ninguna llamada de espacio de usuario protege RAM de quien
+  manda en el kernel. Es una propiedad del modelo de amenaza, no una función que
+  falte, y prometer otra cosa sería una promesa que caduca.
 
 **Invariante:** I3 (residencia) + I5 (procedencia de la custodia).
 
@@ -365,16 +446,61 @@ stuffing; y para lo estructurado, modelos de "lo que parece humano" (medido: ×7
 de ventaja contra señuelos uniformes con PIN humano).
 
 **Exposición de Quipu.** **Contenida en tres capas complementarias.** Argon2id
-hace cada conjetura cara (medido: **6 intentos/s** con el contenedor en la mano);
-el OPRF **online** hace la fuerza bruta imposible sin el servidor (endurecimiento
-de credenciales); honey **offline** quita el oráculo de éxito para secretos
-uniformes de baja entropía. Tres respuestas a la misma amenaza para tres
+hace cada conjetura cara (medido: **5,69 intentos/s** con el contenedor en la
+mano); el OPRF **online** hace la fuerza bruta imposible sin el servidor
+(endurecimiento de credenciales); honey **offline** quita el oráculo de éxito para
+secretos uniformes de baja entropía. Tres respuestas a la misma amenaza para tres
 despliegues.
 
+#### Con qué parámetros y en qué máquina (2026-07-31)
+
+La cifra decía «6 intentos/s» sin decir ninguna de las dos cosas, y una cifra de
+coste sin sus parámetros no dice nada: `KdfParams::default()` entrega 64 MiB y 3
+iteraciones, mientras que el banco `guessing.rs` deriva con 16 MiB y 2 — seis
+veces menos trabajo de memoria, y en la misma máquina da **42,16 intentos/s**. La
+misma frase describía dos mundos.
+
+Medido con `cargo run --release --example coste_adivinacion`, que existe para que
+esto no vuelva a ser folclore:
+
+| Parámetros | s/intento | intentos/s |
+|---|---|---|
+| `default()` — lo que recibe el usuario (64 MiB, t=3, p=1) | 0,176 | **5,69** |
+| `guessing.rs` — lo que mide el banco (16 MiB, t=2, p=1) | 0,024 | 42,16 |
+
+Máquina: Intel Pentium Gold G6400 @ 4,00 GHz, un hilo. El «6 intentos/s» que se
+venía publicando **era correcto** y describía el `default()`; lo que le faltaba
+era la procedencia.
+
+#### Coste en GPU: ESTIMADO, no medido
+
+Aquí no hay GPU, así que no se mide: se **acota**. Argon2id con m=64 MiB y t=3
+mueve como mínimo `2 × 3 × 64 MiB = 384 MiB` de tráfico de memoria por derivación
+(cada pase lee y escribe cada bloque una vez; Argon2 mueve más, así que tomar el
+mínimo da la cota SUPERIOR del atacante — el lado conservador para quien se
+defiende). De ahí, `intentos/s ≤ ancho de banda / tráfico`:
+
+| Acelerador | ≤ intentos/s | × vs. esta CPU | ≤ simultáneas |
+|---|---|---|---|
+| RTX 4090 (1008 GB/s, 24 GB) | 2 503 | 440× | 384 |
+| RTX 5090 (1792 GB/s, 32 GB) | 4 450 | 782× | 512 |
+| A100 80 GB (2039 GB/s) | 5 064 | 890× | 1 280 |
+| H100 SXM (3350 GB/s) | 8 320 | 1 462× | 1 280 |
+
+Los límites van con la cifra a donde vaya: es una **cota, no un rendimiento
+observado** (el real es menor — el direccionamiento dependiente de datos de la
+segunda mitad de Argon2id castiga a la GPU y ninguna implementación satura el
+bus); **no cubre ASIC ni FPGA** con memoria a medida; y supone una contraseña de
+la entropía que se declare, porque contra una débil el coste por intento es el
+suelo, no el techo. Aun con la cota más generosa, 60 bits de espacio de claves
+salen a 4,4 millones de años en una H100.
+
 **Herramienta.** *Existe:* `guessing.rs` (coste de adivinación acelerado por IA),
-la simulación de ataque de diccionario (5000 intentos → 5000 rechazados).
-*Falta:* medir el coste real en GPU/ASIC (hoy es CPU), y llevar la tabla de
-señuelos estática de honey a un ×1 (hoy ×70 con secreto humano — el techo de #28).
+la simulación de ataque de diccionario (5000 intentos → 5000 rechazados), y
+`examples/coste_adivinacion.rs` (coste por intento con procedencia + cota de GPU).
+*Falta:* la medición real en GPU/ASIC, que necesita hardware que aquí no hay, y
+llevar la tabla de señuelos estática de honey a un ×1 (hoy ×70 con secreto humano
+— el techo de #28).
 
 **Invariante:** I4 (honey) + coste como refuerzo de I3.
 

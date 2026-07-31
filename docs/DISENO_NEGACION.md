@@ -1,0 +1,229 @@
+<!--
+SPDX-License-Identifier: AGPL-3.0-or-later
+SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
+-->
+
+# Contenedor con negación — diseño cerrado, sin implementar
+
+Estado: **diseño**. No hay código, y no lo habrá hasta que lo de aquí se acepte.
+Cierra las fichas **#99** (el mecanismo) y **#118** (los tres hallazgos que lo
+fijan), que son la misma cosa mirada dos veces.
+
+Existe porque las dos fichas decían «no empezar a implementar sin diseño cerrado y
+modelo de amenaza escrito», y la decisión de Juan del 2026-07-31 dio luz verde a
+**planificar**, no a construir. Esto es el entregable de esa luz verde.
+
+Todo lo que sigue está verificado contra el repositorio, no citado de memoria.
+
+---
+
+## 1. Qué se promete, y qué no
+
+La negación tiene **dos frentes**, y hasta el 2026-07-31 el diseño solo cubría
+uno. La decisión de Juan fue cubrir los dos.
+
+| Frente | La pregunta del adversario | Qué lo cubre |
+|---|---|---|
+| **La prueba** | «Demuéstrame que hay un segundo volumen» | El volumen oculto, indistinguible del relleno |
+| **La sospecha** | «Sé que esto es Quipu, y sé que Quipu tiene negación: dame la segunda contraseña» | Un contenedor sin cabecera reconocible |
+
+El primero es criptográfico y se resuelve. El segundo es de **formato**, y es el
+caro: hoy `MAGIC = b"QUIP"` va en claro en el byte 0 de la cabecera
+(`quipu-nucleo/src/container.rs`) y **además es el AAD del AEAD**. Mientras siga
+ahí, cualquiera con el archivo sabe que es Quipu.
+
+**El límite que va en el README en negrita, no enterrado en un doc de diseño:**
+la negación protege contra la PRUEBA, no contra la SOSPECHA de quien ya decidió
+sospechar, y ante coacción física esa distinción puede no valer nada. Quien use
+esta función puede ser alguien cuya libertad dependa de entenderlo. No se anuncia
+como «cifrado indetectable».
+
+---
+
+## 2. Modelo de amenaza, explícito
+
+**El adversario puede:** obtener el contenedor completo, **una vez**; conocer el
+formato entero y esta documentación; exigir contraseñas bajo coacción legal o
+física; disponer de cómputo clásico y cuántico dentro de lo razonable.
+
+**El adversario NO puede:** ver el contenedor en **dos momentos distintos** y
+comparar; observar la máquina mientras se escribe; obtener las claves de otra
+vía.
+
+**Por qué la instantánea única es defendible aquí y no en general.** El alcance
+declarado de Quipu son **datos en reposo** —no mensajería, no sesiones—. Un
+artefacto en reposo se escribe una vez y se guarda; no hay un flujo de versiones
+que comparar. Un producto de volumen montable (VeraCrypt) tiene que defenderse de
+la comparación entre instantáneas porque el usuario escribe dentro a diario; aquí
+no. Eso **simplifica el diseño de verdad**, no por conveniencia: desaparece el
+problema más difícil del diseño de VeraCrypt —que escribir en el señuelo pise el
+volumen oculto—, porque no se escribe dos veces en el mismo contenedor.
+
+Se documenta como límite, no se esconde: **quien guarde versiones sucesivas del
+mismo contenedor en un respaldo pierde la negación.** Eso va en la API, no solo
+aquí.
+
+---
+
+## 3. Por qué el formato de hoy no sirve (verificado contra el código)
+
+La cabecera son **68 bytes** (`Header::SIZE`, atado por prueba en
+`src/container.rs`), y de ellos solo el salt y el nonce parecen azar:
+
+| Campo | Bytes | ¿Parece azar? |
+|---|---|---|
+| `MAGIC` (`QUIP`) | 4 | **No** — constante |
+| `version` | 1 | **No** |
+| `flags` | 1 | **No** |
+| `codebook_id` | 2 | **No** |
+| `codebook_hash_prefix` | 8 | **No** — constante por alfabeto |
+| `salt` | 16 | Sí |
+| `nonce` | 24 | Sí |
+| `kdf_mem_kib` / `iterations` / `parallelism` | 12 | **No** — enteros pequeños |
+
+**28 de 68 bytes gritan «Quipu».** Ese es el frente de la sospecha, medido.
+
+Y de #118, verificado en `src/api.rs`: el AEAD cifra **y autentica** todo el
+bloque rellenado (`encrypt(key, nonce, padded, aad=header)`), así que **el volumen
+oculto no puede vivir dentro del relleno de Padmé**. Meter datos ahí rompe el tag
+del señuelo y abrir con la contraseña A fallaría — lo contrario de lo que se
+busca. El espacio oculto tiene que quedar FUERA de lo que autentica el AEAD del
+señuelo. Es la razón concreta por la que hace falta formato nuevo.
+
+---
+
+## 4. El diseño
+
+Un contenedor de **tamaño total S declarado por el usuario**, no derivado del
+contenido. Tres tramos:
+
+```
+[ salt 16 ][ cabecera cifrada ][ ---------- cuerpo de tamaño S ---------- ]
+             (indistinguible)    señuelo (AEAD propio) | resto = azar u oculto
+```
+
+Los tres requisitos de #118, que sin ellos la negación no existe:
+
+1. **El tamaño total lo elige el usuario.** Si se ajustara al contenido del
+   señuelo, cualquier hueco delataría.
+2. **El resto se rellena SIEMPRE con azar**, haya o no volumen oculto.
+3. **Ningún campo indica si existe el segundo volumen**, ni siquiera
+   implícitamente.
+
+Cómo se abre:
+
+- **Contraseña A** → deriva la clave del señuelo, abre el señuelo. El resto del
+  cuerpo es, para quien solo tenga A, indistinguible de relleno.
+- **Contraseña B** → deriva una clave y un **desplazamiento** distintos; abre el
+  volumen verdadero, con el AEAD de fuerza completa. Su región no se solapa con
+  la que autentica el AEAD del señuelo.
+- **Contraseña equivocada** → falla igual en los dos casos, y tarda lo mismo.
+
+Que la región del señuelo sea localizable **no es fuga**: el relleno posterior es
+azar exista o no el oculto, así que saber dónde empieza no distingue los dos
+mundos. Lo que no puede existir es un campo que diga «aquí hay más».
+
+---
+
+## 5. La consecuencia cara, que es la decisión de verdad
+
+Para que la cabecera sea indistinguible de azar hay que cifrarla. Para cifrarla
+hace falta derivar una clave de la contraseña + salt. Y para derivarla hacen falta
+**los parámetros del KDF** — que hoy viven **dentro** de esa misma cabecera.
+
+Es circular, y solo tiene tres salidas:
+
+- **(a) Los parámetros salen del contenedor** y los fija la versión de formato.
+  Cabecera indistinguible; se pierde la agilidad de parámetros: subir el coste de
+  Argon2id exige versión de formato nueva.
+- **(b) Los parámetros quedan en claro** delante de la cabecera cifrada.
+  Se conserva la agilidad; **12 bytes de enteros pequeños siguen siendo una
+  firma** y el frente de la sospecha queda a medio cubrir. Es decir: no cumple.
+- **(c) Los parámetros se prueban por fuerza** sobre un juego pequeño y fijo.
+  Cabecera indistinguible y algo de agilidad, a cambio de multiplicar el coste de
+  abrir por el número de combinaciones — y ese coste lo paga el usuario legítimo
+  en cada apertura, no el atacante una sola vez.
+
+**Recomendación: (a).** Es la única que cumple el criterio sin cobrarle el precio
+al usuario legítimo, y la pérdida de agilidad es menor de lo que parece: este
+formato nace hoy, puede nacer con los parámetros que hoy se consideran correctos,
+y una versión de formato nueva es exactamente el mecanismo que existe para
+cambiarlos. Encaja además con la directiva de fallar ruidosamente: un parámetro
+que no se negocia no se puede degradar.
+
+**Y esto es lo que hay que decidir antes de escribir código.**
+
+---
+
+## 6. Primitivas: ninguna nueva
+
+No se inventa nada, y la ficha lo exigía. Todo lo que hace falta ya está en el
+árbol y ya tiene KAT: **Argon2id** (`src/kdf.rs`) para derivar,
+**XChaCha20-Poly1305** (`src/cipher.rs`) para el señuelo y para el volumen
+verdadero, el **CSPRNG** (`src/aleatorio.rs`) para el relleno, y **Padmé**
+(`quipu-nucleo/src/prelayers.rs`) para que la longitud dentro de cada volumen no
+hable.
+
+El relleno del cuerpo tiene que salir del CSPRNG, **no de un cifrado de ceros**:
+si saliera de un keystream con clave derivada, existiría una clave que lo
+«explica», y eso es precisamente el campo que no puede existir.
+
+---
+
+## 7. Feature gate y ruedas
+
+- **Nombre: `negacion`.** No `deniable`: el árbol nombra en castellano lo que es
+  suyo (`antihacker`, `aleatorio`, `firmante`, `prelayers` es la excepción
+  heredada) y esto es formato propio, no un término de arte importado.
+- **No es *default*.** El bloque `[features]` de `Cargo.toml` lleva en comentario
+  la razón de cada uno; la de este es que un formato con promesa de seguridad
+  seria no se enciende por descuido.
+- **En las ruedas de Python: NO, en la primera versión.** Razón: la superficie
+  PyO3 tendría que exponer la contraseña B y el tamaño declarado, y una API mal
+  usada aquí no produce un error, produce una falsa sensación de negación. Se
+  expone cuando el formato haya pasado el banco y esté estable. Recordar que los
+  features de la rueda viven en **dos** sitios (`pyproject.toml` y `release.yml`)
+  y tienen que concordar.
+
+---
+
+## 8. Cómo se prueba que el frente de la sospecha está cubierto
+
+No se da por cubierto por argumento. Se **mide**, y la herramienta ya existe: el
+banco de indistinguibilidad de `src/lab/indistinguibilidad.rs`, que unifica I1 e
+I4 bajo un veredicto común y acepta cualquier sonda de bytes.
+
+Tres sondas, y las tres tienen que salir «no distingue»:
+
+1. **Contenedor contra azar.** El blob completo frente a bytes del CSPRNG. Si el
+   distinguidor los separa, la cabecera sigue hablando y el frente de la sospecha
+   NO está cubierto. Esta es la que hoy fallaría con los 28 bytes de estructura.
+2. **Con oculto contra sin oculto.** Dos poblaciones de contenedores del mismo
+   tamaño declarado, unos con volumen verdadero y otros solo con relleno. Es la
+   prueba del frente de la prueba, y la razón por la que el relleno tiene que ser
+   azar siempre.
+3. **Tiempo de fallo.** Contraseña equivocada contra contraseña de señuelo
+   contra contraseña verdadera, por dudect. Si abrir el oculto tarda distinto,
+   el reloj es el campo que dijimos que no existía.
+
+Y las tres tienen que **discriminar**: se corren contra un contenedor
+deliberadamente roto —con el mágico puesto a mano— y ahí el banco tiene que
+ponerse rojo. Un banco que nunca dice que no, no dice nada.
+
+---
+
+## 9. Lo que queda por decidir, y es de Juan
+
+1. **La salida de la circularidad del KDF** (§5). Recomendada la (a). Es la
+   decisión que fija el formato entero.
+2. **Si el señuelo es obligatorio.** Un contenedor con volumen oculto y señuelo
+   VACÍO es un contenedor que, abierto con A, muestra nada — y «no tengo nada
+   guardado ahí» es una respuesta peor que un señuelo creíble. Propuesta: exigir
+   señuelo no vacío, y decir por qué en el error.
+3. **Si esto va en la próxima versión o en una rama de formato.** Toca
+   compatibilidad: no rompe lo escrito —es un formato nuevo, no una modificación
+   del actual— pero sí añade una segunda familia de artefactos que el verificador
+   y la documentación tienen que cubrir.
+
+Mientras estas tres no se cierren, no se escribe código. Es lo que decía la ficha
+antes de la luz verde y lo que la luz verde confirmó.

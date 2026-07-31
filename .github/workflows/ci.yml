@@ -354,6 +354,30 @@ jobs:
       # menos de lo que hay. Es el mismo defecto que la lista de doce archivos de
       # versión y el banco del verificador — un registro que hay que acordarse de
       # ampliar es un registro que diverge.
+      # EL CORPUS SE DERIVA, NO SE GUARDA. `fuzz/corpus` está en .gitignore, así
+      # que en una copia limpia —o sea, SIEMPRE en CI— no hay ni una unidad. Sin
+      # este paso, `parse_signed` no puede pasar su comprobación de longitud: el
+      # parser exige 4701 bytes y el -max_len por defecto de libFuzzer es 4096, de
+      # modo que el objetivo corría 20 s rechazando por corto y salía verde. Y el
+      # encadenado de abajo no tendría nada que encadenar.
+      #
+      # Se genera en vez de commitear por lo mismo que la lista de objetivos sale
+      # de `cargo fuzz list`: un artefacto guardado que hay que acordarse de
+      # regenerar es un artefacto que diverge del formato al que dice pertenecer.
+      - name: Sembrar el corpus
+        run: cargo run --release --example gen_semillas_fuzz
+
+      # EL CORPUS SE ENCADENA DENTRO DE SU FAMILIA DE IDIOMA, no entre todos.
+      # `parse_container`, `unpad`, `parse_signed` y `parse_recipient` consumen el
+      # MISMO idioma —blob crudo con mágico, versión y campos de longitud en
+      # offsets fijos—, así que lo que uno descubre le sirve a los otros tres y se
+      # les pasa su corpus como entrada de solo lectura. `honey_decrypt` y
+      # `codec_roundtrip` quedan fuera porque su primer byte significa otra cosa:
+      # mezclarlos sería ruido disfrazado de cobertura. La tabla y el porqué, en
+      # fuzz/README.md.
+      #
+      # libFuzzer escribe SOLO en el primer directorio; los hermanos van detrás y
+      # no se contaminan.
       - name: Smoke every fuzz target
         run: |
           set -o pipefail
@@ -363,9 +387,26 @@ jobs:
             exit 1
           fi
           echo "Objetivos detectados: $objetivos"
+          familia_blob="parse_container unpad parse_signed parse_recipient"
           for t in $objetivos; do
-            echo "::group::fuzz $t"
-            cargo fuzz run "$t" -- -max_total_time=20
+            # Al pasar el corpus EXPLÍCITO, libFuzzer exige que el directorio
+            # exista y aborta si no —cargo-fuzz solo lo crea cuando no le pasas
+            # ninguno—. `codec_roundtrip` y `honey_decrypt` no se siembran, así
+            # que sin este mkdir el job muere en el primer objetivo. Lo cazó
+            # correr esto contra una copia limpia; con el corpus local de la
+            # máquina de desarrollo pasaba en verde.
+            mkdir -p "fuzz/corpus/$t"
+            corpus="fuzz/corpus/$t"
+            case " $familia_blob " in
+              *" $t "*)
+                for h in $familia_blob; do
+                  [ "$h" = "$t" ] && continue
+                  [ -d "fuzz/corpus/$h" ] && corpus="$corpus fuzz/corpus/$h"
+                done
+                ;;
+            esac
+            echo "::group::fuzz $t  [corpus: $corpus]"
+            cargo fuzz run "$t" $corpus -- -max_total_time=20
             echo "::endgroup::"
           done
 
