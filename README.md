@@ -227,8 +227,8 @@ python tests/python/test_quipu.py
 v1 + v1.1 + v2 + streaming AEAD (`QST1`) + honey (`QHNY`) + firmas (híbrida
 Ed25519+ML-DSA-87 y triple con SLH-DSA) implementados con TDD estricto.
 **267 tests Rust + Wycheproof + 15 Python** verdes, clippy limpio, fuzzing sin
-crashes, Miri sin UB. Bindings multi-lenguaje sobre la C ABI, cada uno con
-interop cross-language: **10 tests de ABI + integración C, 12 Node, 12 Go**.
+crashes, Miri sin UB. **Rust puro**: fuera la C ABI, Node y Go —el único binding
+es la rueda de Python (PyO3), publicada como `quipu-crypto` en PyPI—.
 Parámetros post-cuánticos en **categoría de seguridad NIST 5 (CNSA 2.0)**:
 **ML-KEM-1024** y **ML-DSA-87**. Modo online con **VOPRF conforme a RFC 9497**
 (ristretto255-SHA512), verificado contra los **vectores oficiales del Apéndice
@@ -287,7 +287,7 @@ no valida, no se degrada a "sin endurecer".
 
 - [`crates/quipu-voprf`](crates/quipu-voprf) — primitivas VOPRF (RFC 9497), Apache-2.0
 - [`crates/quipu-oprf-server`](crates/quipu-oprf-server) — el servidor, auto-hospedable
-- [`integrations/`](integrations) — Django (publicado), Express y Go (sin publicar)
+- [`integrations/`](integrations) — Django (publicado)
 
 ## Documentación
 

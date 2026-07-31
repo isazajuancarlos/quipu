@@ -12,6 +12,12 @@
 pub mod corpus;
 pub mod distinguidor;
 pub mod engine;
+/// El banco de indistinguibilidad va bajo `lab` (no `lab-offline`) a propósito:
+/// su núcleo —vocabulario, señales de bytes, conductor— no necesita medir tiempo,
+/// así que lo cubre el job de CI `cargo test --features lab --lib lab`. El puente
+/// hacia dudect vive dentro, tras `lab-offline`, compartiendo la suerte de
+/// `timing` (que el CI no corre por ser flaky con reloj real).
+pub mod indistinguibilidad;
 pub mod forge;
 #[cfg(feature = "slh")]
 pub mod forge_triple;

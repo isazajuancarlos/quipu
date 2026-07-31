@@ -17,6 +17,27 @@ donde no, para que la conclusión se pueda discutir en vez de heredar.
 
 Fecha de la medición: **20 de julio de 2026**, contra `0.9.0`.
 
+> ### EL SUJETO DE LAS SECCIONES 1 Y 2 YA NO EXISTE (2026-07-27)
+>
+> El **canal de glifos se eliminó entero** en el PR #93, y con él
+> `tests/glifos_degradados.rs` y `tests/glifos_separabilidad.rs`. Los comandos
+> de «Reproducir las mediciones» que los nombran **no corren**.
+>
+> Las dos secciones **se conservan a propósito**, y no por descuido: su
+> resultado es NEGATIVO —«no aporta»— y ese es justamente el tipo de hallazgo
+> que se pierde al borrarlo. Sin ellas, la pregunta «¿y si entrenamos una CNN
+> para leer la hoja?» vuelve dentro de un año sin que nadie recuerde que ya se
+> midió y no salía a cuenta. La conclusión sigue siendo válida; lo que caducó es
+> el código con el que se llegó a ella.
+>
+> Léanse como **registro de investigación cerrada**, no como estado del
+> repositorio. Si vuelve un portador de papel (tarea #20), la medición hay que
+> rehacerla contra el portador nuevo: los números de aquí eran de un alfabeto
+> que ya no se imprime.
+>
+> Las secciones **3 y 4 siguen vigentes**: honey y el distinguidor existen, y
+> sus comandos corren.
+
 ---
 
 ## 1. Reconocer glifos de una página fotografiada — **no aporta**
@@ -250,9 +271,15 @@ función nueva.
 
 ## Reproducir las mediciones
 
+Las de los puntos 1 y 2 **ya no se pueden reproducir**: sus pruebas se fueron con
+el canal de glifos en el PR #93. Se dejan citadas, comentadas, para que quede
+claro qué se corrió en su día y con qué nombre — no para que alguien las teclee.
+
 ```bash
-cargo test --release --test glifos_degradados      -- --nocapture
-cargo test --release --test glifos_separabilidad   -- --nocapture
+# cargo test --release --test glifos_degradados    -- --nocapture   # ELIMINADA (PR #93)
+# cargo test --release --test glifos_separabilidad -- --nocapture   # ELIMINADA (PR #93)
+
+# Estas SÍ corren:
 cargo test --release --test honey_distinguibilidad -- --nocapture
 # El distinguidor (punto 4) vive tras la feature del laboratorio:
 cargo test --release --features lab --lib distinguidor -- --nocapture

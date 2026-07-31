@@ -20,8 +20,8 @@ hackerbot, autopruebas de arranque—. Este documento la ordena y dice qué falt
 > violar uno de cinco invariantes»— es cierta dentro de ese alcance y **falsa
 > fuera de él**, y como la frase se lee universal conviene decirlo aquí.
 >
-> Comprobado el 2026-07-26 contra incidentes reales (§ Evidencia empírica, y
-> `THREAT_MODEL.md` §10): **ninguno atacó la criptografía**. Fueron denegación de
+> Comprobado el 2026-07-26 contra incidentes reales (`THREAT_MODEL.md` §10,
+> *Empirical evidence*): **ninguno atacó la criptografía**. Fueron denegación de
 > servicio, ransomware por un proveedor y acceso comprometido. Los cinco
 > invariantes no habrían cambiado ningún desenlace.
 >
@@ -45,7 +45,15 @@ cinco propiedades, no cien ataques.
 | **I4** | El fallo no revela nada | oráculos de error, mensajes distintos por causa | verificador de uniformidad de errores |
 | **I5** | Procedencia verificada | dependencia comprometida, primitiva con puerta trasera | cargo-vet/audit + vectores publicados + build reproducible |
 | **I6** | **El humano es parte del sistema** | pretexto, phishing, coacción, hombro | asimetría cerrar/abrir en `/admin/*`: cerrar sin verificar a nadie, reabrir lo revocado no está disponible |
-| **I7** | **La superficie desplegada responde por sí misma** | XSS/SQLi/hardening del servidor OPRF, proveedor caído, canal de actualización tumbado | pruebas de la aplicación web + plan de continuidad + modo degradado |
+| **I7** | **La superficie desplegada responde por sí misma** | XSS/SQLi/hardening del servidor OPRF, proveedor caído, canal de actualización tumbado | postura del despliegue comprobable + plan de continuidad + modo degradado |
+
+**Estado de I6 e I7**, que la tabla no decía y las diez familias sí dicen de las
+suyas — auditado el 2026-07-27 contra el repositorio:
+
+| | Estado | Dónde |
+|---|---|---|
+| **I6** | **CUBIERTO.** Revocar es definitivo: `revoked_at` entra en la consulta de verificación y `activate` no toca una key revocada, así que la asimetría no depende de que nadie juzgue una petición | `crates/quipu-oprf-server/src/store.rs`, con la prueba `una_key_revocada_no_se_reactiva_por_mucho_que_lo_pidan` |
+| **I7** | **CUBIERTO, con residuo declarado.** Postura del despliegue comprobable (HSTS, `/admin/keys` no 2xx); SQL parametrizado y fijado por una meta-prueba; continuidad y modo degradado escritos. Lo que sigue sin resolver está enumerado, no escondido: sin respaldo verificado del *seed* fuera del VPS, sin réplica, sin objetivo de disponibilidad y sin alerta automática | `verificar.py desplegado`; `store.rs` (`el_almacen_no_concatena_sql`, `el_dato_hostil_no_se_ejecuta`); **`docs/CONTINUIDAD.md`** |
 
 Un ataque nuevo casi siempre es una forma nueva de romper **uno** de estos. Si el
 lab prueba los siete en continuo y con adversario adaptativo, cubre el espacio,
@@ -133,11 +141,32 @@ depender del hardware (a diferencia de AES sin AES-NI, que cae a S-boxes
 indexadas por bytes secretos — canal de caché clásico, y **la caída es
 silenciosa**). Comparación en tiempo constante, GF(2^8) de Shamir sin tablas.
 
-**Herramienta.** *Existe:* dudect sobre la ruta post-cuántica (clases *válido vs
-corrupto* en decapsulación, *dos claves distintas*), `src/lab/timing.rs`.
-*Falta:* extender dudect a **cada** ruta con secreto de forma sistemática (hoy es
-selectivo), y un chequeo que marque si un build cae a una implementación con
-tablas (el caso AES-sin-NI, que hoy pasa callado).
+**Herramienta.** *Existe:* dudect sobre seis rutas con secreto en
+`src/lab/timing.rs` — `ct_eq`, decapsulación *válido vs corrupto*, decapsulación
+con *dos claves distintas*, rechazo por causa, verificación de firma y derivación
+de subclaves.
+*Falta:* extender dudect a **cada** ruta con secreto de forma sistemática (hoy
+son seis, elegidas).
+
+> **La alarma de «build caído a tablas» NO hay que construirla, y merece
+> explicarse** (auditado el 2026-07-27, corrigiendo lo que este mismo documento
+> pedía). El aviso de arriba sobre AES sin AES-NI es cierto *en general* y
+> **no aplica a este stack**, por dos razones independientes:
+>
+> 1. **El núcleo no lleva AES.** `cargo tree -p quipu` no devuelve ninguna
+>    dependencia de `aes`: el AEAD es `chacha20poly1305`, ARX sin tablas.
+> 2. **El único AES es el de `quipu-cnsa`** (`aes-gcm` → `aes`, por mandato
+>    CNSA 2.0), y su backend portátil **no usa tablas**. El crate lo dice
+>    textualmente: implementación *fixslicing*, «entirely in terms of bitwise
+>    arithmetic with no use of any lookup tables or data-dependent branches», y
+>    la detección en runtime cae a ella cuando no hay AES-NI.
+>
+> Es decir: en este stack, perder AES-NI cuesta **rendimiento, no tiempo
+> constante**. Una alarma aquí no vigilaría ningún riesgo; sonaría por lentitud,
+> y una alarma que suena por lo que no importa es una alarma que se acaba
+> ignorando. Lo que sí queda es una **dependencia de una promesa ajena**: si
+> `aes` cambiara de backend, la propiedad se perdería en silencio. Ese es un
+> caso de I5 (procedencia) y lo cubre `cargo-vet`, no una sonda de I1.
 
 **Invariante:** I1.
 
@@ -404,20 +433,84 @@ La lectura vertical de la tabla de invariantes da el diseño:
 
 ## Qué construir primero (borrador de orden)
 
-1. **Generalizar el distinguidor** a un banco que cubra I1+I4 sobre las tres
-   señales (timing, error, ciphertext), con adversario adaptativo. Máximo
-   apalancamiento.
+1. ~~**Generalizar el distinguidor** a un banco que cubra I1+I4 sobre las tres
+   señales (timing, error, ciphertext), con adversario adaptativo.~~ **HECHO**
+   el 2026-07-28 (`src/lab/indistinguibilidad.rs`). No se reescribió nada: un
+   `Veredicto` común al que dudect (t de Welch) y el distinguidor (σ) se
+   CONVIERTEN —cada uno conserva su regla de decisión afinada—, más un trait
+   `Sonda` y un conductor `evaluar_banco`. La adaptación es la del distinguidor
+   (reenfoque de pesos + remuestreo por rondas); no se añadió un motor de
+   consultas arbitrarias porque en autosabotaje el atacante controla las dos
+   clases. Discrimina en las TRES señales, con fuga sembrada por cada una
+   (directiva 8): tiempo 220σ, ciphertext 17σ, error 17σ marcados como fuga; sus
+   nulls, indistinguibles. El núcleo va bajo `lab` (lo corre el CI); el puente a
+   dudect, bajo `lab-offline`, como `timing`.
 2. ~~**Detector de reúso de nonce** y batería estadística del RNG (I3).~~
-   **HECHO** el 2026-07-27 (`tests/taxonomia.rs`). Queda promover el detector a
-   API pública.
+   **HECHO** el 2026-07-27 (`tests/taxonomia.rs`), y el detector **promovido a
+   API pública** el 2026-07-28: `antihacker::nonces_repetidos` en el crate
+   PUBLICADO —la vacuna se abre—, para que un integrador lo corra sobre su propio
+   almacén. Devuelve los pares que colisionan (no un booleano), ignora lo que no
+   parsea como contenedor, y usa el parser real en vez de cortar bytes a mano.
 3. ~~**Verificador de uniformidad de errores** (I4) recorriendo cada punto de
-   fallo.~~ **HECHO** el 2026-07-27 para el mensaje y el tipo
-   (`tests/invariantes.rs`); el *tiempo* sigue pendiente y es del punto 4.
-4. **dudect sistemático** sobre cada ruta con secreto (I1), con alarma si un
-   build cae a implementación con tablas.
+   fallo.~~ **HECHO** el 2026-07-27: el mensaje y el tipo en `tests/invariantes.rs`,
+   y el **tiempo** en `lab::timing::dudect_rechazo_por_causa`.
+4. **dudect sistemático** sobre cada ruta con secreto (I1). ~~Con alarma si un
+   build cae a implementación con tablas.~~ **La alarma se retira**: este stack
+   no tiene AES en el núcleo y el de `quipu-cnsa` es *fixsliced* sin tablas —
+   ver el recuadro de la familia 2.
 5. ~~**Paridad de las herramientas en los bindings** (#100)~~ **RESUELTO POR
    ELIMINACIÓN**: desde 0.10 hay un solo binding, y un binding no puede divergir
    de sí mismo. Queda la **build reproducible** (I5).
+6. **I7 — continuidad y modo degradado.** Añadido al orden el 2026-07-27, y va
+   antes de lo que queda de I1: la evidencia empírica del propio bloque ALCANCE
+   dice que los incidentes reales fueron disponibilidad y proveedor, no
+   criptografía. Primera pasada **HECHA** (`docs/CONTINUIDAD.md`, meta-prueba de
+   SQL, arranque que muere con seed inválido); el residuo está enumerado allí, y
+   lo primero es el respaldo del *seed* fuera del VPS.
 
 Nada de esto se implementa sin cerrar el diseño y el modelo de amenaza de cada
 sonda. Este documento es el mapa, no la implementación.
+
+**Y el mapa se audita contra el repositorio, no se hereda.** La pasada del
+2026-07-27 comprobó una a una las afirmaciones de arriba: casi todas se
+sostuvieron —incluidos los conteos finos, «8 vectores en 5 tamaños» y «88
+válidas + 62 inválidas», medidos corriendo las pruebas— y dos no: I6 figuraba
+como pendiente estando hecho, y el punto 4 pedía una alarma para un riesgo que
+este stack no tiene. Un mapa que manda construir lo que no hace falta cuesta más
+que uno incompleto.
+
+---
+
+## Reauditoría 2026-07-28 — amenazas recientes contra la pila real
+
+Barrido de documentación reciente (2025–2026) de los métodos de ataque y las
+primitivas que Quipu usa, contrastado contra las versiones PINEADAS, no contra la
+teoría:
+
+| Amenaza reciente | ¿Toca a Quipu? | Estado, medido |
+|---|---|---|
+| **RUSTSEC-2025-0144 / CVE-2026-22705** — canal lateral de temporización en `ml-dsa` (algoritmo *Decompose* al firmar; división en tiempo variable), publicado 2026-01-27, corregido en `>=0.1.0-rc.3` | Sí — Quipu firma con ML-DSA-87 | **CUBIERTO.** El árbol pinea `ml-dsa 0.1.1`, que ya trae la reducción de Barrett en tiempo constante. `cargo-audit` (obligatorio en CI) lo confirmaría en rojo si se bajara |
+| **KyberSlash 1/2 + Clangover** (CVE-2024-37880) — timing por división dependiente del secreto en ML-KEM; el segundo lo introducía el optimizador de Clang | Sí — `ml-kem 0.3.2` | Parcheado aguas arriba; la familia 1 ya lo daba por ausente en la fuente vendida |
+| **OWASP 2025 — Argon2id mínimo 19 MiB / t=2 / p=1** | Sí — KDF offline | Quipu por defecto **64 MiB / t=3 / p=1**, por encima del mínimo |
+
+Lo que confirma la reauditoría, y es la tesis del bloque ALCANCE otra vez: el CVE
+reciente que sí tocaba a Quipu era **un canal lateral de división en tiempo
+variable** —exactamente la familia 2, I1— y la defensa que valió no fue una sonda
+nueva sino **la procedencia (I5)**: pinear la versión corregida y que `cargo-audit`
+lo vigile. La versión de la dependencia es el control, no el criptoanálisis.
+
+**Añadido en esta pasada:** el KAT de Argon2id contra el RFC 9106 §5.3
+(`tests/vectores_de_norma.rs`), que era el primer «falta» de la familia 1 — cierra
+la procedencia de Argon2id igual que los de HKDF y Ed25519, y un test de cableado
+que exige que `derive_master_key` sea Argon2id V0x13 y no Argon2i.
+
+**Y el último «falta» de la familia 1, cerrado el mismo día:** las KAT de NIST
+para **ML-KEM-1024** (keyGen, `ek` de 1568 bytes) y **ML-DSA-87** (keyGen, `pk` de
+2592 bytes), contra los vectores ACVP de NIST. Como `wycheproof` no los trae, se
+vendorizó **un** vector de cada uno en `tests/vectors/acvp_*.json` —tomados del
+ACVP-Server de NIST, parseados del JSON, NO transcritos: el `ek`/`pk` son
+demasiado grandes— y se reproducen con `DecapsulationKey::from_seed` (semilla
+`d‖z`) y `SigningKey::from_seed`. Es procedencia: cazaría una subida regresiva de
+`ml-kem`/`ml-dsa` —el mismo tipo de fallo que RUSTSEC-2025-0144— antes de una
+release. Con esto, **la familia 1 (criptoanálisis de la primitiva, I5) queda
+cerrada**.

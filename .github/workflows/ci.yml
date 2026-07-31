@@ -10,6 +10,12 @@ on:
     # Auditoría semanal de dependencias aunque no haya cambios (nuevas CVEs).
     - cron: "0 6 * * 1"
 
+permissions:
+  # Menor privilegio (supply-chain #203): todos los jobs de este CI son de solo
+  # lectura (build/test/clippy/audit/vet/sbom/fuzz/hsm). release.yml fija sus
+  # propios permisos por job. Sin este bloque el GITHUB_TOKEN hereda permisos amplios.
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -60,6 +66,15 @@ jobs:
         run: cargo clippy --features honey --all-targets -- -D warnings
       - name: Clippy (escrow)
         run: cargo clippy --features escrow --all-targets -- -D warnings
+      # Custodia del seed del OPRF (Shamir k-de-n). Es feature del CRATE DEL
+      # SERVIDOR, no del núcleo, y no-default: no viaja en el binario del VPS.
+      # Va aquí porque una herramienta que solo se usa el día del desastre es
+      # justo la que se pudre sin que nadie lo note. Incluye la prueba que
+      # levanta el binario real y comprueba que sirve la MISMA clave pública.
+      - name: Tests (custodia del seed — restauración verificada)
+        run: cargo test -p quipu-oprf-server --features custodia --all-targets
+      - name: Clippy (custodia del seed)
+        run: cargo clippy -p quipu-oprf-server --features custodia --all-targets -- -D warnings
       # El camino de ERROR de las autopruebas es el único que nunca se ejecuta en
       # un build normal, y es el que tiene que funcionar el día que haga falta.
       - name: Tests (autopruebas — camino de fallo, inyección)

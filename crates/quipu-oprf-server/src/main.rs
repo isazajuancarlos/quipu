@@ -26,10 +26,9 @@ fn db_path() -> String {
     std::env::var("QUIPU_OPRF_DB").unwrap_or_else(|_| "quipu-oprf.db".to_string())
 }
 
-/// `info` de `DeriveKeyPair` (RFC 9497 §3.2). Fijo y versionado: entra en la
-/// derivación, así que cambiarlo cambia la clave para la misma semilla y
-/// invalida todos los secretos endurecidos. No se toca.
-const DERIVE_INFO: &[u8] = b"quipu-oprf-server-v1";
+/// Reexportada desde la lib: una sola definición para el arranque y para la
+/// verificación de restauraciones. Ver el comentario en `lib.rs`.
+use quipu_oprf_server::DERIVE_INFO;
 
 /// Carga la clave VOPRF desde el seed persistente. Sin seed => clave EFÍMERA
 /// (solo dev): reiniciar rompería los secretos endurecidos de los clientes.
@@ -52,7 +51,29 @@ fn load_server_key() -> voprf::Server {
                     std::process::exit(1);
                 }
             },
-            None => eprintln!("⚠️  QUIPU_OPRF_SEED inválido (esperaba 64 hex); ignorado."),
+            // UN SEED INVÁLIDO MATA EL ARRANQUE. No se degrada a efímera.
+            //
+            // Antes esto era un aviso y seguía adelante, y era el peor camino
+            // del servicio: quien define QUIPU_OPRF_SEED está declarando que
+            // quiere la clave persistente, así que un valor mal copiado —un
+            // salto de línea de más, 63 dígitos en vez de 64— arrancaba con una
+            // clave EFÍMERA distinta. El proceso queda vivo, responde 200, y
+            // TODO lo que los clientes derivaron con la clave anterior deja de
+            // valer sin que nada se ponga rojo. `k` no rota jamás justamente
+            // porque rotarla invalida todo lo derivado; esto la rotaba por
+            // accidente. Un aviso en stderr no es fallar (directiva 20).
+            //
+            // La distinción es entre variable AUSENTE y variable EQUIVOCADA:
+            // sin `QUIPU_OPRF_SEED` se sigue arrancando con clave efímera,
+            // porque ese es el desarrollo local de siempre y es legítimo.
+            None => {
+                eprintln!(
+                    "error: QUIPU_OPRF_SEED inválido (esperaba 64 dígitos hex, \
+                     sin espacios). Arrancar con clave efímera invalidaría todo \
+                     lo que los clientes ya derivaron, así que no se arranca."
+                );
+                std::process::exit(1);
+            }
         }
     }
     eprintln!(

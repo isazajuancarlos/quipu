@@ -852,7 +852,7 @@ checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quipu"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -900,6 +900,7 @@ name = "quipu-nucleo"
 version = "0.1.0"
 dependencies = [
  "num-bigint",
+ "num-integer",
  "num-traits",
  "proptest",
  "reed-solomon",
@@ -915,6 +916,7 @@ dependencies = [
  "sha2 0.10.9",
  "subtle",
  "tiny_http",
+ "zeroize",
 ]
 
 [[package]]
