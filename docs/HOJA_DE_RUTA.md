@@ -15,7 +15,7 @@ proyectos y no sirve para trabajar aquí.
 | | |
 |---|---|
 | Publicado en | crates.io y PyPI (la versión, en `Cargo.toml`) |
-| Pruebas | 270 en verde, 0 fallidas (`cargo test --workspace --all-targets`, 2026-07-31) · 883 sumando todas las combinaciones de features, medido antes y no vuelto a medir |
+| Pruebas | **380 en verde en 38 binarios**, 0 fallidas (`cargo test --workspace --all-targets`, 2026-08-03, tras fusionar #265 con la rama de trabajo) · 883 sumando todas las combinaciones de features, medido antes y no vuelto a medir — esa segunda cifra envejece y hay que remedirla antes de citarla |
 | `unsafe` de primera parte | **0** en todo el repositorio |
 | Superficies publicadas | 2 — crates.io y PyPI |
 | Sitios de versión | 4, verificados por el CI en 5 segundos |
