@@ -74,6 +74,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   contraseña misma. Cada medida lleva su **control**, que deja una copia viva a
   propósito y exige que el escáner la vea; sin eso un cero sería indistinguible de
   un escáner que mira donde no es.
+
+  **Y el aviso vale más que el cero: este medidor dio cero FALSO tres veces**, por
+  causas distintas y todas invisibles — se contaba a sí mismo; exigía coincidencia
+  completa del secreto y la metadata del asignador la rompía; y leía cada región de
+  un tirón, de modo que una página sin mapear descartaba la pila del hilo entera,
+  que era justo donde estaba el secreto. Esa tercera explicaba una diferencia
+  local/CI que se había atribuido al entorno: era no haber mirado. Encima, la
+  primera medida buena contaba el rastro del propio banco de pruebas, que
+  construía la clave para montar el escenario. Un medidor de ausencia no puede
+  avisar de que está ciego: solo lo dice el caso que lo pone rojo.
+
+  Se declara T6 cerrado **en esos tres caminos y no en la librería entera**. Faltan
+  `decode_as_recipient`, el texto en claro que devuelve `decode`, `stream` y
+  `honey`, cada uno con su propio control.
 - **Build reproducible de la rueda de Python (invariante I5, #124).** Medido antes
   de tocar nada, y estaba mucho más cerca de lo que la ficha suponía: el compilador
   nunca fue el problema. El `.crate` ya se reconstruía byte a byte —cargo normaliza
