@@ -5,26 +5,40 @@ SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 
 # Quipu y CNSA 2.0
 
-**Posición: Quipu implementa la mitad asimétrica de CNSA 2.0 y se aparta a
-propósito en la simétrica. El perfil CNSA 2.0 completo está especificado aquí y
-no está construido. Se construye cuando un comprador lo pida, no antes.**
+**Posición: entre `quipu` y `quipu-cnsa` están cubiertas CUATRO de las cinco
+funciones de CNSA 2.0. Falta una —la firma de software (SP 800-208)— y hay una
+salvedad que se explica abajo: lo asimétrico de `quipu` es HÍBRIDO. Nada de esto
+es cumplimiento: alineación de algoritmos no es validación FIPS 140-3.**
 
 Este documento existe para que la divergencia sea una posición defendible y no
 un hueco que alguien descubra en una evaluación.
 
-Verificado contra el repositorio el 20 de julio de 2026, versión `0.9.0`.
+**Reverificado contra el repositorio el 31 de julio de 2026.** La versión
+anterior de este archivo decía que el perfil «no está construido», y desde el
+2026-07-21 la mitad simétrica SÍ lo está: `crates/quipu-cnsa` existe en el
+workspace. Un documento que le dice a un comprador lo que hay tiene que decir lo
+que hay.
 
 ---
 
 ## Qué exige CNSA 2.0 y qué hace Quipu
 
-| Función | CNSA 2.0 exige | Quipu usa | ¿Coincide? |
-|---|---|---|:--:|
-| Establecimiento de clave | ML-KEM-1024 | ML-KEM-1024 | **sí** |
-| Firma | ML-DSA-87 | ML-DSA-87 | **sí** |
-| Cifrado simétrico | AES-256 | XChaCha20-Poly1305 | **no** |
-| Resumen | SHA-384 (preferido) o SHA-512 | SHA-256 | **no** |
-| Firma de software/firmware | LMS o XMSS (SP 800-208) | SLH-DSA-SHA2-256s (feature `slh`) | **no** |
+| Función | CNSA 2.0 exige | `quipu` | `quipu-cnsa` | ¿Cubierta? |
+|---|---|---|---|:--:|
+| Establecimiento de clave | ML-KEM-1024 | X25519 **+** ML-KEM-1024 (híbrido) | — | **sí, con salvedad** |
+| Firma | ML-DSA-87 | Ed25519 **+** ML-DSA-87 (híbrido) | — | **sí, con salvedad** |
+| Cifrado simétrico | AES-256 | XChaCha20-Poly1305 | **AES-256-GCM** | **sí**, en la hermana |
+| Resumen | SHA-384 (preferido) o SHA-512 | SHA-256 | **SHA-384** | **sí**, en la hermana |
+| Firma de software/firmware | LMS o XMSS (SP 800-208) | SLH-DSA-SHA2-256s (feature `slh`) | — | **no** |
+
+**LA SALVEDAD, y conviene decirla antes de que la pregunten:** lo asimétrico de
+`quipu` es HÍBRIDO. `pqhybrid` combina X25519 con ML-KEM-1024 y `pqsign` combina
+Ed25519 con ML-DSA-87 — comprobado en `src/pqhybrid.rs` y `src/pqsign.rs`, no
+citado de memoria. Los algoritmos que CNSA 2.0 nombra están ahí y con los
+parámetros de TOP SECRET, pero lo que se ejecuta lleva además la mitad clásica.
+Para un comprador que exija exactamente lo que dice la lista, un perfil CNSA
+necesitaría las variantes PURAS, que hoy no existen: reusar el código de `quipu`
+tal cual no da esa afirmación, y eso es trabajo nuevo, no cableado.
 
 La coincidencia en la parte post-cuántica no es casual: ML-KEM-1024 y ML-DSA-87
 son los parámetros para TOP SECRET y se eligieron por eso. La divergencia
@@ -62,7 +76,20 @@ para todos.
 
 ---
 
-## Por qué el perfil no está construido
+## Qué hay construido, y por qué el resto no
+
+**Construido y en el workspace desde el 2026-07-21: `crates/quipu-cnsa`**, la
+mitad simétrica del perfil. AES-256-GCM, HKDF-SHA-384, huella de diccionario
+sobre SHA-384 y cabecera de 56 bytes; el formato, el codec, Padmé y el ECC los
+comparte con `quipu` a través de `quipu-nucleo`, así que un fallo de formato se
+arregla una vez. Argon2id se mantiene a propósito (ver abajo).
+
+**NO está publicado.** Comprobado en el índice el 2026-07-31:
+`index.crates.io/qu/ip/quipu-cnsa` no devuelve nada. Publicar necesita visto
+bueno explícito, y antes hay que decidir si el perfil se queda como está.
+
+Lo que sigue explica por qué el resto —lo asimétrico puro y la firma de
+software— no se ha construido, y sigue siendo válido.
 
 No es que sea difícil. Es que **alinear algoritmos no es cumplir**, y confundir
 las dos cosas sería vender algo que no está.
@@ -131,15 +158,27 @@ degradaciones de TLS. El magic identifica el perfil y cada perfil tiene sus
 primitivas fijas. Un contenedor CNSA se descifra con AES-256-GCM o no se
 descifra.
 
-**Alcance mínimo coherente**, porque un perfil a medias es peor que ninguno:
+**Alcance mínimo coherente**, porque un perfil a medias es peor que ninguno.
+Estado al 2026-07-31, leído del crate y no de esta lista:
 
-1. AES-256-GCM en lugar de XChaCha20-Poly1305.
-2. HKDF-SHA-384 en lugar de HKDF-SHA-256.
-3. Huella de diccionario sobre SHA-384.
-4. Nonce de 96 bits **con contador**, no aleatorio — es la consecuencia
-   obligada de perder el nonce extendido, y hay que llevar el estado.
+1. AES-256-GCM en lugar de XChaCha20-Poly1305. — **HECHO** (`aes-gcm 0.11`).
+2. HKDF-SHA-384 en lugar de HKDF-SHA-256. — **HECHO** (`sha2 0.11`, `hkdf 0.13`).
+3. Huella de diccionario sobre SHA-384. — **HECHO**.
+4. Nonce de 96 bits **con contador**, no aleatorio. — **RESUELTO POR ARGUMENTO,
+   y el argumento está en la cabecera de `cipher.rs`**: la sal es fresca en cada
+   cifrado, así que la clave cambia con cada operación y un contador persistente
+   no añadiría nada. Quien use `encrypt` saltándose la KDF sí debe garantizar
+   nonces únicos, y por eso la API le exige pasar el nonce. No hay estado que
+   llevar, que era el coste que este punto temía.
 5. Para firma de software: LMS o XMSS. SLH-DSA **no** sirve aquí; es FIPS-205 y
-   CNSA 2.0 pide SP 800-208 para ese uso concreto.
+   CNSA 2.0 pide SP 800-208 para ese uso concreto. — **PENDIENTE**, y es una
+   dependencia nueva con gestión de estado de clave (LMS y XMSS son *stateful*:
+   reusar un índice rompe la firma). El `slh` que hay no lo sustituye.
+6. **AÑADIDO EL 2026-07-31, y no estaba en esta lista:** ML-KEM-1024 y ML-DSA-87
+   **puros**. `quipu` los tiene en HÍBRIDO (X25519 y Ed25519 al lado), así que
+   una hermana que quiera afirmar «los algoritmos de CNSA 2.0» sin asterisco
+   necesita las variantes puras, con su formato y sus pruebas. Es la parte cara
+   de crecer el perfil, y la lista anterior la daba por cableada.
 
 **Lo que NO se hace:** cambiar Argon2id. CNSA 2.0 no se pronuncia sobre
 derivación desde contraseña, y sustituirlo por PBKDF2 para «parecer conforme»
@@ -157,7 +196,17 @@ Se construye el perfil cuando ocurra **cualquiera** de estas tres:
    de ser un coste aislado y pasa a ser parte de un trabajo que ya se hace.
 
 Mientras tanto, la respuesta a *«¿es compatible con CNSA 2.0?»* es este
-documento: coincide en lo asimétrico, se aparta en lo simétrico con motivo
-técnico, y el perfil está especificado.
+documento: los algoritmos asimétricos son los suyos —en híbrido—, la mitad
+simétrica está construida en `quipu-cnsa`, la firma de software falta, y ninguna
+de las dos cosas es validación FIPS 140-3.
+
+**Y la recomendación, para que la decisión no se quede abierta por no estar
+escrita: el perfil se queda simétrico.** Crecerlo hoy cuesta dos rutas
+criptográficas puras nuevas más una dependencia *stateful* (LMS/XMSS), y ninguno
+de los tres disparadores de arriba se ha dado. En una ronda la frase defendible
+no es «cubre un renglón» sino la de la tabla: cuatro de las cinco funciones, con
+la salvedad del híbrido dicha por nosotros y no descubierta por ellos. Eso se
+sostiene mejor que un perfil puro a medio construir — y lo que decide la partida
+no es el quinto renglón, es la validación, que es a lo que va la financiación.
 
 Saber por qué no lo hiciste vale más que haberlo hecho sin saber para quién.
