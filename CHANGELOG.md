@@ -6,6 +6,46 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`encode_base_n` era cuadrático por una razón evitable, y eso costaba el 98 % de
+  `encode_signed`.** El codec convertía el mensaje entero como UN número grande y le
+  sacaba los dígitos **de uno en uno**: una división del entero completo por dígito.
+  Cada división cuesta O(m) en limbos y hay O(m) dígitos, así que el coste crecía con
+  el cuadrado del tamaño — medido a 3,40 ns/n² constante a lo largo de un rango de 16×
+  (512 B → 8 KiB).
+
+  Lo que lo hizo visible: firmar un evento de bitácora de **61 bytes** tardaba 78 ms en
+  release, de los cuales solo **1,6 ms eran criptografía** (ML-DSA-87 + Ed25519). Los
+  otros 76,4 ms eran la conversión a base 94. Se descubrió persiguiendo por qué una
+  prueba de concurrencia de un consumidor se caía bajo carga; la firma nunca fue el
+  problema.
+
+  Arreglado dividiendo por `n^k` —el mayor `n^k` que cabe en un `u64`, 9 para la base 94
+  por defecto— y desmenuzando el resto con aritmética de máquina: **9 dígitos por
+  división grande en vez de uno**, y con `Integer::div_rem` se paga una división donde
+  antes eran dos (`%` y `/` por separado). Sigue siendo cuadrático, con una constante
+  17,8 veces menor.
+
+  **La salida es byte a byte la misma.** No hay cambio de formato y las firmas ya
+  emitidas siguen verificando; lo garantizan una prueba de propiedad contra la
+  implementación ingenua —conservada como oráculo— y vectores fijos tomados antes del
+  cambio. La prueba se comprobó inyectando la mutación que este rediseño podría
+  introducir (comerse los ceros de relleno de un bloque interior): la cazan cuatro
+  pruebas.
+
+  | | antes | ahora |
+  |---|---|---|
+  | `encode_base_n` | 3,40 ns/n² | 0,19 ns/n² |
+  | `encode_signed` (61 B → 5 813 glifos) | 78,0 ms | 5,6 ms |
+
+  `decode_base_n` también es cuadrático, pero su constante ya era 55 veces menor
+  (multiplicar por un dígito pequeño es mucho más barato que dividir), así que **no se
+  ha tocado**: no era el problema medido.
+
+- **Una base menor que 2 colgaba el proceso en silencio.** `encode_base_n(_, 1)` entraba
+  en un bucle infinito —`value % 1 == 0` y `value / 1 == value`— en vez de decir que una
+  base de 1 no representa nada. Ahora falla de forma ruidosa (directiva 20).
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - Reference deployment of the online VOPRF hardening server.
