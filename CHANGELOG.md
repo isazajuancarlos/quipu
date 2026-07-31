@@ -6,6 +6,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Planned
+- Independent security audit and public remediation of findings.
+- Reference deployment of the online VOPRF hardening server.
+
+## [quipu-nucleo 0.1.1] — 2026-07-31
+
+Release **solo del crate `quipu-nucleo`**; `quipu` sigue en 0.10.0 y no se
+republica. No hace falta: `quipu 0.10.0` ya declara `quipu-nucleo = "^0.1.0"`
+—verificado contra el índice sparse de crates.io—, así que todo el que dependa
+de `quipu` recoge esta versión en su siguiente `cargo update`. Y como la salida
+es byte a byte la misma, actualizar no puede invalidar nada de lo ya firmado.
+
 ### Fixed
 - **`encode_base_n` era cuadrático por una razón evitable, y eso costaba el 98 % de
   `encode_signed`.** El codec convertía el mensaje entero como UN número grande y le
@@ -36,7 +48,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   | | antes | ahora |
   |---|---|---|
   | `encode_base_n` | 3,40 ns/n² | 0,19 ns/n² |
-  | `encode_signed` (61 B → 5 813 glifos) | 78,0 ms | 5,6 ms |
+  | `encode_signed` (61 B → 5 813 símbolos) | 78,0 ms | 5,6 ms |
 
   `decode_base_n` también es cuadrático, pero su constante ya era 55 veces menor
   (multiplicar por un dígito pequeño es mucho más barato que dividir), así que **no se
@@ -45,10 +57,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Una base menor que 2 colgaba el proceso en silencio.** `encode_base_n(_, 1)` entraba
   en un bucle infinito —`value % 1 == 0` y `value / 1 == value`— en vez de decir que una
   base de 1 no representa nada. Ahora falla de forma ruidosa (directiva 20).
-
-### Planned
-- Independent security audit and public remediation of findings.
-- Reference deployment of the online VOPRF hardening server.
 
 ## [0.10.0] — 2026-07-28
 
