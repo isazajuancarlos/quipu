@@ -167,6 +167,35 @@ the operation, a local physical side channel, or control of the binary/OS.
 - **R3. Zeroization in Rust is best-effort:** copies moved by the optimizer or
   spilled to swap may persist. `zeroize` is used on key buffers, but there is no
   absolute guarantee against T6.
+
+  **What the library does, and where it stops (audited 2026-07-31).** The
+  reconstructed-material path is clean and was checked, not assumed:
+  `shamir::combine` returns `Zeroizing<Vec<u8>>` and wipes its intermediates,
+  `SigningKey` wipes its seeds on drop, and `firmar_con_comparticiones` confines
+  the secret's life to one call from which only the signature survives.
+
+  What the library will **not** ship is `mlock`. RAM can leak through five paths —
+  swap, a process core dump, cold boot, `ptrace` from another process of the same
+  user, and the hibernation image — and `mlock` closes one of them (and half of
+  hibernation) in exchange for pulling `libc` in as a direct dependency. Its
+  siblings (`mlockall`, `PR_SET_DUMPABLE`, `MADV_DONTDUMP`) each patch one more
+  path at the same cost. Five partial patches do not add up to one whole defence,
+  and they would leave a README claiming memory is protected when it is protected
+  against one path in five.
+
+  So the whole defence does not live in the library, and saying so is more useful
+  than pretending otherwise:
+
+  - **With an HSM:** closed. The private key never leaves the device, so none of
+    the five paths ever sees it.
+  - **Without an HSM, this is a DEPLOYMENT REQUIREMENT, not a build flag:**
+    encrypted or disabled swap, hibernation off, core dumps off
+    (`ulimit -c 0` / `kernel.core_pattern`), and full-disk encryption. That does
+    close swap, hibernation and disk-cold-boot together.
+  - **What nobody closes:** an adversary with root on the machine while the
+    process runs. No userspace call protects RAM from whoever owns the kernel.
+    That is a property of the threat model, not a missing feature, and promising
+    otherwise would be a promise with an expiry date.
 - **R4. Trust in third-party crates** for the primitives (S1). Mitigated with
   `cargo-audit` in CI, but a 0-day in a dependency remains possible.
 - **R5.** The model does not cover a compromised endpoint (N2): if the user's

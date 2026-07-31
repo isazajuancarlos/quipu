@@ -7,6 +7,64 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Dos objetivos de fuzz llevaban desde el 2026-07-27 en verde sin tocar el parser
+  que decían fuzzear.** Se descubrió al ir a encadenar el corpus (#131.1): antes de
+  encadenar nada se midió lo que había, y lo que había era nada.
+
+  `parse_signed` **no ejecutaba ni una línea de su cuerpo**. Fijaba la clave con
+  `VerifyingKey::from_bytes(&[0x42; 2624])` dentro de un `if let Some(vk)`, y esa
+  clave no parsea —sus 32 primeros bytes son un punto Ed25519 comprimido y `0x42`
+  repetido no lo es—, así que la condición era falsa en cada iteración y el `if let`
+  se saltaba todo en silencio. `parse_recipient` sí corría, pero moría en
+  `dict.decode`, que exige que cada carácter esté entre los 4096 glifos CJK del
+  alfabeto insignia. Y aunque hubieran pasado, no cabían: el parser firmado exige
+  4701 bytes y el `-max_len` por defecto de libFuzzer es 4096.
+
+  Medido antes y después, 45 s desde corpus vacío contra desde semillas:
+
+  | | antes | ahora |
+  |---|---|---|
+  | `cov` de `parse_signed` | 207 | 1 693 |
+  | features | 225 | 3 246 |
+  | corpus final | 10 unidades / 10 B | 87 unidades / 178 KB |
+
+  Arreglado en cuatro piezas: la clave se deriva de una semilla de 64 bytes (válida
+  por construcción, porque son semillas y no puntos) y el guardia silencioso pasa a
+  ser `panic!`; cada objetivo traduce su entrada al alfabeto por el mismo camino que
+  usa al construir, y además la pasa cruda si es UTF-8; `examples/gen_semillas_fuzz.rs`
+  siembra artefactos reales con sus mutaciones de frontera —lo que de paso sube solo
+  el `-max_len`—; y el CI **genera** ese corpus antes de fuzzear, porque
+  `fuzz/corpus` está en `.gitignore` y en una copia limpia no hay ni una unidad.
+
+  Lo sostiene una prueba y no un comentario:
+  `tests/taxonomia.rs::el_fuzz_de_los_contenedores_alcanza_el_parser_y_no_muere_en_el_alfabeto`,
+  que fue la que encontró lo de la clave. El comentario del objetivo afirmaba lo
+  contrario.
+
+### Added
+- **`examples/coste_adivinacion.rs`** — el coste por intento con su procedencia, y la
+  cota de GPU. La taxonomía publicaba «6 intentos/s» sin decir con qué parámetros ni
+  en qué máquina, y una cifra de coste sin sus parámetros no dice nada: el
+  `KdfParams::default()` entrega 64 MiB y 3 iteraciones, y el banco `guessing.rs`
+  deriva con 16 MiB y 2. Medido, el `default()` da **5,69 intentos/s** y el banco
+  **42,16** en la misma máquina. El «6» que se publicaba era correcto y describía el
+  `default()`; lo que le faltaba era decirlo. La cota de GPU (2 503–8 320 intentos/s
+  según acelerador) va declarada **estimación y no medición**: se deriva del ancho de
+  banda de memoria, aquí no hay GPU.
+- **`fuzz/README.md`** — la tabla de familias de idioma de entrada, que es lo que
+  decide qué corpus se comparte con cuál. Encadenar «entre objetivos» solo sirve
+  dentro de un mismo idioma; `honey_decrypt` y `codec_roundtrip` quedan fuera porque
+  su primer byte significa otra cosa. Con el dato honesto de que el encadenado no
+  sube hoy la cobertura de `parse_container` ni `unpad` —están saturados—: se deja
+  montado porque no cuesta nada y paga cuando un parser de la familia crezca.
+- **`docs/DISENO_NEGACION.md`** — diseño cerrado del contenedor con negación (#99 y
+  #118), **sin implementar**, que es lo que autorizaba la luz verde. Modelo de
+  amenaza explícito, los dos frentes (la prueba y la sospecha), la medida de que 28
+  de los 68 bytes de cabecera gritan «Quipu», la circularidad del KDF que fuerza la
+  decisión de formato, primitivas sin inventar nada, y las tres sondas del banco
+  I1/I4 con las que se comprueba en vez de argumentarse.
+
+### Fixed
 - **`encode_base_n` era cuadrático por una razón evitable, y eso costaba el 98 % de
   `encode_signed`.** El codec convertía el mensaje entero como UN número grande y le
   sacaba los dígitos **de uno en uno**: una división del entero completo por dígito.
