@@ -184,16 +184,46 @@ pub fn firmar_con_comparticiones(
     comparticiones: &[crate::shamir::Share],
     mensaje: &[u8],
 ) -> Result<Vec<u8>, ErrorDeFirma> {
-    let bytes = crate::shamir::combine(comparticiones)
-        .map_err(|e| ErrorDeFirma::OperacionRechazada(format!("reparto inválido: {e}")))?;
-    let clave = SigningKey::from_bytes(&bytes).ok_or_else(|| {
-        ErrorDeFirma::OperacionRechazada(
-            "las comparticiones reconstruyen algo que no es una clave de firma".into(),
-        )
-    })?;
-    // `clave` se suelta al salir de la expresión y `SigningKey` zeroiza sus
-    // semillas. La firma es lo único que sobrevive.
-    firmar(&EnMemoria::nuevo(clave), mensaje)
+    // TODO EL TRATO CON EL SECRETO OCURRE EN UN MARCO MÁS PROFUNDO, y el marco se
+    // borra al volver. No es estilo: `limpiar_pila()` solo puede sobreescribir por
+    // DEBAJO de su propio marco, así que llamarla desde la misma función que tiene
+    // la clave en una variable local no limpia esa variable — el `#[inline(never)]`
+    // es lo que garantiza que `interior` tenga marco propio y que quede por debajo.
+    //
+    // Hace falta porque `zeroize` no llega: en Rust MOVER un valor es un `memcpy`
+    // y `Drop` solo corre en el destino final, de modo que cada movimiento de la
+    // clave —al parámetro de `EnMemoria::nuevo`, al campo de la struct— deja una
+    // copia que nadie borra.
+    //
+    // HONESTAMENTE: esto es DEFENSA EN PROFUNDIDAD, no una reparación demostrada.
+    // El residuo que lo motivó —2 copias medidas en el runner del CI— resultó ser
+    // en buena parte contaminación del propio banco de pruebas, que construía la
+    // clave para montar el escenario y dejaba SU rastro. Con el banco corregido
+    // —monta el escenario en un marco aparte y solo entrega comparticiones, que es
+    // lo que hace un llamante real— la medida da cero CON Y SIN estas líneas.
+    // Se conservan porque no cuestan nada y porque la propiedad que dan sí está
+    // probada en aislamiento (`el_limpiador_de_pila_borra_lo_que_un_marco_dejo_atras`),
+    // pero que no se lea aquí que arreglaron algo que se pudiera demostrar roto.
+    #[inline(never)]
+    fn interior(
+        comparticiones: &[crate::shamir::Share],
+        mensaje: &[u8],
+    ) -> Result<Vec<u8>, ErrorDeFirma> {
+        let bytes = crate::shamir::combine(comparticiones)
+            .map_err(|e| ErrorDeFirma::OperacionRechazada(format!("reparto inválido: {e}")))?;
+        let clave = SigningKey::from_bytes(&bytes).ok_or_else(|| {
+            ErrorDeFirma::OperacionRechazada(
+                "las comparticiones reconstruyen algo que no es una clave de firma".into(),
+            )
+        })?;
+        // `clave` se suelta al salir de la expresión y `SigningKey` zeroiza sus
+        // semillas. La firma es lo único que sobrevive.
+        firmar(&EnMemoria::nuevo(clave), mensaje)
+    }
+
+    let firma = interior(comparticiones, mensaje);
+    crate::antihacker::limpiar_pila();
+    firma
 }
 
 #[cfg(test)]

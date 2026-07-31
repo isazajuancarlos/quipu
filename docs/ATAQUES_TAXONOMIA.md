@@ -442,12 +442,30 @@ estilo sino de que el número signifique algo:
   escribe sus punteros sobre los primeros 16 bytes; exigir coincidencia completa
   informaba «no hay residuo» con 240 de 256 bytes del secreto intactos en memoria
   liberada. Un falso negativo, y de los caros.
+- **Se lee PÁGINA A PÁGINA, no la región de un tirón.** La pila de un hilo son 2
+  MiB reservados de los que solo se ha tocado una parte, y una lectura completa
+  falla en la primera página sin mapear y **descarta la región entera**. Así se
+  perdía justo la pila donde estaba el secreto, y el instrumento informaba «no hay
+  residuo» por no haber mirado. Fue lo que hizo que la primera versión diera cero
+  en la máquina de desarrollo y dos en el runner del CI: no era el entorno, era el
+  instrumento.
+- **El banco no puede tocar el secreto**, o mide su propio rastro. Construir una
+  clave para montar el escenario la devuelve por valor —un movimiento, y por tanto
+  una copia en el marco de quien la monta—, y esa copia se contaba contra la
+  librería. El montaje vive en un marco aparte y entrega solo comparticiones, que
+  es lo que recibe un llamante real.
 
 **Resultado, en debug y en release: CERO residuo** en los tres caminos — la
 semilla de firma reconstruida por Shamir, la clave maestra derivada, y la
 contraseña misma. Cada medida lleva su **control**, que deja una copia viva a
 propósito y exige que el escáner la vea: sin eso, un cero sería indistinguible de
 un escáner que mira donde no es.
+
+Y una advertencia que vale más que el resultado: **las tres versiones anteriores de
+este instrumento daban cero por razones equivocadas** —se contaba a sí mismo, no
+leía la pila del hilo, o medía el rastro de su propio banco—. El cero de arriba
+solo significa algo por los controles que lo acompañan. Un medidor de residuo sin
+un caso que lo ponga rojo es un generador de ceros.
 
 Con lo que la situación queda dicha con precisión:
 

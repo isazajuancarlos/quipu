@@ -76,12 +76,32 @@ const FRASE_CANARIO: &str = "canario-de-residuo-Xq7v2Lm9Pk4Rt8Wz3Nb6Hd1Fg5Js0Ay"
 /// saber QUÉ buscar, y no es una debilidad del código sino del canario.
 const SAL_FIJA: [u8; 16] = *b"sal-fija-de-test";
 
+/// Deja el canario en un marco de pila y vuelve, dejándolo atrás.
+///
+/// `inline(never)` para que el marco exista de verdad y no se funda con el del
+/// llamante. Y el marco es GRANDE con el canario en su extremo profundo (índice
+/// 0 es la dirección más baja, porque la pila crece hacia abajo): un canario a
+/// 1,5 KiB de profundidad lo pisaba el propio `println!` del arnés antes de que
+/// el padre llegara a mirar, y entonces la mitad «sucia» de la prueba salía
+/// vacía y no probaba nada. Aquí queda a ~12 KiB: más hondo que lo que gasta la
+/// E/S del arnés, y dentro del alcance del limpiador.
+#[inline(never)]
+fn plantar_en_la_pila(canario: &[u8; 32]) -> u8 {
+    let mut marco = [0u8; 12 * 1024];
+    marco[..32].copy_from_slice(canario);
+    std::hint::black_box(&marco);
+    marco[0]
+}
+
 /// Cuenta apariciones de `aguja` en la memoria escribible del proceso `pid`.
 fn residuo(pid: u32, aguja: &[u8]) -> std::io::Result<usize> {
     let maps = std::fs::read_to_string(format!("/proc/{pid}/maps"))?;
     let mut mem = File::open(format!("/proc/{pid}/mem"))?;
     let mut hallazgos = 0usize;
     let mut buf: Vec<u8> = Vec::new();
+    let mut ilegibles: Vec<String> = Vec::new();
+    let mut donde: Vec<String> = Vec::new();
+    let mut leidas = 0usize;
 
     for linea in maps.lines() {
         let mut campos = linea.split_whitespace();
@@ -106,16 +126,66 @@ fn residuo(pid: u32, aguja: &[u8]) -> std::io::Result<usize> {
         if fin <= ini || fin - ini > 256 * 1024 * 1024 {
             continue;
         }
+        // SE LEE PÁGINA A PÁGINA, no la región de un tirón, y esto no es
+        // eficiencia sino corrección. Una región puede tener páginas sin mapear
+        // —la pila de un hilo son 2 MiB reservados de los que solo se ha tocado
+        // una parte—, y un `read_exact` de toda la región falla en la primera de
+        // ellas y descarta la región ENTERA. Medido: así se perdía justo la pila
+        // del hilo donde vivía el canario, y el instrumento informaba «no hay
+        // residuo» por no haber mirado.
+        //
+        // Las páginas legibles contiguas se acumulan en un tramo, y el tramo se
+        // barre entero: si no, una coincidencia a caballo entre dos páginas se
+        // perdería.
+        const PAGINA: usize = 4096;
+        let antes_de_la_region = hallazgos;
         buf.clear();
-        buf.resize((fin - ini) as usize, 0);
-        if mem.seek(SeekFrom::Start(ini)).is_err() {
-            continue;
+        let mut pagina = vec![0u8; PAGINA];
+        let mut fallos_en_region = 0usize;
+        let mut dir = ini;
+        while dir < fin {
+            let n = PAGINA.min((fin - dir) as usize);
+            let ok = mem.seek(SeekFrom::Start(dir)).is_ok()
+                && mem.read_exact(&mut pagina[..n]).is_ok();
+            if ok {
+                buf.extend_from_slice(&pagina[..n]);
+            } else {
+                fallos_en_region += 1;
+                // Se corta el tramo: lo acumulado ya no es contiguo con lo que venga.
+                if buf.len() >= aguja.len() {
+                    hallazgos += buf.windows(aguja.len()).filter(|v| *v == aguja).count();
+                }
+                buf.clear();
+            }
+            dir += n as u64;
         }
-        // Una región puede desaparecer entre leer maps y leerla: no es un fallo.
-        if mem.read_exact(&mut buf).is_err() {
-            continue;
+        if buf.len() >= aguja.len() {
+            hallazgos += buf.windows(aguja.len()).filter(|v| *v == aguja).count();
         }
-        hallazgos += buf.windows(aguja.len()).filter(|v| *v == aguja).count();
+        if fallos_en_region > 0 {
+            ilegibles.push(format!("{linea}  ({fallos_en_region} páginas)"));
+        }
+        if hallazgos > antes_de_la_region {
+            donde.push(format!(
+                "{} en {}",
+                hallazgos - antes_de_la_region,
+                linea.trim()
+            ));
+        }
+        leidas += 1;
+    }
+
+    // LAS REGIONES QUE NO SE PUDIERON LEER NO SE CALLAN. Un `continue` mudo aquí
+    // convierte «no encontré el secreto» en «no miré donde estaba», y las dos
+    // cosas devuelven cero. Con `QUIPU_RESIDUO_DEBUG` se ven.
+    if std::env::var_os("QUIPU_RESIDUO_DEBUG").is_some() {
+        eprintln!("[residuo] regiones leídas: {leidas}, ilegibles: {}", ilegibles.len());
+        for l in &ilegibles {
+            eprintln!("[residuo]   ilegible: {l}");
+        }
+        for d in &donde {
+            eprintln!("[residuo]   HALLAZGO: {d}");
+        }
     }
     Ok(hallazgos)
 }
@@ -182,6 +252,28 @@ fn cuerpo_del_hijo() {
     // fuera del bloque de abajo para sobrevivir a propósito.
     let mut fuga: Option<Vec<u8>> = None;
 
+    // Escenario de la PILA: comprueba el limpiador en aislamiento. Es la
+    // salvaguarda nueva, y una salvaguarda sin una prueba que la vea fallar es
+    // una creencia.
+    if escenario.starts_with("pila") {
+        let mut canario = aguja();
+        std::hint::black_box(plantar_en_la_pila(&canario));
+        // EL ARNÉS SE LIMPIA A SÍ MISMO ANTES DE MEDIR, y esta línea es la
+        // diferencia entre medir la librería y medirme a mí. Si el canario sigue
+        // vivo aquí, el padre lo cuenta y se lo achaca al código.
+        canario.fill(0);
+        std::hint::black_box(&canario);
+
+        if escenario == "pila-limpia" {
+            quipu::antihacker::limpiar_pila();
+        }
+        println!("LISTO");
+        std::io::stdout().flush().ok();
+        let mut s = String::new();
+        std::io::stdin().read_line(&mut s).ok();
+        return;
+    }
+
     // Escenario del CIFRADO: la contraseña y la clave maestra que deriva de ella
     // atraviesan `encode`/`decode`, que es la superficie más ancha de la
     // librería. Si algo sobrevive ahí, importa más que en el camino de Shamir.
@@ -227,26 +319,38 @@ fn cuerpo_del_hijo() {
         use quipu::firmante::firmar_con_comparticiones;
         use quipu::{pqsign, shamir};
 
-        let semilla = semilla_canario();
-        let sk = pqsign::SigningKey::from_bytes(&semilla).expect("64 bytes son dos semillas");
+        // EL ARNÉS NO PUEDE TOCAR LA CLAVE, o mide su propio rastro. Montar el
+        // escenario exige construir una `SigningKey` a partir de la semilla, y esa
+        // construcción devuelve por valor: un MOVIMIENTO, y por tanto una copia en
+        // el marco de quien la monta. Si eso ocurre en el marco del test, el padre
+        // la cuenta y se la achaca a la librería. Medido: así salía 1 copia que no
+        // era de Quipu.
+        //
+        // De modo que el montaje vive en su propio marco profundo, devuelve SOLO
+        // las comparticiones —que no llevan el secreto en claro— y su rastro se
+        // borra antes de llamar a lo que se quiere medir.
+        #[inline(never)]
+        fn montar_escenario() -> Vec<shamir::Share> {
+            let mut semilla = semilla_canario();
+            let sk = pqsign::SigningKey::from_bytes(&semilla).expect("64 bytes son dos semillas");
+            let partes = shamir::split(&sk.to_bytes(), 3, 5).expect("reparto válido");
+            semilla.fill(0);
+            std::hint::black_box(&semilla);
+            partes
+        }
 
-        // El camino real que #131.2 pone en duda: reconstruir por Shamir y firmar.
-        let partes = shamir::split(&sk.to_bytes(), 3, 5).expect("reparto válido");
-        let firma = firmar_con_comparticiones(&partes[..3], b"acta").expect("firma");
-        assert_eq!(firma.len(), pqsign::SIGNATURE_LEN);
+        let partes = montar_escenario();
+        quipu::antihacker::limpiar_pila(); // el rastro del MONTAJE, no el de la librería
 
         if escenario == "con-fuga" {
-            fuga = Some(semilla.to_vec());
+            fuga = Some(semilla_canario().to_vec());
         }
-        // Todo lo demás se suelta aquí: `sk`, `partes`, `firma`, y la propia
-        // `semilla` (que es un array en la pila y se sobreescribe abajo).
-    }
 
-    // La copia que el propio test tiene en la pila NO cuenta como residuo de la
-    // librería: es del arnés. Se borra a mano para no contarla contra Quipu.
-    let mut en_pila = semilla_canario();
-    en_pila.fill(0);
-    std::hint::black_box(&en_pila);
+        // Y ahora sí, el camino real que #131.2 pone en duda. Cualquier aparición
+        // de la semilla a partir de aquí es de Quipu.
+        let firma = firmar_con_comparticiones(&partes[..3], b"acta").expect("firma");
+        assert_eq!(firma.len(), pqsign::SIGNATURE_LEN);
+    }
 
     println!("LISTO");
     std::io::stdout().flush().ok();
@@ -279,6 +383,28 @@ fn firmar_con_comparticiones_no_deja_residuo_en_memoria() {
          `firmar_con_comparticiones`. T6 dice que la memoria se lee DESPUÉS de la \
          operación, así que cada copia es el secreto entero para quien tome un \
          volcado, una imagen de swap o un cold boot"
+    );
+}
+
+/// EL LIMPIADOR DE PILA HACE LO QUE DICE, y se prueba en los dos sentidos.
+///
+/// `zeroize` no puede cubrir esto: en Rust mover un valor es un `memcpy` y `Drop`
+/// solo corre en el destino final, así que las posiciones por las que el secreto
+/// pasó al moverse quedan intactas. Esto es lo que las borra, y sin la mitad
+/// «sucia» de esta prueba no habría forma de saber si borra algo o no hace nada.
+#[test]
+fn el_limpiador_de_pila_borra_lo_que_un_marco_dejo_atras() {
+    let sucio = medir("pila-sucia");
+    assert!(
+        sucio > 0,
+        "el canario plantado en un marco de pila no aparece ni SIN limpiar: la \
+         prueba no está midiendo la pila, y su otra mitad no probaría nada"
+    );
+    let limpio = medir("pila-limpia");
+    assert_eq!(
+        limpio, 0,
+        "tras `limpiar_pila()` siguen {limpio} copias del canario en la pila \
+         (sin limpiar había {sucio})"
     );
 }
 
