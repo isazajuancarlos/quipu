@@ -453,34 +453,76 @@ estilo sino de que el número signifique algo:
   clave para montar el escenario la devuelve por valor —un movimiento, y por tanto
   una copia en el marco de quien la monta—, y esa copia se contaba contra la
   librería. El montaje vive en un marco aparte y entrega solo comparticiones, que
-  es lo que recibe un llamante real.
+  es lo que recibe un llamante real. La misma trampa reapareció escribiendo esto:
+  pedirle al canario su LONGITUD ya lo construye, y el padre contaba esos 64 bytes
+  como residuo de la librería.
+- **El secreto lo conoce el PADRE, no el hijo.** Quien mide tiene que saber qué
+  busca, así que los sobres los cifra el padre y le pasa al hijo el material
+  sensible en HEXADECIMAL, que no es la aguja. El hijo lo convierte en un marco
+  profundo y lo borra antes de tocar la librería.
+- **La aguja se valida contra el artefacto.** Cuando conocerla exige abrir una
+  cabecera a mano —la clave de contenido del híbrido, la maestra del camino de
+  contraseña—, el padre comprueba que esa clave DESCIFRA el contenedor antes de
+  buscarla. Sin eso, un desplazamiento mal puesto da cero sin haber mirado nada.
 
-**Resultado, en debug y en release: CERO residuo** en los tres caminos — la
-semilla de firma reconstruida por Shamir, la clave maestra derivada, y la
-contraseña misma. Cada medida lleva su **control**, que deja una copia viva a
-propósito y exige que el escáner la vea: sin eso, un cero sería indistinguible de
-un escáner que mira donde no es.
+**Resultado, en debug y en release: CERO residuo** en doce mediciones sobre cinco
+caminos. Cada medida lleva su **control**, que deja una copia viva a propósito y
+exige que el escáner la vea: sin eso, un cero sería indistinguible de un escáner
+que mira donde no es.
 
-Y una advertencia que vale más que el resultado: **las tres versiones anteriores de
-este instrumento daban cero por razones equivocadas** —se contaba a sí mismo, no
-leía la pila del hilo, o medía el rastro de su propio banco—. El cero de arriba
-solo significa algo por los controles que lo acompañan. Un medidor de residuo sin
-un caso que lo ponga rojo es un generador de ceros.
+Y una advertencia que vale más que el resultado: **este instrumento ha dado cero
+por cuatro razones equivocadas distintas** —se contaba a sí mismo; no leía la pila
+del hilo; medía el rastro de su propio banco; y buscaba una clave que el proceso
+nunca había derivado, con el control derivándola igual de mal—. El cero de arriba
+solo significa algo por los controles que lo acompañan, y solo si la aguja está
+validada contra el artefacto. Un medidor de residuo sin un caso que lo ponga rojo
+es un generador de ceros; con un control que se equivoca igual que él, también.
 
 Con lo que la situación queda dicha con precisión:
 
-- **T6 —leer la memoria DESPUÉS de la operación— está cerrado y medido EN LOS TRES
-  CAMINOS QUE SE MIDIERON**: la semilla de firma reconstruida por Shamir, la clave
-  maestra derivada y la contraseña. Ahí, para un volcado, una imagen de swap, una
-  de hibernación o un cold boot, no queda nada que encontrar.
+- **T6 —leer la memoria DESPUÉS de la operación— está cerrado y medido en DOCE
+  mediciones sobre CINCO caminos**, cada una con su propio control de fuga
+  deliberada (el control de un escenario no valida otro):
 
-  **Y en los que NO se midieron, no se afirma nada**, que es distinto de afirmar
-  que están bien: faltan `decode_as_recipient` (el híbrido post-cuántico, con la
-  clave del destinatario y la de contenido que sale de la decapsulación), el
-  **texto en claro** que devuelve `decode` —el secreto del usuario, el que más
-  gente afecta—, `stream` (`QST1`) y `honey`. Cada uno necesita su propio control
-  de fuga deliberada: el control de un escenario no valida otro. Hasta entonces,
-  esta fila cubre tres caminos y no la librería entera.
+  | Camino | Qué se busca en la memoria del proceso |
+  |---|---|
+  | custodia (`escrow`) | la semilla de firma reconstruida por Shamir |
+  | contraseña (`encode`/`decode`) | la contraseña, la clave maestra y el texto en claro |
+  | destinatario (`decode_as_recipient`) | la clave secreta del destinatario, la clave de contenido de la decapsulación y el texto en claro |
+  | streaming (`QST1`), en las dos direcciones | el texto en claro al descifrar y al cifrar, y la contraseña |
+  | honey | el secreto (la secuencia de tokens) y la contraseña |
+
+  En los cinco, para un volcado, una imagen de swap, una de hibernación o un cold
+  boot, no queda nada que encontrar.
+
+  **Medir cambió el resultado, que es la única razón por la que medir vale la
+  pena.** Tres cosas que estaban mal y el verde anterior no veía:
+
+  1. La medición de la clave maestra **buscaba una clave que el proceso nunca
+     había derivado**: el padre la derivaba con un salt fijo suyo y `encode` saca
+     el salt del RNG en cada llamada. El control pasaba porque la fuga se derivaba
+     igual de mal. Con el salt de verdad aparecieron **2 copias**.
+  2. Esas dos copias eran del KDF: `[u8; 32]` es `Copy`, así que devolver la clave
+     no vacía el marco sino que lo copia, y Argon2id deja el resto **a 99 KiB de
+     profundidad**, fuera del alcance de un limpiador que llegaba a 64 KiB.
+  3. El streaming soltaba **el trozo descifrado sin borrarlo**: 1 copia del texto
+     en claro en el montón tras `decrypt_stream_bytes`, con el llamante habiendo
+     borrado la suya. Y lo mismo al cifrar, con los buffers de lectura.
+  4. Y la peor: **en `--release` el limpiador de pila no limpiaba**. La medición
+     no corría ahí —el archivo estaba gateado con `escrow` y la pasada de release
+     del CI no activa ese feature—, así que la defensa funcionaba en debug y no en
+     lo que se publica. En release quedaban 1 copia del canario tras limpiar, 3 de
+     la clave maestra y 3 de la clave de contenido. Causa: `limpiar_pila` se
+     incrustaba y su lienzo dejaba de caer sobre los marcos muertos; más el mismo
+     defecto de `Copy` en `pqhybrid::combine`. De ahí sale la regla general:
+     **quien recibe un secreto POR VALOR limpia la pila del que se lo dio**, y el
+     medidor ya no lleva gate de archivo, así que corre en las cuatro pasadas.
+
+  **Lo que sigue sin medirse, y por tanto no se afirma**: la clave que derivan el
+  streaming y honey. Sus cabeceras son privadas, así que el medidor no puede sacar
+  el salt sin reconstruir el formato a ciegas — y una aguja mal derivada daría
+  cero sin haber mirado nada, que es exactamente el error del punto 1. Las dos
+  heredan el arreglo del KDF, pero heredar no es medir.
 - **El adversario con root MIENTRAS el proceso corre es R5**, endpoint
   comprometido, y ya está fuera de alcance por declaración. Meter los dos en el
   mismo saco es lo que hace parecer que esta brecha no se puede cerrar; son

@@ -255,7 +255,19 @@ fn combine(x_ss: &[u8], ml_ss: &[u8], transcript: &[u8]) -> [u8; CONTENT_KEY_LEN
     hk.expand(&info, &mut out).expect("longitud HKDF válida");
     // O5: borra el material de clave intermedio (ss combinados).
     ikm.zeroize();
-    out
+
+    // Y la clave que sale, por lo mismo que en `kdf::derive_master_key`: `[u8; 32]`
+    // es `Copy`, así que devolverla COPIA este marco en vez de vaciarlo, y HKDF
+    // deja lo suyo en marcos de abajo que nadie borra. Medido en
+    // `tests/residuo_memoria.rs` (T6) EN RELEASE: quedaban 3 copias de la clave de
+    // contenido tras `decode_as_recipient`, con `api` habiéndola borrado con
+    // `wipe`. Va aquí, que es donde nace, y así lo heredan encapsulación y
+    // decapsulación (de la primera solo se afirma por herencia: el medidor no
+    // puede conocer una clave que sale del RNG).
+    let clave = out;
+    out.zeroize();
+    crate::antihacker::limpiar_pila();
+    clave
 }
 
 #[cfg(test)]
