@@ -42,6 +42,38 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   contrario.
 
 ### Added
+- **«La zeroización es *best-effort*» ya tiene número: CERO (#131.2).** Era la
+  única frase del modelo de amenaza que reconocía un residuo sin medirlo, y de ahí
+  salía la petición de `mlock`. `mlock` se descartó —protege del swap y de nada
+  más, al precio de meter `libc`—, pero descartarlo dejaba la pregunta de verdad
+  sin responder: **¿sobrevive algo?**
+
+  Primero hubo que corregir el encuadre. T6 es «atacante con acceso a la memoria
+  **DESPUÉS** de la operación» (volcado, swap, hibernación, cold boot); el
+  atacante presente MIENTRAS corre es R5, endpoint comprometido, y ya estaba fuera
+  de alcance por declaración. Mezclarlos es lo que hacía parecer que la brecha no
+  se podía cerrar: contra quien manda en el kernel en vivo, no; contra quien lee
+  la memoria después, sí.
+
+  `tests/residuo_memoria.rs` lo mide: un proceso HIJO hace la operación real y se
+  queda quieto, y el PADRE lee `/proc/<hijo>/mem` y cuenta apariciones de un
+  canario. Solo `std` — en Linux la memoria de un proceso es un fichero, así que
+  no hace falta `libc` ni ptrace explícito. Dos decisiones que no son de estilo
+  sino de que el número signifique algo:
+
+  - **Dos procesos, no uno.** Un escáner que lee su propio montón copia dentro de
+    su buffer los bytes que busca; medido al intentarlo, la misma situación daba
+    0, 17 o 33 según el orden del barrido.
+  - **Se busca un tramo INTERIOR del canario.** Al liberar un trozo el asignador
+    escribe sus punteros sobre los primeros 16 bytes, y exigir coincidencia
+    completa informaba «no hay residuo» con 240 de 256 bytes del secreto intactos
+    en memoria liberada.
+
+  **Resultado, en debug y en release: cero residuo** en los tres caminos — la
+  semilla de firma reconstruida por Shamir, la clave maestra derivada y la
+  contraseña misma. Cada medida lleva su **control**, que deja una copia viva a
+  propósito y exige que el escáner la vea; sin eso un cero sería indistinguible de
+  un escáner que mira donde no es.
 - **Build reproducible de la rueda de Python (invariante I5, #124).** Medido antes
   de tocar nada, y estaba mucho más cerca de lo que la ficha suponía: el compilador
   nunca fue el problema. El `.crate` ya se reconstruía byte a byte —cargo normaliza

@@ -28,6 +28,61 @@ pub fn wipe(buf: &mut [u8]) {
     buf.zeroize();
 }
 
+/// Profundidad de pila que sobreescribe [`limpiar_pila`], en bytes.
+///
+/// **Es el parámetro delicado de este mecanismo, y conviene saber por qué.** Un
+/// limpiador solo borra lo que alcanza: si la operación anterior gastó más pila
+/// que esto, lo que quede por debajo sobrevive — y sobrevive EN SILENCIO, que es
+/// la peor forma. No hay manera de medir en Rust seguro cuánta pila usó una
+/// llamada (haría falta aritmética de punteros, y este crate es
+/// `#![forbid(unsafe_code)]`), así que la cifra es un margen elegido, no una
+/// medida.
+///
+/// 64 KiB: holgado frente a los marcos de una firma híbrida, y un 3 % de la pila
+/// de un hilo (2 MiB por defecto; 8 MiB el principal). Si algún día una operación
+/// gastara más, la prueba que lo detecta es la de `tests/residuo_memoria.rs`, no
+/// el razonamiento de este comentario.
+const PILA_A_LIMPIAR: usize = 64 * 1024;
+
+/// Sobreescribe con ceros la región de pila que acaba de usar una operación con
+/// material sensible.
+///
+/// # Por qué hace falta, y por qué `zeroize` NO lo cubre
+///
+/// En Rust **mover** un valor es un `memcpy`, y `Drop` solo corre en el destino
+/// final. `Zeroizing` borra donde el valor **acabó**; las posiciones intermedias
+/// por las que pasó al moverse quedan intactas. Una clave que se construye en la
+/// pila y luego se mueve a una struct deja tantas copias como movimientos.
+///
+/// No es teoría: `tests/residuo_memoria.rs` midió **2 copias** de la semilla de
+/// firma en memoria tras `firmar_con_comparticiones` —que la mueve dos veces, al
+/// parámetro de `EnMemoria::nuevo` y al campo de la struct— en el runner del CI.
+/// En la máquina de desarrollo daban **cero**, 50 corridas seguidas. Depende del
+/// asignador y del compilador, así que no se puede razonar: hay que medirlo, y
+/// por eso la prueba vive en el CI y no en la cabeza de nadie.
+///
+/// # La regla, no el caso
+///
+/// Toda función que materialice en la pila material sensible RECONSTRUIDO —y por
+/// tanto no controlado por un `Zeroizing` que sobreviva— debe llamar a esto antes
+/// de volver. No sustituye a `zeroize`: lo complementa, porque atacan cosas
+/// distintas (el valor vivo frente a las copias que dejó al moverse).
+///
+/// # Lo que NO hace
+///
+/// No toca el montón —de eso se encargan `Zeroizing` y [`wipe`]— ni protege de un
+/// adversario que lea la memoria MIENTRAS la operación corre. Eso es R5 en
+/// `docs/THREAT_MODEL.md`, endpoint comprometido, y está fuera de alcance por
+/// declaración. Esto cierra T6: la memoria leída DESPUÉS.
+pub fn limpiar_pila() {
+    let mut lienzo = [0u8; PILA_A_LIMPIAR];
+    // Sin las dos barreras el optimizador tiene todo el derecho a eliminar un
+    // buffer que nadie lee: el borrado tiene que ser observable para él.
+    std::hint::black_box(&mut lienzo);
+    lienzo.zeroize();
+    std::hint::black_box(&lienzo);
+}
+
 /// Compara dos secuencias en tiempo constante (no termina antes ante el primer
 /// byte distinto). Devuelve `true` si son iguales.
 pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {

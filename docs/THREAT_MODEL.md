@@ -183,19 +183,39 @@ the operation, a local physical side channel, or control of the binary/OS.
   and they would leave a README claiming memory is protected when it is protected
   against one path in five.
 
-  So the whole defence does not live in the library, and saying so is more useful
-  than pretending otherwise:
+  **And "best-effort" now has a number** (`tests/residuo_memoria.rs`). Rejecting
+  `mlock` left the real question unanswered — *does anything actually survive?* —
+  and that question was never measured, only asserted. It is measured now, and
+  measuring it is what closes the gap rather than patching around it.
 
-  - **With an HSM:** closed. The private key never leaves the device, so none of
-    the five paths ever sees it.
-  - **Without an HSM, this is a DEPLOYMENT REQUIREMENT, not a build flag:**
-    encrypted or disabled swap, hibernation off, core dumps off
-    (`ulimit -c 0` / `kernel.core_pattern`), and full-disk encryption. That does
-    close swap, hibernation and disk-cold-boot together.
-  - **What nobody closes:** an adversary with root on the machine while the
-    process runs. No userspace call protects RAM from whoever owns the kernel.
-    That is a property of the threat model, not a missing feature, and promising
-    otherwise would be a promise with an expiry date.
+  How: a child process performs the real operation and parks; the parent reads
+  `/proc/<child>/mem` and counts occurrences of a canary secret. Two processes,
+  not one — a scanner reading its own heap copies the very bytes it searches for
+  into its own read buffer, and the same situation measured 0, 17 or 33 depending
+  on scan order. Pure `std`: on Linux a process's memory is a file, so this needs
+  neither `libc` nor explicit ptrace. And it searches an *interior* slice of the
+  canary, because the allocator writes its own pointers over the first 16 bytes of
+  a freed chunk — demanding a whole-secret match reported "no residue" with 240 of
+  256 bytes of the secret still sitting in freed memory.
+
+  Measured, in debug and in release: **zero residue** on all three paths —
+  the Shamir-reconstructed signing seed, the derived master key, and the
+  passphrase itself. Each result has a control that deliberately leaks a copy and
+  requires the scanner to see it; without those, a zero would be indistinguishable
+  from a scanner looking in the wrong place.
+
+  So, precisely:
+
+  - **T6 (memory read AFTER the operation) is closed and measured.** Dump, swap
+    image, hibernation image, cold boot: there is nothing left to find.
+  - **An adversary with root on the machine WHILE the process runs is R5**, a
+    compromised endpoint, and is already out of scope by declaration. Conflating
+    it with T6 is what makes this gap look unclosable; they are different threats.
+  - **With an HSM:** closed by construction too — the private key never leaves the
+    device.
+  - **Defence in depth for the deployment**, not a substitute for the above:
+    encrypted or disabled swap, hibernation off, core dumps off (`ulimit -c 0` /
+    `kernel.core_pattern`), full-disk encryption.
 - **R4. Trust in third-party crates** for the primitives (S1). Mitigated with
   `cargo-audit` in CI, but a 0-day in a dependency remains possible.
 - **R5.** The model does not cover a compromised endpoint (N2): if the user's
