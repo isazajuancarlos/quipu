@@ -42,6 +42,34 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   contrario.
 
 ### Added
+- **Build reproducible de la rueda de Python (invariante I5, #124).** Medido antes
+  de tocar nada, y estaba mucho más cerca de lo que la ficha suponía: el compilador
+  nunca fue el problema. El `.crate` ya se reconstruía byte a byte —cargo normaliza
+  las mtime a una época fija y uid/gid a 0/0— y el `quipu.abi3.so` también. Lo
+  **único** no determinista de la rueda eran dos campos del SBOM CycloneDX que
+  escribe maturin: un `serialNumber` con UUID aleatorio y un `timestamp` de reloj.
+  El `RECORD` cambiaba solo porque los hashea.
+
+  Con `SOURCE_DATE_EPOCH` tomado de la fecha del **commit** —no de `now`, para que
+  el artefacto se derive del código y no del momento de construirlo— la rueda sale
+  idéntica entre corridas. Y con `--remap-path-prefix` desaparecen las rutas
+  absolutas que el binario llevaba dentro (72 cadenas `/home/<usuario>/.cargo/…`
+  de los metadatos de `panic`), que es lo que lo rompería en otra máquina.
+  `[profile.release] trim-paths` haría lo mismo más limpio pero **no está
+  estabilizado** en cargo 1.97.1 — comprobado, no supuesto.
+
+  No se afirma, se comprueba: el CI reconstruye la rueda y exige el mismo sha256, y
+  verifica aparte que el binario no lleve rutas de quien lo construyó. Los dos
+  checks se probaron contra una rueda hecha a propósito sin el remap, y ahí se
+  ponen rojos. Las mismas variables van en `release.yml`, porque si solo estuvieran
+  en el CI se estaría comprobando una propiedad que el artefacto publicado no
+  tiene.
+
+  Receta para terceros en `docs/REPRODUCIBILIDAD.md`, con el límite escrito al
+  lado: **falta** rehacer la rueda **manylinux publicada** en su propio contenedor
+  —el CI construye en `ubuntu-latest` y el release en el de `maturin-action`—, así
+  que hoy se caza el no-determinismo de origen pero no se demuestra lo del artefacto
+  que se descarga.
 - **`examples/coste_adivinacion.rs`** — el coste por intento con su procedencia, y la
   cota de GPU. La taxonomía publicaba «6 intentos/s» sin decir con qué parámetros ni
   en qué máquina, y una cifra de coste sin sus parámetros no dice nada: el

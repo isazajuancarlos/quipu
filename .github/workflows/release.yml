@@ -53,8 +53,25 @@ jobs:
       # instalándola en un venv limpio: `encode`, `decode`, `split_secret`,
       # `combine_secret` y `CustodioHsm` están todos. Comprobado contra el
       # ARTEFACTO, no contra el mensaje del log.
+      # I5: la rueda PUBLICADA tiene que derivarse del código, no del momento de
+      # construirla. Sin esto, el CI comprobaría una propiedad que el artefacto
+      # que descarga la gente no tiene.
+      #
+      # SOURCE_DATE_EPOCH sale de la fecha del commit: fija el `timestamp` y el
+      # `serialNumber` del SBOM CycloneDX que maturin mete en el dist-info, que
+      # medido el 2026-07-31 eran la ÚNICA fuente de no-determinismo de la rueda
+      # (el `.so` ya salía byte a byte idéntico).
+      #
+      # RUSTFLAGS quita las rutas absolutas del runner del binario — eran 72 con
+      # el `$HOME` de quien construye, y son bytes distintos en cada máquina.
+      - name: Entorno reproducible
+        shell: bash
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: Build wheels (maturin; las features salen de pyproject.toml)
         uses: PyO3/maturin-action@v1
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/build
         with:
           command: build
           args: --release --out dist
