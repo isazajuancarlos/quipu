@@ -192,8 +192,20 @@ Se construye el perfil cuando ocurra **cualquiera** de estas tres:
 
 1. Un comprador identificable lo pide por escrito en un pliego o una evaluación.
 2. Aparece un pliego público colombiano que referencie CNSA 2.0 como requisito.
-3. Se decide ir a validación FIPS 140-3 por otra razón — entonces el perfil deja
-   de ser un coste aislado y pasa a ser parte de un trabajo que ya se hace.
+3. Un contrato firmado exige validación FIPS 140-3 **y la paga o la cofinancia**
+   — entonces el perfil deja de ser un coste aislado y pasa a ser parte de un
+   trabajo que ya se hace.
+
+   Antes decía «se decide ir a FIPS por otra razón», y esa puerta estaba
+   demasiado abierta. **Ir a FIPS por iniciativa propia está DESCARTADO**, con
+   tres razones y ninguna es el precio del laboratorio: la cola del CMVP promedió
+   542 días a principios de 2024 (histórico de 12 a 18 meses), así que un envío
+   de hoy certifica después de enero de 2027, que es cuando CNSA 2.0 empieza a
+   morder; un certificado lo es de UNA versión, y esta librería corrige cosas
+   cada semana; y quien exige FIPS es el gobierno federal estadounidense, que no
+   es nuestro comprador. Para un pliego que lo exija, la vía real es un
+   dispositivo PKCS#11 ya validado debajo —que `quipu` ya soporta con la feature
+   `hsm`—, no validar la librería.
 
 Mientras tanto, la respuesta a *«¿es compatible con CNSA 2.0?»* es este
 documento: los algoritmos asimétricos son los suyos —en híbrido—, la mitad
@@ -206,7 +218,13 @@ criptográficas puras nuevas más una dependencia *stateful* (LMS/XMSS), y ningu
 de los tres disparadores de arriba se ha dado. En una ronda la frase defendible
 no es «cubre un renglón» sino la de la tabla: cuatro de las cinco funciones, con
 la salvedad del híbrido dicha por nosotros y no descubierta por ellos. Eso se
-sostiene mejor que un perfil puro a medio construir — y lo que decide la partida
-no es el quinto renglón, es la validación, que es a lo que va la financiación.
+sostiene mejor que un perfil puro a medio construir.
+
+Y sobre la validación, que es donde estaba la frase equivocada: **lo que se busca
+financiar es la auditoría independiente, no el certificado FIPS.** Financian
+auditorías los sitios donde hay solicitudes en curso —OTF, NLnet/NGI Zero—, no
+validaciones CMVP; la auditoría cuesta un orden de magnitud menos, no congela la
+versión y es lo que un comité de seguridad de aquí sabe leer. FIPS solo si un
+contrato lo exige y lo paga.
 
 Saber por qué no lo hiciste vale más que haberlo hecho sin saber para quién.

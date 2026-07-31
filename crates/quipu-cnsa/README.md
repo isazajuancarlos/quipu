@@ -25,14 +25,25 @@ implementa los algoritmos pero **no está validado**.
 **Esta librería implementa los algoritmos que exige CNSA 2.0. NO está validada
 FIPS 140-3.**
 
-No lo estará por escribir más código. La validación FIPS 140-3 es un proceso de
-laboratorio acreditado, con coste y calendario propios, y **es a lo que se
-destina la financiación que buscamos**, no un requisito previo que ya hayamos
-cumplido.
+No lo estará por escribir más código: la validación FIPS 140-3 es un proceso de
+laboratorio acreditado con coste y calendario propios. **Y no está en el plan.**
+La cola del CMVP promedió 542 días a principios de 2024 y el histórico va de 12 a
+18 meses, así que un módulo enviado hoy llegaría con certificado después de enero
+de 2027 —la fecha en que CNSA 2.0 muerde para adquisiciones nuevas—; un módulo
+validado lo está en UNA versión, de modo que cada corrección obligaría a
+revalidar; y quien exige FIPS es el gobierno federal estadounidense, que no es el
+comprador de esta librería.
 
-Si necesitas cumplimiento formal —no alineación— para un contrato o una
-auditoría, esto todavía no te sirve. Preferimos que lo sepas ahora y no cuando
-alguien lo pregunte en una revisión.
+**Si tu pliego exige FIPS 140-3, la respuesta no es esperar a que validemos
+esto: es poner debajo un dispositivo ya validado.** `quipu` guarda la clave de
+firma en un PKCS#11 (feature `hsm`), así que el material sensible vive en un
+módulo con su propio certificado y esta librería no lo toca. Es la vía que usa
+todo el mundo y no depende de nuestro calendario.
+
+Lo que sí se busca financiar es una **auditoría criptográfica independiente**,
+que es lo que un tercero puede verificar y lo que un comité de seguridad sabe
+leer. Preferimos que sepas la diferencia ahora y no cuando alguien la pregunte en
+una revisión.
 
 Esta advertencia está en la primera pantalla a propósito. No es letra pequeña.
 
