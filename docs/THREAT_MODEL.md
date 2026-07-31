@@ -206,8 +206,18 @@ the operation, a local physical side channel, or control of the binary/OS.
 
   So, precisely:
 
-  - **T6 (memory read AFTER the operation) is closed and measured.** Dump, swap
-    image, hibernation image, cold boot: there is nothing left to find.
+  - **T6 (memory read AFTER the operation) is closed and measured ON THE THREE
+    PATHS THAT WERE MEASURED**: the Shamir-reconstructed signing seed, the derived
+    master key, and the passphrase. On those, a dump, a swap image, a hibernation
+    image or a cold boot find nothing.
+
+    **On the paths not yet measured, nothing is claimed** — which is not the same
+    as claiming they are fine. Still to measure: `decode_as_recipient` (the
+    post-quantum hybrid, with the recipient key and the content key that comes out
+    of decapsulation), the **plaintext** returned by `decode` — the user's own
+    secret, the one that affects the most people — `stream` (`QST1`), and `honey`.
+    Each needs its own deliberate-leak control; a control for one scenario does
+    not validate another.
   - **An adversary with root on the machine WHILE the process runs is R5**, a
     compromised endpoint, and is already out of scope by declaration. Conflating
     it with T6 is what makes this gap look unclosable; they are different threats.

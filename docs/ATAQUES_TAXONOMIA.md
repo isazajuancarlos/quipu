@@ -469,8 +469,18 @@ un caso que lo ponga rojo es un generador de ceros.
 
 Con lo que la situación queda dicha con precisión:
 
-- **T6 —leer la memoria DESPUÉS de la operación— está cerrado y medido.** Volcado,
-  imagen de swap, imagen de hibernación, cold boot: no queda nada que encontrar.
+- **T6 —leer la memoria DESPUÉS de la operación— está cerrado y medido EN LOS TRES
+  CAMINOS QUE SE MIDIERON**: la semilla de firma reconstruida por Shamir, la clave
+  maestra derivada y la contraseña. Ahí, para un volcado, una imagen de swap, una
+  de hibernación o un cold boot, no queda nada que encontrar.
+
+  **Y en los que NO se midieron, no se afirma nada**, que es distinto de afirmar
+  que están bien: faltan `decode_as_recipient` (el híbrido post-cuántico, con la
+  clave del destinatario y la de contenido que sale de la decapsulación), el
+  **texto en claro** que devuelve `decode` —el secreto del usuario, el que más
+  gente afecta—, `stream` (`QST1`) y `honey`. Cada uno necesita su propio control
+  de fuga deliberada: el control de un escenario no valida otro. Hasta entonces,
+  esta fila cubre tres caminos y no la librería entera.
 - **El adversario con root MIENTRAS el proceso corre es R5**, endpoint
   comprometido, y ya está fuera de alcance por declaración. Meter los dos en el
   mismo saco es lo que hace parecer que esta brecha no se puede cerrar; son
