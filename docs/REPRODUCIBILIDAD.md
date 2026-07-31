@@ -12,7 +12,7 @@ comparas los bytes.
 ## La receta
 
 ```bash
-git checkout <el tag que quieras verificar>          # p. ej. v0.10.0
+git checkout "$TAG"        # el tag que quieras verificar; `git tag -l 'v*'` los lista
 
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
 export RUSTFLAGS="--remap-path-prefix=$HOME/.cargo/registry/src=/cargo \
