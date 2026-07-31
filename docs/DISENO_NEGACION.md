@@ -144,14 +144,72 @@ Es circular, y solo tiene tres salidas:
   abrir por el número de combinaciones — y ese coste lo paga el usuario legítimo
   en cada apertura, no el atacante una sola vez.
 
-**Recomendación: (a).** Es la única que cumple el criterio sin cobrarle el precio
-al usuario legítimo, y la pérdida de agilidad es menor de lo que parece: este
-formato nace hoy, puede nacer con los parámetros que hoy se consideran correctos,
-y una versión de formato nueva es exactamente el mecanismo que existe para
-cambiarlos. Encaja además con la directiva de fallar ruidosamente: un parámetro
-que no se negocia no se puede degradar.
+**DECIDIDA POR JUAN LA (a)** (2026-07-31), con el encargo de analizar
+independientemente qué arrastra, para que no haya sorpresas. Sigue el análisis.
 
-**Y esto es lo que hay que decidir antes de escribir código.**
+### 5.1 Lo que (a) GANA, y no estaba en la cuenta
+
+Hoy `api.rs` lee `kdf_mem_kib`, `kdf_iterations` y `kdf_parallelism` **de la
+cabecera que aporta quien entrega el archivo**, y se los pasa a Argon2id. La
+autenticación del AEAD ocurre *después* de derivar la clave, así que el coste lo
+elige el atacante antes de que nada lo valide. El código ya lo sabe y lo acota
+—`is_sane()` en `api.rs:165`, verificado, y también en `honey.rs` y `stream.rs`—,
+de modo que **no hay vulnerabilidad viva**; pero el techo sigue siendo suyo: 256
+MiB × 16 iteraciones por intento, y multiplicado por cuantos archivos quiera
+entregar.
+
+Con (a) esa entrada **desaparece**: los parámetros dejan de venir del archivo. No
+es solo el precio de esconder la cabecera, es que se quita del mapa una entrada
+controlada por el adversario. Ese es el argumento más fuerte a favor de (a) y no
+lo teníamos escrito.
+
+### 5.2 La sorpresa: (a) NO escapa del coste de (c), lo APLAZA
+
+Aquí está lo que hay que saber antes de escribir código.
+
+La lógica de (a) es «los parámetros los fija la versión de formato». Pero **la
+versión tampoco puede ir en claro**: un byte de versión es un campo reconocible,
+y el frente de la sospecha exige que no haya ninguno. Luego el lector **no puede
+saber qué versión tiene delante**.
+
+Consecuencia directa: el día que se publique una versión 2 con parámetros
+distintos, todo lector tendrá que probar los de la v1 *y* los de la v2, porque el
+archivo no le dice cuál es. Es decir, **cada juego de parámetros que se publique
+añade para siempre una pasada de Argon2id a cada apertura**. Que es exactamente el
+coste de la opción (c), solo que diferido y creciendo solo.
+
+No invalida la decisión —(c) empieza en N pasadas y (a) empieza en UNA—, pero
+cambia cómo hay que diseñarla:
+
+1. **Los parámetros se eligen UNA vez y de forma conservadora.** No es «ya lo
+   subiremos»: subirlo cuesta, y el que paga es el usuario legítimo, en cada
+   apertura, para siempre.
+2. **Publicar una versión de formato nueva pasa a ser una decisión cara.** Debe
+   quedar escrito como tal donde se decida, no descubrirse cuando pese.
+
+### 5.3 Lo que hay que CONSTRUIR para que eso no muerda
+
+La salida es que el usuario legítimo pueda decir qué perfil usar **sin que el
+archivo lo diga**. Una pista fuera de banda:
+
+- La API de apertura acepta un **perfil opcional**. Si se da, se prueba solo ese:
+  una pasada, coste idéntico al de hoy.
+- Si no se da, se prueban los perfiles conocidos **del más nuevo al más viejo**,
+  de modo que el caso común —un archivo reciente— cuesta una pasada igualmente y
+  solo los antiguos pagan más.
+- **No filtra nada**: la pista viaja en la cabeza del usuario o junto al archivo,
+  nunca dentro. Dos contenedores del mismo tamaño siguen siendo indistinguibles
+  entre sí, que es lo único que la negación promete.
+
+Esto es lo que convierte a (a) en la opción buena de verdad y no solo en la menos
+mala: sin la pista, (a) degenera en (c) con el tiempo; con ella, no.
+
+### 5.4 Lo que NO cambia, para que no se busque
+
+- **No rompe nada de lo escrito.** Es un formato nuevo y convive con el actual; el
+  contenedor `QUIP` de hoy sigue leyéndose con sus parámetros en la cabecera.
+- **No toca el coste de Argon2id** en el camino normal de `encode`/`decode`.
+- **No afecta a `honey` ni a `stream`**, que tienen su propia validación.
 
 ---
 
@@ -214,8 +272,11 @@ ponerse rojo. Un banco que nunca dice que no, no dice nada.
 
 ## 9. Lo que queda por decidir, y es de Juan
 
-1. **La salida de la circularidad del KDF** (§5). Recomendada la (a). Es la
-   decisión que fija el formato entero.
+1. ~~**La salida de la circularidad del KDF** (§5).~~ **DECIDIDA: (a)**
+   (2026-07-31). El análisis de sus consecuencias está en §5.1–§5.4; lo que
+   arrastra y no se había visto es que **(a) aplaza el coste de (c) en vez de
+   evitarlo**, y que por eso hace falta construir la pista de perfil fuera de
+   banda (§5.3).
 2. **Si el señuelo es obligatorio.** Un contenedor con volumen oculto y señuelo
    VACÍO es un contenedor que, abierto con A, muestra nada — y «no tengo nada
    guardado ahí» es una respuesta peor que un señuelo creíble. Propuesta: exigir

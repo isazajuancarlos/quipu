@@ -423,19 +423,45 @@ la vida del secreto a una llamada, de la que solo sobrevive la firma. No había
 rutas sin `zeroize` que añadir: es un negativo medido, no una tarea pendiente
 disfrazada.
 
-De modo que la defensa entera **no vive en la librería**, y decirlo es más útil
-que fingir lo contrario:
+#### Y «best-effort» ya tiene número
 
-- **Con HSM**: cerrada del todo, y ya está. La clave privada no sale del
-  dispositivo, así que ninguno de los cinco caminos la ve.
-- **Sin HSM**: es un **requisito de despliegue**, no una opción de compilación —
-  swap cifrado o desactivado, hibernación desactivada, volcados de proceso
-  desactivados, y cifrado de disco completo. Eso sí cierra swap, hibernación y
-  cold-boot-del-disco a la vez.
-- **Lo que no cierra nadie**: un adversario con root en la máquina mientras el
-  proceso corre. Ninguna llamada de espacio de usuario protege RAM de quien
-  manda en el kernel. Es una propiedad del modelo de amenaza, no una función que
-  falte, y prometer otra cosa sería una promesa que caduca.
+Descartar `mlock` dejaba sin responder la pregunta que de verdad importa —**¿sobrevive
+algo?**—, y esa pregunta nunca se había medido, solo afirmado. Medirla es lo que
+cierra la brecha, no parchear alrededor.
+
+Lo mide `tests/residuo_memoria.rs`: un proceso HIJO hace la operación real y se
+queda quieto, y el PADRE lee `/proc/<hijo>/mem` y cuenta apariciones de un
+secreto canario. Solo `std` —en Linux la memoria de un proceso es un fichero, así
+que no hace falta `libc` ni ptrace explícito—, y con dos decisiones que no son de
+estilo sino de que el número signifique algo:
+
+- **Dos procesos, no uno.** Un escáner que lee su propio montón copia dentro de su
+  buffer justo los bytes que busca. Medido al intentarlo: la misma situación daba
+  0, 17 o 33 según el orden del barrido. El instrumento se contaba a sí mismo.
+- **Se busca un tramo INTERIOR del canario.** Al liberar un trozo, el asignador
+  escribe sus punteros sobre los primeros 16 bytes; exigir coincidencia completa
+  informaba «no hay residuo» con 240 de 256 bytes del secreto intactos en memoria
+  liberada. Un falso negativo, y de los caros.
+
+**Resultado, en debug y en release: CERO residuo** en los tres caminos — la
+semilla de firma reconstruida por Shamir, la clave maestra derivada, y la
+contraseña misma. Cada medida lleva su **control**, que deja una copia viva a
+propósito y exige que el escáner la vea: sin eso, un cero sería indistinguible de
+un escáner que mira donde no es.
+
+Con lo que la situación queda dicha con precisión:
+
+- **T6 —leer la memoria DESPUÉS de la operación— está cerrado y medido.** Volcado,
+  imagen de swap, imagen de hibernación, cold boot: no queda nada que encontrar.
+- **El adversario con root MIENTRAS el proceso corre es R5**, endpoint
+  comprometido, y ya está fuera de alcance por declaración. Meter los dos en el
+  mismo saco es lo que hace parecer que esta brecha no se puede cerrar; son
+  amenazas distintas.
+- **Con HSM**: cerrada también por construcción — la clave privada no sale del
+  dispositivo.
+- **Y como defensa en profundidad del despliegue**, que no sustituye a lo
+  anterior: swap cifrado o desactivado, hibernación desactivada, volcados de
+  proceso desactivados y cifrado de disco completo.
 
 **Invariante:** I3 (residencia) + I5 (procedencia de la custodia).
 
