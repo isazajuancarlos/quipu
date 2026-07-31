@@ -15,6 +15,11 @@ documentation = "https://docs.rs/quipu-nucleo"
 [dependencies]
 # Aritmética de precisión arbitraria para el codec base-N.
 num-bigint = "0.5"
+# `Integer::div_rem`: cociente y resto en UNA pasada. Con `/` y `%` por separado
+# el codec paga dos veces la división grande. Ya venía en el árbol como
+# dependencia de num-bigint (mismo autor, rust-num); declararla no añade
+# superficie nueva de cadena de suministro.
+num-integer = "0.1"
 num-traits = "0.2"
 # Corrección de errores. Nació para el canal visual, que ya no existe (PR #93 y
 # #99), y SE QUEDA porque el portador de papel previsto la necesita: la capa de
