@@ -300,6 +300,52 @@ mod tests {
         }
     }
 
+    /// Las bases EXTREMAS, que la proptest de arriba (2..=4096) no alcanza.
+    ///
+    /// `paso_maximo` busca el mayor `n^k` que cabe en un `u64`, y ahí hay dos
+    /// bordes con nombre propio: en la base 2 el paso es `2^63` con 63 dígitos
+    /// por bloque, y en `u32::MAX` el cuadrado se queda a un pelo del techo
+    /// (`4294967295² = 18 446 744 065 119 617 025` contra
+    /// `u64::MAX = 18 446 744 073 709 551 615`), así que `k` vale 2 y no 1. Un
+    /// error de uno en cualquiera de los dos sitios rompería el codec justo
+    /// donde nadie mira.
+    #[test]
+    fn las_bases_extremas_dan_los_mismos_digitos() {
+        for n in [2u32, 3, 255, 256, 65535, 65536, u32::MAX - 1, u32::MAX] {
+            for data in [
+                &b""[..],
+                &b"x"[..],
+                &[0u8, 0, 0, 1][..],
+                &[255u8; 33][..],
+                &[0xAB; 100][..],
+            ] {
+                assert_eq!(
+                    encode_base_n(data, n),
+                    encode_base_n_ingenuo(data, n),
+                    "base {n}, {} bytes",
+                    data.len()
+                );
+            }
+        }
+    }
+
+    /// Que `paso_maximo` devuelva de verdad el MAYOR `n^k` que cabe: un `k` de
+    /// menos solo sería más lento, pero uno de más desbordaría en silencio.
+    #[test]
+    fn el_paso_es_el_mayor_que_cabe_en_u64() {
+        for n in [2u64, 3, 94, 255, 256, 4096, 65536, u64::from(u32::MAX)] {
+            let (paso, k) = paso_maximo(n);
+            assert_eq!(paso, n.pow(k), "el paso debe ser n^k (base {n})");
+            assert!(
+                n.checked_pow(k + 1).is_none(),
+                "base {n}: n^{} también cabía, el paso se quedó corto",
+                k + 1
+            );
+        }
+        assert_eq!(paso_maximo(2), (1u64 << 63, 63));
+        assert_eq!(paso_maximo(94).1, 9);
+    }
+
     #[test]
     #[should_panic(expected = "no codifica nada")]
     fn una_base_de_uno_falla_en_vez_de_colgarse() {
