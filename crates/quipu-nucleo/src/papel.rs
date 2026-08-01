@@ -74,6 +74,18 @@ pub enum PapelError {
         /// Cuántos harían falta.
         necesarios: usize,
     },
+    /// La paridad pedida pasa de [`crate::ecc::PARIDAD_MAXIMA`].
+    ///
+    /// **Se RECHAZA en vez de recortarse**, que es lo que hace `ecc::protect`
+    /// por no tener cómo avisar. Aquí sí lo hay, y recortar en silencio le
+    /// daría a quien imprime la hoja menos protección de la que pidió, sin que
+    /// nada se lo diga hasta el día que la hoja no se pueda leer.
+    ParidadExcesiva {
+        /// La que se pidió.
+        dada: u8,
+        /// La mayor que se acepta.
+        maxima: u8,
+    },
     /// No se pasó ningún trozo.
     SinTrozos,
     /// Un trozo declara una versión de formato que no se conoce.
@@ -95,6 +107,12 @@ impl core::fmt::Display for PapelError {
             Self::CapacidadInsuficiente { dada, minima } => write!(
                 f,
                 "la capacidad por símbolo ({dada} B) no llega al mínimo de {minima} B"
+            ),
+            Self::ParidadExcesiva { dada, maxima } => write!(
+                f,
+                "la paridad pedida ({dada}) pasa del máximo de {maxima}: por encima \
+                 de ahí el decodificador de Reed-Solomon puede entrar en pánico con \
+                 una hoja dañada, así que se rechaza en vez de recortarla"
             ),
             Self::DemasiadosSimbolos { necesarios } => write!(
                 f,
@@ -183,6 +201,15 @@ pub fn empaquetar(
         return Err(PapelError::CapacidadInsuficiente {
             dada: capacidad,
             minima: CABECERA + 1,
+        });
+    }
+    // La paridad se valida ANTES de protegerla: `ecc::protect` recortaría en
+    // silencio, y quien imprime una hoja tiene que enterarse de que no va a
+    // llevar la protección que pidió.
+    if paridad > ecc::PARIDAD_MAXIMA {
+        return Err(PapelError::ParidadExcesiva {
+            dada: paridad,
+            maxima: ecc::PARIDAD_MAXIMA,
         });
     }
     let util = capacidad - CABECERA;
@@ -309,12 +336,14 @@ mod tests {
 
     #[test]
     fn se_recupera_perdiendo_los_simbolos_que_la_cota_promete() {
-        // 40 símbolos y paridad alta: la cota da varios, y se comprueba que se
-        // cumple perdiendo EXACTAMENTE esos.
+        // Paridad al TOPE que la librería acepta: la cota da varios símbolos y
+        // se comprueba que se cumple perdiendo EXACTAMENTE esos. Antes iba a 200,
+        // que es una paridad que `empaquetar` ya rechaza — por encima del tope el
+        // decodificador puede entrar en pánico con una hoja dañada.
         let d = datos(3000);
-        let trozos = empaquetar(&d, 100, 200).unwrap();
+        let trozos = empaquetar(&d, 100, ecc::PARIDAD_MAXIMA).unwrap();
         let total = trozos.len();
-        let tolerados = simbolos_perdidos_tolerados(total, 200);
+        let tolerados = simbolos_perdidos_tolerados(total, ecc::PARIDAD_MAXIMA);
         assert!(tolerados >= 1, "la cota debería admitir al menos uno");
 
         // Se pierden los PRIMEROS, que es el peor caso: son los que llevan el
@@ -334,7 +363,7 @@ mod tests {
         // «tolera N» sería una frase sin nada detrás: un formato que se
         // recuperara siempre haría pasar la prueba de arriba sin significar nada.
         let d = datos(3000);
-        let paridad = 200u8;
+        let paridad = ecc::PARIDAD_MAXIMA;
         let trozos = empaquetar(&d, 100, paridad).unwrap();
         let total = trozos.len();
         let tolerados = simbolos_perdidos_tolerados(total, paridad);
@@ -567,7 +596,7 @@ mod pruebas_qr {
 
     fn caso() -> (Vec<u8>, Vec<Vec<u8>>, Vec<Simbolo>) {
         let d: Vec<u8> = (0..300u16).map(|i| (i * 37 + 11) as u8).collect();
-        let trozos = empaquetar(&d, 100, 200).unwrap();
+        let trozos = empaquetar(&d, 100, ecc::PARIDAD_MAXIMA).unwrap();
         let s = simbolos(&trozos, NIVEL_POR_DEFECTO).unwrap();
         (d, trozos, s)
     }
@@ -623,7 +652,7 @@ mod pruebas_qr {
         let (d, _, simbolos) = caso();
         let total = simbolos.len();
         assert!(
-            simbolos_perdidos_tolerados(total, 200) >= 1,
+            simbolos_perdidos_tolerados(total, ecc::PARIDAD_MAXIMA) >= 1,
             "con {total} símbolos la cota tiene que admitir al menos uno"
         );
         let leidos: Vec<Vec<u8>> = simbolos.iter().skip(1).filter_map(leer).collect();

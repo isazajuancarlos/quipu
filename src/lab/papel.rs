@@ -492,7 +492,10 @@ pub fn medir(
     // deja la carga útil deseada, y luego se busca la carga que cabe de verdad
     // — `protect` añade cabecera y redondea por bloques, así que se comprueba
     // en vez de calcularlo a ojo (el cálculo a ojo ya nos costó un release).
-    let paridad = ((255.0 * paridad_pct) as u8).clamp(2, 200);
+    // El techo es `ecc::PARIDAD_MAXIMA` y no un 200 escrito a mano: por encima
+    // de ese tope el decodificador puede entrar en pánico con una hoja dañada,
+    // que es justo lo que este banco fabrica a propósito.
+    let paridad = ((255.0 * paridad_pct) as u8).clamp(2, ecc::PARIDAD_MAXIMA);
     let mut carga = capacidad;
     while carga > 0 && ecc::protect(&vec![0u8; carga], paridad).len() > capacidad {
         carga -= 1;
