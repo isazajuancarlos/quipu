@@ -36,7 +36,25 @@ pub struct Options<'a> {
     pub pepper: &'a [u8],
     /// Coste Argon2id (dificultad ajustable).
     pub kdf_params: KdfParams,
-    /// Identificador del codebook (informativo en la cabecera).
+    /// **RESERVADO Y OBSOLETO. Déjelo en 0.**
+    ///
+    /// Se escribe en claro en la cabecera y **nunca se lee**: verificado en las
+    /// dos implementaciones — quien decide qué alfabeto se usó es la huella
+    /// (`codebook_hash_prefix`), que sí se comprueba. Este campo no entrega
+    /// nada.
+    ///
+    /// Y no es inocuo: son **16 bits de metadato en claro, elegidos por quien
+    /// cifra y estables entre todos sus contenedores**. Ponerle un valor con
+    /// significado —un identificador de inquilino, de usuario, de documento—
+    /// convierte cada archivo en enlazable con los demás del mismo dueño. Ver
+    /// N9 en `docs/THREAT_MODEL.md`, con la medición.
+    ///
+    /// **Por qué NO se rechaza un valor distinto de cero**, a diferencia de
+    /// `flags`: este campo es público y ajustable desde la 0.10.0. Rechazarlo al
+    /// descifrar dejaría ILEGIBLE PARA SIEMPRE cualquier contenedor que alguien
+    /// haya creado con él. Datos huérfanos y sin recurso, a cambio de limpieza.
+    /// Se marca, se documenta, y se quita en la próxima ruptura de formato —
+    /// cuando ya nadie lo escriba.
     pub codebook_id: u16,
 }
 

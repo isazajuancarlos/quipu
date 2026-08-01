@@ -88,7 +88,7 @@ Fixed 68-byte header, followed by the AEAD output (ciphertext ‖ 16-byte tag):
 | 0  | 4  | magic = `"QUIP"` (0x51 0x55 0x49 0x50) |
 | 4  | 1  | version = `1` |
 | 5  | 1  | flags (currently `0`) |
-| 6  | 2  | codebook_id (informational) |
+| 6  | 2  | codebook_id (**RESERVED, deprecated — write 0**) |
 | 8  | 8  | codebook_hash_prefix (first 8 bytes of the dictionary fingerprint) |
 | 16 | 16 | salt |
 | 32 | 24 | nonce (XChaCha20) |
@@ -99,6 +99,31 @@ Fixed 68-byte header, followed by the AEAD output (ciphertext ‖ 16-byte tag):
 
 The **entire 68-byte header is the AEAD Associated Data (AAD)**. Any alteration of
 version, codebook_id, salt, nonce, or KDF parameters causes decryption to fail.
+
+> **`flags` and `codebook_id` — reserved fields, and they are handled
+> differently on purpose (2026-08-01).**
+>
+> **`flags` (offset 5) is now VALIDATED: a non-zero value is REJECTED**
+> (`ContainerError::FlagsDesconocidos`). This is not tidiness — it closes a
+> **silent downgrade**. The header travels as AAD, so a future container with
+> `flags = 1` authenticates perfectly against an old decoder; if that decoder
+> *ignored* the field it would interpret the payload under the old rules and
+> return misread data **with the AEAD green**, which is the worst possible
+> outcome: a failure nobody notices. Same reason TLS is strict about unknown
+> extensions. An old decoder must refuse, not guess.
+>
+> **`codebook_id` (offset 6) is NOT rejected**, and the asymmetry is deliberate.
+> It has been public and settable through `Options` since 0.10.0, so refusing a
+> non-zero value would render **permanently unreadable** any container somebody
+> already built with it — orphaned data, no recovery, in exchange for tidiness.
+> It is marked deprecated with its reason and removed at the next format break,
+> once nothing writes it any more.
+>
+> This entry used to call the field *"informational"*, and that word is what
+> turned a format reservation into an invitation to store a tenant, user or
+> document identifier there — 16 bits of cleartext metadata, chosen by the
+> encryptor and stable across every container they write (see N9 in the threat
+> model).
 
 ### 3.3 Encryption
 

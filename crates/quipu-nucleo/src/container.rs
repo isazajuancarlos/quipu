@@ -59,6 +59,19 @@ pub enum ContainerError {
     BadMagic,
     /// Versión de formato no soportada.
     UnsupportedVersion(u8),
+    /// El campo `flags` trae bits que esta versión no conoce.
+    ///
+    /// **Rechazar lo desconocido en vez de ignorarlo cierra una DEGRADACIÓN
+    /// SILENCIOSA**, y es la razón entera de que este error exista. `flags` se
+    /// escribe siempre a cero y nunca se leía. Si una versión futura empezara a
+    /// usar un bit —«este contenedor usa el algoritmo X»—, un decodificador
+    /// viejo que lo IGNORA descifraría el contenido con las reglas antiguas y
+    /// devolvería algo mal interpretado **con el AEAD en verde**: la cabecera va
+    /// como AAD, así que autentica igual sea cual sea el valor del campo.
+    ///
+    /// Es el mismo motivo por el que TLS trata las extensiones desconocidas de
+    /// forma estricta. Un decodificador viejo tiene que NEGARSE, no adivinar.
+    FlagsDesconocidos(u8),
 }
 
 /// Cabecera del contenedor (en claro, pero autenticada como AAD).
@@ -126,6 +139,12 @@ pub fn parse<const SALT: usize, const NONCE: usize>(
     let version = head[4];
     if version != VERSION {
         return Err(ContainerError::UnsupportedVersion(version));
+    }
+    // `flags` es un campo RESERVADO: hoy vale cero y ninguna ruta lo escribe de
+    // otra forma. Se valida en vez de ignorarse — ver `FlagsDesconocidos` para
+    // el porqué, que es cerrar la degradación silenciosa y no la limpieza.
+    if head[5] != 0 {
+        return Err(ContainerError::FlagsDesconocidos(head[5]));
     }
 
     let fin_salt = INICIO_SALT + SALT;
@@ -243,5 +262,95 @@ mod tests {
         // que devuelve NO es el que se escribió.
         let (_, ct_mal) = parse::<16, 12>(&blob).expect("magic y versión coinciden");
         assert_ne!(ct_mal, b"ciphertext de prueba");
+    }
+}
+
+#[cfg(test)]
+mod pruebas_campos_reservados {
+    use super::*;
+
+    fn cabecera_valida() -> Vec<u8> {
+        let h = Header::<16, 24> {
+            version: VERSION,
+            flags: 0,
+            codebook_id: 0,
+            codebook_hash_prefix: [1u8; 8],
+            salt: [2u8; 16],
+            nonce: [3u8; 24],
+            kdf_mem_kib: 65536,
+            kdf_iterations: 3,
+            kdf_parallelism: 1,
+        };
+        let mut b = h.to_bytes();
+        b.extend_from_slice(b"ciphertext de mentira");
+        b
+    }
+
+    /// LA MITAD QUE ACEPTA: una cabecera con `flags = 0` pasa. Sin esto, un
+    /// `parse` que rechazara siempre pasaría la mitad de abajo con nota.
+    #[test]
+    fn una_cabecera_con_flags_cero_se_acepta() {
+        let b = cabecera_valida();
+        let (h, resto) = parse::<16, 24>(&b).expect("flags 0 tiene que pasar");
+        assert_eq!(h.flags, 0);
+        assert_eq!(resto, b"ciphertext de mentira");
+    }
+
+    /// LA MITAD QUE RECHAZA, y no es limpieza: cierra una DEGRADACIÓN
+    /// SILENCIOSA.
+    ///
+    /// La cabecera va como AAD, así que un contenedor futuro con `flags = 1`
+    /// **autentica perfectamente** contra un decodificador viejo. Si ese
+    /// decodificador ignorase el campo, interpretaría el contenido con las
+    /// reglas antiguas y devolvería algo mal leído CON EL AEAD EN VERDE — que es
+    /// el peor desenlace posible: un fallo que no se nota.
+    ///
+    /// Se recorren los OCHO bits por separado: un `!= 0` mal escrito —una
+    /// máscara, un `& 1`— pasaría una prueba que solo probara el valor 1.
+    #[test]
+    fn cualquier_bit_de_flags_desconocido_se_rechaza() {
+        for bit in 0..8u8 {
+            let v = 1u8 << bit;
+            let mut b = cabecera_valida();
+            b[5] = v;
+            assert_eq!(
+                parse::<16, 24>(&b).unwrap_err(),
+                ContainerError::FlagsDesconocidos(v),
+                "el bit {bit} de flags pasó desapercibido: un decodificador que \
+                 IGNORA lo que no conoce devuelve datos mal interpretados con el \
+                 AEAD en verde"
+            );
+        }
+        // Y combinaciones, por si alguien mirara solo bits sueltos.
+        for v in [0xFFu8, 0x81, 0x42] {
+            let mut b = cabecera_valida();
+            b[5] = v;
+            assert!(matches!(
+                parse::<16, 24>(&b),
+                Err(ContainerError::FlagsDesconocidos(_))
+            ));
+        }
+    }
+
+    /// `codebook_id` NO se rechaza, y es deliberado.
+    ///
+    /// A diferencia de `flags`, este campo es PÚBLICO y ajustable desde
+    /// `Options` desde la 0.10.0. Rechazar un valor distinto de cero dejaría
+    /// ILEGIBLE para siempre cualquier contenedor que alguien haya creado
+    /// poniéndolo — datos huérfanos, sin recurso, para ganar limpieza. La
+    /// directiva es mirar el objetivo antes de borrar, y aquí el objetivo puede
+    /// tener datos de alguien.
+    ///
+    /// Lo que sí se hace es marcar el campo como obsoleto en `Options` con el
+    /// motivo (ver N9 del modelo de amenaza: son 16 bits de metadato en claro,
+    /// elegidos por el llamante y estables entre todos sus contenedores), y
+    /// quitarlo en la próxima ruptura de formato, cuando ya nadie lo escriba.
+    #[test]
+    fn codebook_id_distinto_de_cero_se_sigue_aceptando() {
+        let mut b = cabecera_valida();
+        b[6] = 0x00;
+        b[7] = 0x07;
+        let (h, _) = parse::<16, 24>(&b).expect("no se puede huerfanar datos ajenos");
+        assert_eq!(h.codebook_id, 7);
     }
 }
