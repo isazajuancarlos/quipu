@@ -651,3 +651,436 @@ mod pruebas_qr {
         );
     }
 }
+
+/// La capa tecleable: lo que un humano puede copiar sin ninguna máquina.
+///
+/// # Por qué existe, que NO es la robustez
+///
+/// La medición del §6 de la hoja de ruta fue tajante: en la degradación donde la
+/// matriz entrega 147 bytes, esta capa entrega 28 — **menos que una clave**. Como
+/// respaldo de robustez no puede llevar lo único que existe para llevar, y así
+/// está escrito en la hoja de ruta.
+///
+/// Lo que sí aporta es otra cosa: **degrada a «teclee estos caracteres en
+/// cualquier decodificador Base32»**. Cero dependencia de que esta librería
+/// exista en 2050, que es el objetivo declarado del portador de papel.
+///
+/// # Y por eso el marco Reed-Solomon es OPCIONAL
+///
+/// Es la condición que hace válido ese argumento, no un adorno de configuración:
+///
+/// - [`Marco::Desnudo`] es **exactamente** `Base32(secreto)` según la RFC 4648.
+///   Cualquier decodificador del mundo lo abre, hoy y dentro de veinte años. No
+///   tolera un solo carácter mal tecleado.
+/// - [`Marco::Protegido`] es `Base32(ecc::protect(secreto))`. Tolera errores de
+///   tecleo, y a cambio **necesita esta librería o su especificación**: quien lo
+///   decodifique con una herramienta genérica obtiene el flujo protegido, no el
+///   secreto.
+///
+/// **No hay valor por defecto.** Quien escribe elige, porque las dos opciones
+/// dan artefactos distintos y una promesa distinta a quien reciba el papel.
+///
+/// # Un carácter mal tecleado en el marco desnudo NO pasa desapercibido
+///
+/// No lleva suma de verificación y es deliberado: sería un campo que la persona
+/// de 2050 tendría que saber descartar. No hace falta, porque lo que viaja por
+/// aquí es una CLAVE, y una clave equivocada no abre el contenedor. La
+/// comprobación existe y es ruidosa; simplemente vive en el otro extremo.
+pub mod tecleable {
+    use super::PapelError;
+    use crate::ecc;
+
+    /// Alfabeto Base32 de la RFC 4648. Excluye `0`, `1`, `8` y `9` justamente
+    /// para que no haya parejas que se confundan al leer a mano.
+    pub const ALFABETO: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+    /// El carácter de relleno de la RFC 4648.
+    ///
+    /// Se emite, aunque en un papel sea ruido. Es el precio de la promesa: un
+    /// decodificador ESTRICTO de la norma rechaza la entrada sin relleno, y la
+    /// capa desnuda existe justamente para que funcione con el decodificador que
+    /// haya, no con el que a nosotros nos guste.
+    pub const RELLENO: char = '=';
+
+    /// Cuántos caracteres van juntos antes de un espacio.
+    pub const GRUPO: usize = 5;
+    /// Cuántos grupos por línea.
+    pub const GRUPOS_POR_LINEA: usize = 6;
+
+    /// Qué marco lleva el texto. Sin defecto: se elige.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Marco {
+        /// `Base32(secreto)` y nada más. Legible con cualquier herramienta.
+        Desnudo,
+        /// `Base32(ecc::protect(secreto))`. Tolera errores de tecleo y exige
+        /// esta librería para deshacerse.
+        Protegido {
+            /// Bytes de paridad Reed-Solomon por bloque.
+            paridad: u8,
+        },
+    }
+
+    /// Errores de la capa tecleable.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum TecleableError {
+        /// Un carácter que no está en el alfabeto y **no se puede adivinar sin
+        /// riesgo**. Lleva cuál y en qué posición, porque quien teclea necesita
+        /// saber dónde mirar.
+        CaracterImposible {
+            /// El carácter tal como llegó.
+            caracter: char,
+            /// Su posición entre los caracteres útiles (sin contar espacios).
+            posicion: usize,
+        },
+        /// Un carácter ambiguo: se parece a dos del alfabeto y corregirlo sería
+        /// adivinar. Lleva las dos lecturas para que la persona decida.
+        CaracterAmbiguo {
+            /// El carácter tal como llegó.
+            caracter: char,
+            /// Su posición entre los caracteres útiles.
+            posicion: usize,
+            /// A qué podría corresponder.
+            lecturas: &'static str,
+        },
+        /// No quedó ningún carácter útil.
+        Vacio,
+        /// El marco protegido no pudo deshacerse.
+        NoSeRecupera,
+    }
+
+    impl core::fmt::Display for TecleableError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Self::CaracterImposible {
+                    caracter,
+                    posicion,
+                } => write!(
+                    f,
+                    "el carácter «{caracter}» de la posición {posicion} no existe en el alfabeto"
+                ),
+                Self::CaracterAmbiguo {
+                    caracter,
+                    posicion,
+                    lecturas,
+                } => write!(
+                    f,
+                    "el carácter «{caracter}» de la posición {posicion} puede ser {lecturas}: \
+                     hay que mirar el papel, no adivinar"
+                ),
+                Self::Vacio => write!(f, "no había ningún carácter útil"),
+                Self::NoSeRecupera => {
+                    write!(f, "el marco protegido tiene más errores de los que corrige")
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for TecleableError {}
+
+    /// La frase que hay que IMPRIMIR AL LADO del bloque.
+    ///
+    /// El artefacto que sobrevive veinte años no son los caracteres: son los
+    /// caracteres **más la frase que dice qué hacer con ellos**. Un papel sin
+    /// esta línea obliga a quien lo herede a adivinar, y adivinar con una clave
+    /// no es una opción.
+    pub fn instruccion(marco: Marco) -> &'static str {
+        match marco {
+            Marco::Desnudo => {
+                "Base32 (RFC 4648). Ignore los espacios y los saltos de línea. \
+                 Cualquier decodificador Base32 devuelve el secreto tal cual."
+            }
+            Marco::Protegido { .. } => {
+                "Base32 (RFC 4648) de un flujo con corrección de errores \
+                 Reed-Solomon de Quipu. Un decodificador Base32 genérico NO \
+                 devuelve el secreto: hace falta quipu-nucleo o su especificación."
+            }
+        }
+    }
+
+    /// Escribe el bloque para teclear: mayúsculas, en grupos y en líneas.
+    pub fn escribir(datos: &[u8], marco: Marco) -> String {
+        let flujo = match marco {
+            Marco::Desnudo => datos.to_vec(),
+            Marco::Protegido { paridad } => ecc::protect(datos, paridad),
+        };
+        let simbolos = a_cinco_bits(&flujo);
+        // El relleno lleva el total a múltiplo de 8, como manda la RFC.
+        let con_relleno = simbolos.len().div_ceil(8) * 8;
+        let mut s = String::new();
+        for i in 0..con_relleno {
+            if i > 0 {
+                if i % (GRUPO * GRUPOS_POR_LINEA) == 0 {
+                    s.push('\n');
+                } else if i % GRUPO == 0 {
+                    s.push(' ');
+                }
+            }
+            s.push(match simbolos.get(i) {
+                Some(c) => ALFABETO[*c as usize] as char,
+                None => RELLENO,
+            });
+        }
+        s
+    }
+
+    /// Lee lo que [`escribir`] produjo, tolerando cómo escribe la gente.
+    ///
+    /// Se aceptan minúsculas, espacios, saltos de línea y guiones. Se corrige el
+    /// **cero** por letra O, que es inequívoco porque el `0` no está en el
+    /// alfabeto y la `O` sí. **No se corrige nada ambiguo**: un `1` puede ser `I`
+    /// o `L`, y las dos están en el alfabeto, así que se rechaza diciendo cuáles
+    /// son las lecturas. Adivinar aquí produciría un secreto equivocado en
+    /// silencio, que es el único fallo que este formato no puede permitirse.
+    pub fn leer(texto: &str, marco: Marco) -> Result<Vec<u8>, TecleableError> {
+        let mut simbolos = Vec::new();
+        let mut posicion = 0usize;
+        for c in texto.chars() {
+            if c.is_whitespace() || c == '-' || c == '_' || c == RELLENO {
+                continue;
+            }
+            let arriba = c.to_ascii_uppercase();
+            let arriba = if arriba == '0' { 'O' } else { arriba };
+            match arriba {
+                '1' => {
+                    return Err(TecleableError::CaracterAmbiguo {
+                        caracter: c,
+                        posicion,
+                        lecturas: "«I» o «L»",
+                    });
+                }
+                '8' => {
+                    return Err(TecleableError::CaracterAmbiguo {
+                        caracter: c,
+                        posicion,
+                        lecturas: "«B» o «S»",
+                    });
+                }
+                _ => {}
+            }
+            match ALFABETO.iter().position(|a| *a as char == arriba) {
+                Some(i) => simbolos.push(i as u8),
+                None => {
+                    return Err(TecleableError::CaracterImposible {
+                        caracter: c,
+                        posicion,
+                    });
+                }
+            }
+            posicion += 1;
+        }
+        if simbolos.is_empty() {
+            return Err(TecleableError::Vacio);
+        }
+        let flujo = de_cinco_bits(&simbolos);
+        match marco {
+            Marco::Desnudo => Ok(flujo),
+            Marco::Protegido { .. } => {
+                ecc::recover(&flujo).ok_or(TecleableError::NoSeRecupera)
+            }
+        }
+    }
+
+    /// Bytes a símbolos de 5 bits.
+    fn a_cinco_bits(datos: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(datos.len() * 8 / 5 + 1);
+        let (mut acc, mut bits) = (0u16, 0u32);
+        for &b in datos {
+            acc = (acc << 8) | b as u16;
+            bits += 8;
+            while bits >= 5 {
+                out.push(((acc >> (bits - 5)) & 0x1f) as u8);
+                bits -= 5;
+            }
+        }
+        if bits > 0 {
+            out.push(((acc << (5 - bits)) & 0x1f) as u8);
+        }
+        out
+    }
+
+    /// Símbolos de 5 bits a bytes. Los bits sobrantes del final se descartan:
+    /// son el relleno del último símbolo, no datos.
+    fn de_cinco_bits(simbolos: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(simbolos.len() * 5 / 8);
+        let (mut acc, mut bits) = (0u16, 0u32);
+        for &s in simbolos {
+            acc = (acc << 5) | (s & 0x1f) as u16;
+            bits += 5;
+            if bits >= 8 {
+                out.push(((acc >> (bits - 8)) & 0xff) as u8);
+                bits -= 8;
+            }
+        }
+        out
+    }
+
+    /// Para que nadie tenga que buscar el tipo de error de `ecc` desde fuera.
+    impl From<TecleableError> for PapelError {
+        fn from(_: TecleableError) -> Self {
+            PapelError::NoSeRecupera
+        }
+    }
+}
+
+#[cfg(test)]
+mod pruebas_tecleable {
+    use super::tecleable::*;
+
+    /// Quita los espacios y saltos que solo existen para poder teclear.
+    fn apretado(s: &str) -> String {
+        s.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    #[test]
+    fn el_marco_desnudo_es_rfc4648_exacto() {
+        // LA PRUEBA QUE SOSTIENE TODA LA PROMESA. Son los vectores del §10 de la
+        // RFC 4648, no una comprobación contra nosotros mismos: si esto pasa,
+        // cualquier decodificador Base32 del mundo devuelve el secreto, y esa es
+        // la única razón por la que esta capa existe.
+        for (claro, esperado) in [
+            ("f", "MY======"),
+            ("fo", "MZXQ===="),
+            ("foo", "MZXW6==="),
+            ("foob", "MZXW6YQ="),
+            ("fooba", "MZXW6YTB"),
+            ("foobar", "MZXW6YTBOI======"),
+        ] {
+            assert_eq!(
+                apretado(&escribir(claro.as_bytes(), Marco::Desnudo)),
+                esperado,
+                "«{claro}» no coincide con el vector de la RFC 4648"
+            );
+        }
+    }
+
+    #[test]
+    fn el_desnudo_va_y_vuelve() {
+        for n in [1usize, 5, 32, 64, 200] {
+            let d: Vec<u8> = (0..n).map(|i| (i * 53 + 3) as u8).collect();
+            let t = escribir(&d, Marco::Desnudo);
+            assert_eq!(leer(&t, Marco::Desnudo).unwrap(), d, "falló con {n} bytes");
+        }
+    }
+
+    #[test]
+    fn el_protegido_va_y_vuelve() {
+        let d: Vec<u8> = (0..64u16).map(|i| (i * 7) as u8).collect();
+        let m = Marco::Protegido { paridad: 32 };
+        let t = escribir(&d, m);
+        assert_eq!(leer(&t, m).unwrap(), d);
+    }
+
+    #[test]
+    fn el_protegido_aguanta_un_error_de_tecleo_y_el_desnudo_no() {
+        // Las dos direcciones a la vez: es lo que convierte «opcional» en una
+        // elección con consecuencias y no en una casilla de configuración.
+        let d: Vec<u8> = (0..48u16).map(|i| (i * 11 + 5) as u8).collect();
+        let m = Marco::Protegido { paridad: 32 };
+
+        let mut t: Vec<char> = escribir(&d, m).chars().collect();
+        let pos = t.iter().position(|c| c.is_ascii_alphanumeric()).unwrap() + 7;
+        t[pos] = if t[pos] == 'A' { 'B' } else { 'A' };
+        let roto: String = t.into_iter().collect();
+        assert_eq!(
+            leer(&roto, m).unwrap(),
+            d,
+            "el marco protegido tiene que absorber un carácter mal tecleado"
+        );
+
+        let mut t: Vec<char> = escribir(&d, Marco::Desnudo).chars().collect();
+        t[pos] = if t[pos] == 'A' { 'B' } else { 'A' };
+        let roto: String = t.into_iter().collect();
+        assert_ne!(
+            leer(&roto, Marco::Desnudo).unwrap(),
+            d,
+            "el marco desnudo NO corrige nada, y prometer que sí sería mentir"
+        );
+    }
+
+    #[test]
+    fn los_dos_marcos_no_producen_el_mismo_texto() {
+        let d = b"una clave cualquiera";
+        assert_ne!(
+            escribir(d, Marco::Desnudo),
+            escribir(d, Marco::Protegido { paridad: 32 })
+        );
+        // Y el desnudo es MÁS CORTO, porque no lleva paridad ni cabecera.
+        assert!(
+            apretado(&escribir(d, Marco::Desnudo)).len()
+                < apretado(&escribir(d, Marco::Protegido { paridad: 32 })).len()
+        );
+    }
+
+    #[test]
+    fn se_tolera_como_escribe_la_gente() {
+        let d = b"secreto";
+        let t = escribir(d, Marco::Desnudo);
+        let maltratado = format!("  {}  ", apretado(&t).to_lowercase())
+            .chars()
+            .enumerate()
+            .map(|(i, c)| if i % 4 == 3 { format!("{c}-") } else { c.to_string() })
+            .collect::<String>();
+        assert_eq!(leer(&maltratado, Marco::Desnudo).unwrap(), d.to_vec());
+    }
+
+    #[test]
+    fn el_cero_se_corrige_porque_es_inequivoco() {
+        // El `0` no está en el alfabeto y la `O` sí: no hay nada que adivinar.
+        let d = b"hola";
+        let t = apretado(&escribir(d, Marco::Desnudo)).replace('O', "0");
+        assert_eq!(leer(&t, Marco::Desnudo).unwrap(), d.to_vec());
+    }
+
+    #[test]
+    fn lo_ambiguo_se_rechaza_en_vez_de_adivinarse() {
+        // Un `1` puede ser `I` o `L` y las dos están en el alfabeto. Corregirlo
+        // sería inventar un secreto distinto EN SILENCIO, que es el único fallo
+        // que este formato no puede permitirse.
+        for (c, lecturas) in [('1', "«I» o «L»"), ('8', "«B» o «S»")] {
+            let texto = format!("MZXW{c}YTB");
+            match leer(&texto, Marco::Desnudo) {
+                Err(TecleableError::CaracterAmbiguo {
+                    caracter,
+                    lecturas: l,
+                    ..
+                }) => {
+                    assert_eq!(caracter, c);
+                    assert_eq!(l, lecturas, "el error tiene que decir las dos lecturas");
+                }
+                otro => panic!("se esperaba CaracterAmbiguo para «{c}», llegó {otro:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn un_caracter_imposible_dice_cual_y_donde() {
+        match leer("MZXW*YTB", Marco::Desnudo) {
+            Err(TecleableError::CaracterImposible {
+                caracter,
+                posicion,
+            }) => {
+                assert_eq!(caracter, '*');
+                assert_eq!(posicion, 4, "la posición tiene que ignorar los espacios");
+            }
+            otro => panic!("se esperaba CaracterImposible, llegó {otro:?}"),
+        }
+    }
+
+    #[test]
+    fn un_texto_sin_nada_util_lo_dice() {
+        assert_eq!(leer("   \n -- ", Marco::Desnudo), Err(TecleableError::Vacio));
+        assert_eq!(leer("", Marco::Desnudo), Err(TecleableError::Vacio));
+    }
+
+    #[test]
+    fn cada_marco_trae_su_instruccion_y_no_dicen_lo_mismo() {
+        // El artefacto que sobrevive veinte años son los caracteres MÁS la frase
+        // que dice qué hacer con ellos. Si las dos frases fueran iguales, una de
+        // las dos estaría mintiendo.
+        let a = instruccion(Marco::Desnudo);
+        let b = instruccion(Marco::Protegido { paridad: 32 });
+        assert_ne!(a, b);
+        assert!(a.contains("Cualquier decodificador"));
+        assert!(b.contains("NO"));
+    }
+}

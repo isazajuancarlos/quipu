@@ -166,6 +166,17 @@ sostenga: **el marco Reed-Solomon tiene que ser OPCIONAL**, o el Base32 crudo
 volvería a necesitar herramienta nuestra y perdería su única ventaja. Alcance
 nuevo: papel limpio, carga de tamaño de clave (≤64 B).
 
+**HECHO** en `quipu_nucleo::papel::tecleable`. `Marco::Desnudo` es
+`Base32(secreto)` según la RFC 4648 —relleno incluido, porque un decodificador
+estricto lo exige— y lo sujeta un KAT contra los vectores del §10 de la propia
+norma, no contra nosotros mismos. `Marco::Protegido` añade el Reed-Solomon y
+tolera errores de tecleo, a cambio de necesitar esta librería. **No hay valor por
+defecto**: quien escribe elige, porque son artefactos con promesas distintas.
+
+Y el artefacto que sobrevive veinte años no son los caracteres: son los
+caracteres **más la frase que dice qué hacer con ellos**, que la da
+`tecleable::instruccion` para imprimirla al lado.
+
 **2. En el NÚCLEO no entra ninguna dependencia de QR.** La simbología estándar sí
 es obligatoria —inventar una matriz propia recrea el problema de los glifos—,
 pero **renderizar el símbolo no tiene por qué hacerlo Quipu**. El trabajo de
