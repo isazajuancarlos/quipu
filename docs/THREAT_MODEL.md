@@ -83,6 +83,27 @@ the operation, a local physical side channel, or control of the binary/OS.
 - **S1.** The vetted primitives are secure: XChaCha20-Poly1305, Argon2id,
   HKDF-SHA256, X25519, ML-KEM-1024 (FIPS-203), ristretto255.
 - **S2.** The system RNG (getrandom/OsRng) is cryptographically secure.
+  - **Partially VERIFIED since 2026-08-01, and the split matters.** Every draw
+    goes through `aleatorio::llenar`, the single choke point, and is subjected to
+    **continuous health tests** — not a one-off check at startup, because a
+    source can degrade *after* boot (a `seccomp` filter that tightens, a VM
+    migration). Output that fails is **wiped, reported, and NOT retried**: the
+    same broken source may hand back something that *looks* fine next time.
+  - **What that catches:** sources that are broken and look like they work — a
+    `seccomp` filter returning success without touching the buffer, a badly
+    emulated `chroot` without `/dev/urandom`, an embedded target or WASM shim
+    returning constants. Deterministic deployment failures, so they show up every
+    time. Verified by poisoning the source: 4 red tests in `aleatorio`, 5 in
+    `selftest`.
+  - **What it does NOT catch, and this is the honest half:** a *subverted but
+    statistically sound* generator passes every one of these tests — and would
+    pass monobit, runs, and any battery added later. That is the definition of a
+    good PRNG seeded by somebody else. No output test can detect it; the defence
+    is **provenance of the binary** (reproducible build, signed release), not a
+    test on the bytes. Claiming otherwise would manufacture the same false sense
+    of coverage as antivirus software pointed at the wrong layer.
+  - So S2 remains an assumption **about the source's honesty**, and is now a
+    verified property **about the source's function**.
 - **S3.** The passphrase has sufficient entropy AND/OR a high Argon2id cost is
   used; a weak passphrase is breakable by T3 regardless (see R1).
 - **S4.** The pepper and secret keys are stored beyond T1/T2's reach.
