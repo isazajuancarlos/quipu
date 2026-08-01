@@ -81,6 +81,66 @@ const INFO_NONCE: &[u8] = b"/nonce";
 /// de negación que no existe.
 pub const TAMANO_MINIMO: usize = 1024;
 
+/// El tamaño canónico igual o mayor que `minimo`: la siguiente potencia de dos,
+/// nunca por debajo de [`TAMANO_MINIMO`].
+///
+/// # Por qué existe, y por qué es la última fuga del formato
+///
+/// El contenedor mide y parece lo mismo con volumen oculto y sin él — **para un
+/// tamaño fijo**. Lo que queda fuera del formato es la ELECCIÓN de ese tamaño, y
+/// esa la hace el llamante: un contenedor de 50 MB «para la lista de la compra»
+/// delata operativamente sin que ningún byte tenga la culpa. Ningún relleno
+/// arregla eso; lo único que lo acota es que todo el mundo elija entre los
+/// MISMOS pocos valores.
+///
+/// # Por qué potencias de dos y NO Padmé, que estaba a mano
+///
+/// `prelayers::pad` implementa Padmé y era la respuesta obvia — hasta medirla.
+/// En el rango de 1 KiB a 1 GiB:
+///
+/// | | sobrecoste peor | tamaños distintos |
+/// |---|---|---|
+/// | Padmé | 5,73 % | **496** |
+/// | potencias de dos | 100 % | **21** |
+///
+/// Padmé está diseñado para ocultar una longitud **pagando poco relleno**, y
+/// optimiza justo la variable que aquí no cuesta nada: en este formato el
+/// espacio sobrante **no es desperdicio, es el diseño** —se llena de azar del
+/// CSPRNG haya o no volumen oculto—. Lo único que importa es cuánta información
+/// lleva la elección del tamaño, y 496 valores distintos la llevan casi entera:
+/// con Padmé el tamaño del archivo revela el del contenido con un 6 % de error.
+///
+/// Con potencias de dos, el conjunto observable son 21 valores en seis órdenes
+/// de magnitud, y saber el tamaño solo sitúa el contenido dentro de un factor 2.
+///
+/// # No se impone, y es deliberado
+///
+/// [`crear`] acepta cualquier tamaño ≥ [`TAMANO_MINIMO`]. Forzar la escalera
+/// rompería a quien necesite un tamaño exacto por una razón legítima —un campo
+/// de formulario, un soporte de capacidad fija—, y la prueba de si una
+/// restricción está bien puesta es justo esa. Lo que sí se hace es decirlo aquí
+/// y en [`crear`]: **fuera de la escalera vive la fuga que queda**.
+pub const fn tamano_canonico(minimo: usize) -> usize {
+    let m = if minimo < TAMANO_MINIMO {
+        TAMANO_MINIMO
+    } else {
+        minimo
+    };
+    if m.is_power_of_two() {
+        m
+    } else {
+        m.next_power_of_two()
+    }
+}
+
+/// `true` si `tamano` está en la escalera de [`tamano_canonico`].
+///
+/// Sirve para que una herramienta sobre esta librería pueda avisar —no
+/// rechazar— cuando alguien sale de la escalera.
+pub const fn es_canonico(tamano: usize) -> bool {
+    tamano >= TAMANO_MINIMO && tamano.is_power_of_two()
+}
+
 /// Errores del contenedor con negación.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NegacionError {
@@ -329,6 +389,11 @@ fn claro_de_region(datos: &[u8], largo_claro: usize, volumen: Volumen) -> Result
 /// quien lo crea** y no derivado del contenido. `oculto` es opcional, y el
 /// contenedor mide y parece lo mismo con él y sin él.
 ///
+/// **ESA ELECCIÓN ES LA ÚLTIMA FUGA DEL FORMATO**, y no la cubre ningún byte:
+/// un contenedor de 50 MB «para la lista de la compra» delata operativamente.
+/// Use [`tamano_canonico`] salvo que tenga un motivo concreto para no hacerlo;
+/// ahí está el porqué, con los números.
+///
 /// **El señuelo y el oculto NO pueden compartir contraseña**, y se rechaza con
 /// [`NegacionError::MismaContrasena`].
 ///
@@ -493,11 +558,41 @@ pub fn abrir(
     }
     match perfil {
         Some(p) => intentar(contenedor, contrasena, p).ok_or(NegacionError::NoAbre),
-        None => Perfil::conocidos()
-            .iter()
-            .find_map(|p| intentar(contenedor, contrasena, *p))
+        // SE PRUEBAN TODOS LOS PERFILES, SIEMPRE, aunque el primero abra.
+        //
+        // Antes esto era un `find_map`, que corta al acertar. Con un solo perfil
+        // da igual; con dos, un contenedor del perfil nuevo costaría UNA pasada
+        // de Argon2id y uno antiguo costaría N — **el reloj diría qué perfil
+        // lleva el archivo**, y de ahí sale cuándo se creó. Eso es metadato, que
+        // es exactamente lo que este formato existe para no tener.
+        //
+        // Es el mismo criterio que ya gobierna `intentar`, que prueba siempre
+        // las dos regiones para que abrir el señuelo no cueste un AEAD menos que
+        // abrir el oculto. Aplicarlo aquí y no allí habría sido cerrar una
+        // puerta y dejar la otra.
+        //
+        // SE IMPLEMENTA AHORA Y NO CUANDO HAYA DOS: hacerlo después significa
+        // que la primera versión con dos perfiles sale con la fuga puesta.
+        None => abrir_con_perfiles(contenedor, contrasena, Perfil::conocidos())
             .ok_or(NegacionError::NoAbre),
     }
+}
+
+/// Prueba `perfiles` en orden y devuelve la primera apertura — **habiéndolos
+/// probado TODOS**.
+///
+/// Existe aparte de [`abrir`] para que la propiedad sea comprobable: con un solo
+/// perfil publicado, un banco sobre `abrir` no puede distinguir «recorre todos»
+/// de «corta al primero». Aquí se le pueden pasar dos.
+fn abrir_con_perfiles(contenedor: &[u8], contrasena: &str, perfiles: &[Perfil]) -> Option<Apertura> {
+    let mut abierto = None;
+    for p in perfiles {
+        let r = intentar(contenedor, contrasena, *p);
+        if abierto.is_none() {
+            abierto = r;
+        }
+    }
+    abierto
 }
 
 #[cfg(test)]
@@ -693,6 +788,127 @@ mod tests {
     /// Eso era cierto y era lo de menos: con la misma contraseña, entregarla
     /// bajo coacción entrega el volumen verdadero — la única promesa del módulo,
     /// rota, y aceptada en silencio. Lo que se comprueba ahora es el rechazo.
+    /// EL RELOJ NO PUEDE DECIR QUÉ PERFIL LLEVA EL CONTENEDOR.
+    ///
+    /// Con un solo perfil publicado esto es inerte, y por eso el banco fabrica
+    /// dos de laboratorio: es la única forma de ver la propiedad ANTES de que
+    /// exista el segundo perfil de verdad. Implementarla después significaría
+    /// que la primera versión con dos perfiles sale con la fuga puesta.
+    ///
+    /// EL BANCO TRAE SU CASO ROJO DENTRO. Un umbral de tiempo suelto es una
+    /// prueba intermitente esperando a fallar; en vez de eso se mide la MISMA
+    /// carga por los dos caminos —el que recorre todos y un `find_map` que corta
+    /// al primero— y se exige que el segundo SÍ muestre la diferencia. Si el
+    /// caso rojo no se disparara, el verde de arriba no significaría nada.
+    #[cfg(feature = "lab")]
+    #[test]
+    fn el_reloj_no_delata_que_perfil_usa_el_contenedor() {
+        use std::time::Instant;
+
+        // Dos perfiles distinguibles en coste, pero baratos: lo que se mide es
+        // el NÚMERO de derivaciones, no lo caras que son.
+        let a = Perfil::de_laboratorio(
+            "lab-a",
+            KdfParams { mem_kib: 8 * 1024, iterations: 3, parallelism: 1 },
+        );
+        let b = Perfil::de_laboratorio(
+            "lab-b",
+            KdfParams { mem_kib: 8 * 1024, iterations: 4, parallelism: 1 },
+        );
+        let todos = [a, b];
+
+        let con_a = crear(S, b"senuelo", "clave-a", None, a).unwrap();
+        let con_b = crear(S, b"senuelo", "clave-b", None, b).unwrap();
+
+        // Se comprueba primero que cada uno abre con SU perfil, o el banco
+        // estaría midiendo dos fallos.
+        assert!(abrir_con_perfiles(&con_a, "clave-a", &todos).is_some());
+        assert!(abrir_con_perfiles(&con_b, "clave-b", &todos).is_some());
+
+        let medir = |f: &dyn Fn() -> bool| -> u128 {
+            let mut mejor = u128::MAX;
+            for _ in 0..3 {
+                let t0 = Instant::now();
+                assert!(f());
+                mejor = mejor.min(t0.elapsed().as_micros());
+            }
+            mejor
+        };
+
+        // CAMINO BUENO: recorre todos.
+        let t_a = medir(&|| abrir_con_perfiles(&con_a, "clave-a", &todos).is_some());
+        let t_b = medir(&|| abrir_con_perfiles(&con_b, "clave-b", &todos).is_some());
+
+        // CASO ROJO: el `find_map` que había antes, que corta al primero.
+        let corta = |c: &[u8], p: &str| -> bool {
+            todos.iter().any(|perfil| intentar(c, p, *perfil).is_some())
+        };
+        let r_a = medir(&|| corta(&con_a, "clave-a"));
+        let r_b = medir(&|| corta(&con_b, "clave-b"));
+
+        // El caso rojo TIENE que mostrar la diferencia, o el verde no vale.
+        assert!(
+            r_b > r_a * 3 / 2,
+            "el caso rojo no discrimina: cortar al primer perfil dio {r_a} µs y \
+             {r_b} µs, casi lo mismo. Sin esa diferencia, el verde de abajo no \
+             prueba nada — puede que el banco no mida el número de derivaciones"
+        );
+
+        // Y el camino bueno tiene que ser PLANO.
+        let (lento, rapido) = if t_a > t_b { (t_a, t_b) } else { (t_b, t_a) };
+        assert!(
+            lento < rapido * 3 / 2,
+            "recorriendo TODOS los perfiles, abrir uno costó {t_a} µs y el otro \
+             {t_b} µs: el reloj sigue diciendo qué perfil lleva el archivo"
+        );
+    }
+
+    /// La escalera de tamaños canónicos: potencias de dos desde el mínimo.
+    #[test]
+    fn la_escalera_es_potencias_de_dos_y_no_baja_del_minimo() {
+        assert_eq!(tamano_canonico(0), TAMANO_MINIMO);
+        assert_eq!(tamano_canonico(1), TAMANO_MINIMO);
+        assert_eq!(tamano_canonico(TAMANO_MINIMO), TAMANO_MINIMO);
+        assert_eq!(tamano_canonico(TAMANO_MINIMO + 1), TAMANO_MINIMO * 2);
+        assert_eq!(tamano_canonico(5000), 8192);
+        assert_eq!(tamano_canonico(100_000), 131_072);
+
+        // Idempotente: subir dos veces no mueve nada.
+        for n in [1usize, 999, 1025, 5000, 100_000, 3_000_000] {
+            let c = tamano_canonico(n);
+            assert_eq!(tamano_canonico(c), c, "no es idempotente en {n}");
+            assert!(c >= n.max(TAMANO_MINIMO), "se quedó corto en {n}");
+            assert!(es_canonico(c), "{c} no se reconoce como canónico");
+        }
+
+        // Y discrimina: lo que NO está en la escalera se dice.
+        for n in [0usize, 1, 999, 1023, 1025, 5000, 100_000] {
+            assert!(!es_canonico(n), "{n} no debería contar como canónico");
+        }
+    }
+
+    /// EL NÚMERO QUE DECIDIÓ LA ESCALERA, y por eso está en una prueba y no solo
+    /// en un comentario: Padmé —que estaba a mano en el árbol— deja CIENTOS de
+    /// tamaños distintos, y aquí lo único que cuenta es que sean pocos.
+    #[test]
+    fn la_escalera_deja_pocos_tamanos_observables() {
+        let mut distintos = std::collections::HashSet::new();
+        let mut n = TAMANO_MINIMO;
+        while n < 1 << 30 {
+            distintos.insert(tamano_canonico(n));
+            n += 997; // paso primo, para no caer siempre en el mismo sitio
+        }
+        assert!(
+            distintos.len() <= 32,
+            "la escalera produce {} tamaños distintos entre 1 KiB y 1 GiB; si \
+             pasan de unas pocas decenas, la elección del tamaño vuelve a llevar \
+             casi toda la información y la escalera no sirve de nada",
+            distintos.len()
+        );
+        // Y que no sea absurdamente gruesa tampoco.
+        assert!(distintos.len() >= 15, "solo {} escalones", distintos.len());
+    }
+
     #[test]
     fn la_misma_contrasena_para_los_dos_se_rechaza() {
         assert_eq!(
