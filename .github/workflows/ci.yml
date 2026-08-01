@@ -73,6 +73,14 @@ jobs:
         run: cargo test -p quipu-nucleo --features qr
       - name: Clippy (qr, deny warnings)
         run: cargo clippy -p quipu-nucleo --features qr --all-targets -- -D warnings
+      # `padme-frame` es `no_std` y CERO dependencias, y las dos cosas se rompen
+      # sin que nadie lo note: basta que alguien meta un `use std::` o una
+      # dependencia «pequeña». Se comprueba aparte porque el resto del workspace
+      # es `std` y no lo cazaría.
+      - name: Tests (padme-frame — el crate permisivo, no_std)
+        run: cargo test -p padme-frame
+      - name: Clippy (padme-frame, deny warnings)
+        run: cargo clippy -p padme-frame --all-targets -- -D warnings
       # `palabras` (BIP-39), por lo mismo que `qr`: vive en `quipu-nucleo` y la
       # matriz automática no la ve. Lo que aquí se juega no es que compile: son
       # los 24 vectores OFICIALES de la norma y la ida y vuelta contra una

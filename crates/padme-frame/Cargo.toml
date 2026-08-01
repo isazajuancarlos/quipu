@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-FileCopyrightText: 2026 Juan Carlos Isaza Arenas
+
+[package]
+name = "padme-frame"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Padmé padding with a self-describing length frame: pad and unpad round-trip, bounded overhead, no_std, zero dependencies."
+authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
+repository = "https://github.com/isazajuancarlos/quipu"
+homepage = "https://github.com/isazajuancarlos/quipu"
+documentation = "https://docs.rs/padme-frame"
+readme = "README.md"
+keywords = ["padding", "padme", "metadata", "privacy", "no-std"]
+categories = ["no-std", "encoding", "cryptography"]
+
+# PERMISIVA A PROPÓSITO, y distinta del núcleo de Quipu (AGPL-3.0-or-later).
+#
+# Este crate nace extraído de `quipu-nucleo`, y la extracción sin cambio de
+# licencia no valía para nada: lo único que hace útil a Padmé fuera de Quipu es
+# que cualquiera pueda enlazarlo. Con la AGPL, enlazarlo obliga a publicar el
+# programa entero — nadie mete eso en su código por un padding de 90 líneas.
+#
+# `MIT OR Apache-2.0` es la doble licencia convencional de Rust, y se elige por
+# alcance y no por gusto: es la que el ecosistema espera y la que no obliga a
+# nadie a leerse nada antes de usarla.
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1"
