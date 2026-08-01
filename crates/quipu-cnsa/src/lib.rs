@@ -86,6 +86,12 @@
 
 pub mod api;
 pub mod cipher;
+/// Canal de destinatario con ML-KEM-1024 **puro** (CNSA 2.0). Más débil que el
+/// KEM híbrido de `quipu`: leer su cabecera antes de elegir.
+pub mod destinatario;
+/// Firma con ML-DSA-87 **pura** (CNSA 2.0). Más débil que la firma híbrida de
+/// `quipu`: leer su cabecera antes de elegir.
+pub mod firma;
 pub mod dictionary;
 pub mod kdf;
 

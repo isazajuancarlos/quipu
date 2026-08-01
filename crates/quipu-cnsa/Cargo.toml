@@ -2,7 +2,7 @@
 name = "quipu-cnsa"
 version = "0.1.0"
 edition = "2024"
-description = "Perfil de Quipu con los algoritmos de CNSA 2.0 que cubre: AES-256-GCM y HKDF-SHA-384. Solo cifrado simetrico: sin firma ni establecimiento de clave. NO validado FIPS 140-3."
+description = "Perfil de Quipu con los algoritmos de CNSA 2.0: AES-256-GCM, HKDF-SHA-384, firma ML-DSA-87 y canal de destinatario ML-KEM-1024. PUROS, no hibridos: mas debil que quipu y es lo que pide el mandato. NO validado FIPS 140-3."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
 license = "AGPL-3.0-or-later"
 keywords = ["cryptography", "post-quantum", "cnsa", "aes-gcm", "fips"]
@@ -32,6 +32,17 @@ hkdf = "0.13"
 # normativa: PBKDF2 no tiene coste en memoria y es mucho más barato de atacar
 # con hardware dedicado. Se mantiene Argon2id y se declara en el README.
 argon2 = "0.5"
+
+# --- Firma y establecimiento de clave: lo que CNSA 2.0 exige y faltaba ---
+# PUROS, no híbridos, y esa es la diferencia con `quipu`: el mandato nombra
+# estos dos algoritmos y no pide socio clásico. Es MÁS DÉBIL —si uno cae, no
+# queda nada sujetando— y está dicho en la cabecera de cada módulo.
+# Se dependen DIRECTAMENTE y no vía `quipu`: este perfil es hermano de aquel,
+# no cliente suyo, y arrastrar `quipu` traería XChaCha20 y todo lo demás.
+ml-dsa = "0.1.1"
+ml-kem = "0.3"
+rand_core = "0.10"
+rand_chacha = "0.10"
 
 unicode-normalization = "0.1"
 getrandom = { version = "0.4", features = ["std"] }

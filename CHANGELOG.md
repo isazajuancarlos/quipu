@@ -7,6 +7,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`quipu-cnsa` crece a firma y canal de destinatario.** El perfil ya no es solo
+  cifrado simétrico: `firma` implementa **ML-DSA-87** y `destinatario`
+  **ML-KEM-1024** sobre AES-256-GCM, que son los dos algoritmos que CNSA 2.0
+  exige para esas funciones.
+
+  **Van PUROS, no híbridos, y eso es MÁS DÉBIL que `quipu`** — que firma
+  Ed25519 *y* ML-DSA-87 y encapsula X25519 *y* ML-KEM-1024. Aquí, si el
+  algoritmo de retículos cae, no queda socio clásico sujetando. Es lo que dice
+  el mandato, que no pide híbrido, y está escrito en negrita en la cabecera de
+  cada módulo y en el README: **si puedes elegir, usa `quipu`**. La asimetría que
+  más pesa: una firma rota se explota el día que se rompe, pero un secreto
+  cifrado hoy se guarda y se descifra mañana.
+
+  Se depende de `ml-dsa` y `ml-kem` **directamente** y no vía `quipu`: este
+  perfil es hermano de aquel, no cliente suyo, y arrastrarlo traería XChaCha20 y
+  todo lo demás. La derivación usa HKDF-**SHA-384** (no SHA-256) y ata la clave
+  pública completa al transcript, estilo X-Wing, para que sustituir la clave en
+  tránsito no lleve a la misma clave de contenido.
+
 - **Contenedor con negación (feature `negacion`, no-default).** Un archivo con dos
   contraseñas: una abre el señuelo que se entrega bajo coacción, otra el volumen
   verdadero. Ningún campo dice si el segundo existe, el tamaño total lo declara
