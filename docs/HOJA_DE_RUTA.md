@@ -177,6 +177,36 @@ Y el artefacto que sobrevive veinte años no son los caracteres: son los
 caracteres **más la frase que dice qué hacer con ellos**, que la da
 `tecleable::instruccion` para imprimirla al lado.
 
+**1-bis. Y le faltaba la mitad, descubierta el 2026-08-01 al auditar la ficha
+#106.** Los dos marcos de arriba no cubren el caso que da nombre a esa ficha
+—«custodia en papel sin máquina»— por una razón que no estaba escrita:
+
+| | ¿lo lee cualquiera sin Quipu? | ¿detecta el error de tecleo? | ¿se dicta por teléfono? |
+|---|---|---|---|
+| `Desnudo` (Base32) | **sí** | **no** | mal: 52 caracteres |
+| `Protegido` (Base32+RS) | **no** | sí, y además corrige | mal |
+| `palabras` (BIP-39) | **sí** | **sí** (detecta, no corrige) | **sí**: 24 palabras |
+
+Lo grave era la casilla del medio: `Desnudo` devuelve **otro secreto en
+silencio** si se transcribe mal un carácter, y con una clave eso no se nota
+hasta que hace falta. `Protegido` lo tapa, pero al precio de necesitar esta
+librería — o sea, deshaciendo la única razón por la que la capa existe.
+
+**HECHO** en `quipu_nucleo::papel::palabras`, detrás de la feature `palabras`.
+Se ata a los **24 vectores oficiales de la norma** en los dos sentidos y a una
+implementación **ajena** (`bip39`, solo `dev-dependencies`, mismo papel que
+`rqrr` con el QR). La lista de 2 048 palabras se guarda verbatim y una prueba
+comprueba su SHA-256 contra el canónico: nadie tiene que fiarse de nuestra
+transcripción.
+
+**Por qué la BIP-39 y no una lista propia**: es el mismo argumento que mató los
+glifos. Una lista nuestra exige que Quipu exista en 2050; la BIP-39 la
+decodifica cualquier herramienta de las que ya hay en todos los lenguajes.
+
+**Límites, declarados y no escondidos**: admite exactamente 16, 20, 24, 28 o 32
+bytes —con cualquier otro tamaño **falla**, porque rellenar devolvería al leer
+bytes que nadie guardó—, y su suma es de **detección, no de corrección**.
+
 **2. En el NÚCLEO no entra ninguna dependencia de QR.** La simbología estándar sí
 es obligatoria —inventar una matriz propia recrea el problema de los glifos—,
 pero **renderizar el símbolo no tiene por qué hacerlo Quipu**. El trabajo de
@@ -287,9 +317,17 @@ falte el número, sino porque no hay estructura que un señuelo pueda respetar.
 ## Lo que este documento no cubre
 
 `quipu-cnsa` (perfil CNSA 2.0) espera una cotización de laboratorio: es una
-gestión, no código. Lo que sí es código —y no está decidido— es si ese perfil se
-queda en cifrado simétrico o crece a firma y KEM: hoy implementa AES-256-GCM y
-HKDF-SHA-384, y su README declara que ML-DSA-87 y ML-KEM-1024 no están.
+gestión, no código.
+
+Lo que sí era código —«¿se queda en cifrado simétrico o crece a firma y KEM?»—
+**está decidido y hecho desde el 2026-07-31**: el perfil añadió `firma`
+(ML-DSA-87) y `destinatario` (ML-KEM-1024), y van **puros**, no híbridos, que es
+lo que distingue a esta hermana de `quipu`. Con eso quedan cubiertas cuatro de
+las cinco funciones de CNSA 2.0. Su README ya no dice que falten.
+
+La línea que sigue sin cruzarse, y está escrita en ese README: implementar los
+algoritmos **no** es estar validado FIPS 140-3. Eso lo certifica un laboratorio
+acreditado y no está en el plan.
 
 El modelo de tres ramas está descrito en [`RAMAS.md`](RAMAS.md) y **ya no está
 pendiente**: `estable`, `testing` y `desarrollo` existen, y las dos primeras
