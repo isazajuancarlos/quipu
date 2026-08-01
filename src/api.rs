@@ -34,7 +34,21 @@ const CIPHER_SUBKEY_INFO: &[u8] = b"quipu/v1/cipher";
 pub struct Options<'a> {
     /// Secreto que vive fuera del dato (código/HSM/env). `b""` si no se usa.
     pub pepper: &'a [u8],
-    /// Coste Argon2id (dificultad ajustable).
+    /// Coste Argon2id.
+    ///
+    /// **Use uno de [`KdfParams::canonicos`]** —`LIGERO`, `EQUILIBRADO` (el
+    /// defecto) o `FUERTE`— salvo que tenga un motivo concreto para no hacerlo.
+    ///
+    /// No es una recomendación de rendimiento: estos tres valores **viajan en
+    /// claro en la cabecera** y son idénticos entre todos los contenedores que
+    /// usted escriba. Ajustados a mano son **una huella de su configuración**
+    /// que agrupa sus archivos en un corpus de procedencia mezclada; en la
+    /// escalera, se ve igual que todo el mundo. Medido y declarado en N9 de
+    /// `docs/THREAT_MODEL.md`.
+    ///
+    /// Se acepta cualquier valor sensato: quien tenga una razón real —un
+    /// dispositivo con poca memoria, una política que exija otro coste— no
+    /// puede quedarse sin camino. Lo que se hace es decirlo.
     pub kdf_params: KdfParams,
     /// **RESERVADO Y OBSOLETO. Déjelo en 0.**
     ///

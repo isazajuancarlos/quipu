@@ -353,15 +353,26 @@ the operation, a local physical side channel, or control of the binary/OS.
     difficulty", `codebook_id` as a public "informational" field. Anyone whose
     threat model includes a seized or leaked corpus of mixed provenance should
     stay on the defaults, where the fields are a world constant.
-  - **If this ever becomes a goal**, the path is not encryption — the symmetric
-    mode needs the KDF parameters *before* it can derive the key that would
-    decrypt them. It is (a) **canonical KDF profiles**: one byte selecting from a
-    public ladder instead of 12 bytes of arbitrary configuration, the same shape
-    as `negacion::tamano_canonico`; and (b) a **keyed codebook fingerprint**
-    (`HMAC(master_key, alphabet)` instead of truncated SHA-256), which kills both
-    the invertibility and the linkability of those 8 bytes at the cost of paying
-    one Argon2id before "wrong alphabet" can be reported. Both break the format,
-    so they belong to the next format break, together.
+  - **Half of this is now DONE, and it did not need a format break** (2026-08-01).
+    `KdfParams` gained a **canonical ladder** — `LIGERO`, `EQUILIBRADO` (the
+    default, byte-identical to what it always was) and `FUERTE`. The 12 bytes
+    stay in the header; what changes is that they now carry a choice among three
+    values instead of arbitrary configuration, so everyone on the same rung looks
+    the same. Same shape as `negacion::tamano_canonico`, and for the same reason:
+    what protects is not each person choosing well but **everyone choosing among
+    the same few values**. It is not imposed — a device with little memory keeps
+    its path — but `Options::kdf_params` now says where the fingerprint lives.
+    The framing that delayed this was wrong: it was filed under "next format
+    break", and it never needed one. Restricting what the library *writes* was
+    enough.
+  - **The other half still needs a format version**, and that is not a break
+    either: a **keyed codebook fingerprint** (`HMAC(master_key, alphabet)`
+    instead of truncated SHA-256) kills both the invertibility and the
+    linkability of those 8 bytes, at the cost of paying one Argon2id before
+    "wrong alphabet" can be reported. The header carries a version byte and
+    `parse` rejects unknown versions cleanly, so a v2 container is refused by a
+    v1 decoder with a clear error rather than misread, a v2 decoder reads both,
+    and **old data stays readable for ever**.
 - **N8. Key commitment / partitioning oracles** (added 2026-08-01, after an
   independent review). XChaCha20-Poly1305 is **not key-committing**: a ciphertext
   that validates under two distinct keys is constructible (Len–Grubbs–Ristenpart,
