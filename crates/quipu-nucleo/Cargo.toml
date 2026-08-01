@@ -13,6 +13,11 @@ homepage = "https://github.com/isazajuancarlos/quipu"
 documentation = "https://docs.rs/quipu-nucleo"
 
 [dependencies]
+# Padmé, extraído a crate propio y PERMISIVO (MIT OR Apache-2.0) el 2026-08-01.
+# La extracción a `quipu-nucleo` ya había pasado y no servía de nada: lo único
+# que hace útil a Padmé fuera de Quipu es que cualquiera pueda enlazarlo, y con
+# la AGPL de este crate nadie lo hace por un padding de 90 líneas.
+padme-frame = { version = "0.1.0", path = "../padme-frame" }
 # Aritmética de precisión arbitraria para el codec base-N.
 num-bigint = "0.5"
 # `Integer::div_rem`: cociente y resto en UNA pasada. Con `/` y `%` por separado

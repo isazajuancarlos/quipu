@@ -794,6 +794,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "padme-frame"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "password-hash"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1010,6 +1017,7 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "padme-frame",
  "proptest",
  "qrcode",
  "reed-solomon",

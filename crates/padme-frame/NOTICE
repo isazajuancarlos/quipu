@@ -1,0 +1,17 @@
+padme-frame
+Copyright 2026 Juan Carlos Isaza Arenas
+
+Este producto incluye software desarrollado por Juan Carlos Isaza Arenas.
+
+El esquema de padding que implementa —Padmé— se describe en:
+
+  Kirill Nikitin, Ludovic Barman, Wouter Lueks, Matthew Underwood,
+  Jean-Pierre Hubaux, Bryan Ford.
+  "Reducing Metadata Leakage from Encrypted Files and Communication with PURBs".
+  Proceedings on Privacy Enhancing Technologies (PoPETs), 2019(4).
+
+Esta implementación es original y no deriva del código de los autores del
+artículo. La atribución es al ESQUEMA, no al código.
+
+Extraído de `quipu-nucleo` (AGPL-3.0-or-later) y relicenciado por su autor, que
+es el mismo. No incorpora código de terceros.
