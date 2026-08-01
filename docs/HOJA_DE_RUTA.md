@@ -129,8 +129,38 @@ Tres capas en cascada: QR con *Structured Append* por defecto, Base32 con
 Reed-Solomon como respaldo tecleable, y nada de discreción hasta medirla.
 `ecc` se conservó justo para la capa de respaldo.
 
-**Medición pendiente antes de elegir:** degradar como degrada una fotocopiadora
-y comparar a igual área de papel. Nunca se hizo, y es el dato que decide.
+**MEDIDO el 2026-07-31** (`src/lab/papel.rs`, `cargo run --release --example
+papel --features lab`). Hoja de 240×240 puntos para todos, la MISMA corrección de
+errores para todos, y los dos portadores emparejados por **rasgo mínimo**, que es
+la variable que domina el canal.
+
+Bytes de secreto entregados **íntegros** (≥95 % de 40 intentos), paridad 15 %:
+
+| Degradación | Mejor portador | Bytes |
+|---|---|---|
+| copia limpia | matriz, módulo 1 | **6 083** |
+| 1ª y 3ª copia | matriz, módulo 3 | **651** |
+| fax / copia sucia | matriz, módulo 6 | **147** |
+| raya de tóner | matriz, módulo 4 | **359** |
+
+**La matriz gana en TODAS las columnas.** A igual rasgo mínimo lleva entre 10× y
+23× más que el texto (6 083 vs 621 con rasgo 1; 651 vs 28 con rasgo 3), y cuando
+hace falta robustez sale más barato **engordar el módulo** que pasarse a glifos:
+un glifo gasta 48·s² puntos para llevar 5 bits, un módulo gasta s² para llevar 1.
+Esa diferencia de 9,6× es un impuesto que ningún aumento de robustez compensa.
+
+Puesto en la escala que importa: **una estampilla de 240×240 puntos con módulos
+de 6 puntos entrega 147 B a través de un fax sucio**, y una clave de Quipu son 32.
+
+**Consecuencia para el diseño: la capa Base32 NO se justifica por robustez.** Se
+justifica solo por otra propiedad, que esta medición no toca — que un humano
+pueda **teclearla sin escáner**. Si esa propiedad no se quiere, la capa sobra.
+
+Y una advertencia sobre la propia medición, porque estuvo a punto de decir lo
+contrario: con el barrido cortado en módulo 4 el texto parecía ganar en «fax»
+(28 B contra 0). Ganaba solo porque no se había probado el módulo que también lo
+aguanta. Ver `src/lab/papel.rs` para el modelo, sus tres límites declarados y sus
+casos rojos.
 
 ### 7. Cifrado con negación
 

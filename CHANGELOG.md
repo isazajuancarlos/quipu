@@ -20,6 +20,23 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   entenderlo: **protege contra la PRUEBA, no contra la SOSPECHA**, y quien guarde
   versiones sucesivas del mismo contenedor pierde la negación.
 
+- **`lab::papel` — la medición que decide el portador de papel** (hoja de ruta §6),
+  pendiente desde que se eliminaron los glifos. Hoja de área fija, la MISMA
+  corrección de errores para los dos portadores, y emparejados por **rasgo
+  mínimo**, que es la variable que domina el canal de la fotocopia.
+
+  **Gana la matriz en todas las degradaciones.** A igual rasgo lleva entre 10× y
+  23× más que el texto Base32, y engordar el módulo compra robustez más barato
+  que pasarse a glifos: un glifo gasta 48·s² puntos para llevar 5 bits, un módulo
+  s² para llevar 1. Una estampilla de 240×240 puntos con módulos de 6 entrega
+  147 B a través de un fax sucio; una clave de Quipu son 32.
+
+  Consecuencia: **la capa Base32 no se justifica por robustez**, solo por que un
+  humano pueda teclearla sin escáner. Y dos avisos que la propia medición se ganó:
+  la primera tabla comparaba un portador de trazo 1 contra uno de trazo 3 (medía
+  el grosor, no el sustrato), y con el barrido cortado en módulo 4 la conclusión
+  salía **invertida**.
+
 - **`lab::distinguidor::posicion_mas_delatora`**, la sonda posicional. Nació de un
   caso rojo que falló: `entrenar_y_evaluar` **no vio un mágico `QUIP` de 4 bytes**
   estampado a mano en un contenedor de 1024 (53 % de acierto), porque sus doce
