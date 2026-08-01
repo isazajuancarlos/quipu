@@ -66,6 +66,13 @@ jobs:
         run: cargo clippy --features honey --all-targets -- -D warnings
       - name: Clippy (escrow)
         run: cargo clippy --features escrow --all-targets -- -D warnings
+      # La matriz automática de features solo recorre las del crate RAÍZ, así que
+      # `qr` —que vive en `quipu-nucleo`— no la cubre ninguna otra línea. Sin
+      # esto, la feature se rompería sin que nadie se enterara.
+      - name: Tests (qr — símbolo de papel, ida y vuelta con un decoder ajeno)
+        run: cargo test -p quipu-nucleo --features qr
+      - name: Clippy (qr, deny warnings)
+        run: cargo clippy -p quipu-nucleo --features qr --all-targets -- -D warnings
       - name: Tests (negacion — contenedor con señuelo y volumen oculto)
         run: cargo test --features negacion --all-targets
       - name: Clippy (negacion, deny warnings)
