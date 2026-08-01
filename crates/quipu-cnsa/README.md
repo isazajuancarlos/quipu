@@ -118,8 +118,14 @@ un archivo de estado que corromper y sincronizar entre procesos.
 
 ## Lo que todavía NO cubre
 
-**El modo streaming** y los enlaces para otros lenguajes. Llegan sobre el mismo
-núcleo.
+**El modo streaming**, sobre el mismo núcleo.
+
+Esta frase decía también «y los enlaces para otros lenguajes», y eso no era una
+carencia: era una promesa que contradice una decisión ya tomada. Node, Go y la
+C ABI se retiraron en julio de 2026 y Quipu tiene **un solo binding, Python**
+(ver `docs/HOJA_DE_RUTA.md`). Prometer los que se quitaron es el defecto exacto
+que ya cometió el README de `quipu` — anunciaba Node/Go/C-ABI meses después de
+eliminarlos.
 
 La firma (`firma`, ML-DSA-87) y el canal de destinatario (`destinatario`,
 ML-KEM-1024) **ya están** desde el 2026-07-31; esta sección los listaba como
