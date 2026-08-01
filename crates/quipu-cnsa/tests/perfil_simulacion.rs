@@ -210,20 +210,39 @@ fn cien_mensajes_abren_con_su_clave_y_con_ninguna_otra() {
     );
 }
 
-/// El mismo mensaje cifrado cien veces tiene que dar cien blobs distintos. Si
-/// se repitieran, el canal filtraría que dos mensajes son iguales — y con
-/// AES-GCM un nonce repetido es una rotura, no una molestia.
+/// El mismo mensaje cifrado cien veces: ni un blob repetido, **ni un nonce**.
+///
+/// LA SEGUNDA MITAD NO ESTABA, y este banco decía en su comentario que vigilaba
+/// justo eso. Solo miraba el blob entero, y con el nonce FIJADO A CEROS seguía
+/// verde: el ciphertext de ML-KEM es aleatorio, así que los blobs difieren igual
+/// y el `HashSet` no ve nada. Lo halló una auditoría independiente.
+///
+/// Encuadre honesto de lo que se juega: en ESTE diseño repetir el nonce no rompe
+/// nada, porque la clave de contenido se deriva de cada encapsulación y nunca se
+/// reutiliza. Pero el banco AFIRMABA vigilar la unicidad del nonce; si mañana la
+/// derivación se volviera determinista por destinatario, nada lo cazaría. Una
+/// afirmación sin su medición es la que se descubre tarde.
 #[test]
-fn cien_cifrados_del_mismo_mensaje_no_se_repiten() {
+fn cien_cifrados_del_mismo_mensaje_no_repiten_ni_blob_ni_nonce() {
     let (pk, _sk) = destinatario::generar_par().expect("entropía");
     let mensaje = b"identico cada vez, a proposito";
-    let mut vistos = std::collections::HashSet::new();
+    let mut blobs = std::collections::HashSet::new();
+    let mut nonces = std::collections::HashSet::new();
 
     for i in 0..OPERACIONES {
         let blob = destinatario::cifrar_para(&pk, mensaje).expect("entropía");
-        assert!(vistos.insert(blob), "el cifrado {i} repitió un blob anterior");
+        // El nonce de AES-GCM va justo detrás de la encapsulación.
+        let ini = destinatario::ENCAPSULATION_LEN;
+        let nonce = blob[ini..ini + 12].to_vec();
+        assert!(
+            nonces.insert(nonce),
+            "el cifrado {i} REPITIÓ EL NONCE de AES-GCM: con la misma clave eso \
+             es una rotura, no una molestia"
+        );
+        assert!(blobs.insert(blob), "el cifrado {i} repitió un blob anterior");
     }
-    assert_eq!(vistos.len(), OPERACIONES);
+    assert_eq!(blobs.len(), OPERACIONES);
+    assert_eq!(nonces.len(), OPERACIONES);
 }
 
 #[test]
@@ -318,9 +337,18 @@ fn bajo_concurrencia_no_se_cruzan_las_claves() {
         match rx.recv_timeout(PLAZO) {
             Ok(Ok(n)) => total += n,
             Ok(Err(e)) => panic!("{e}"),
-            Err(_) => panic!(
-                "PLAZO AGOTADO ({PLAZO:?}): un hilo no contestó. Sin este plazo \
-                 el interbloqueo se vería como una compilación lenta."
+            // Se distinguen las DOS causas. Un hilo que entra en pánico suelta su
+            // clon de `tx` al desenrollar y el canal queda `Disconnected` en
+            // menos de un milisegundo: la prueba se pone roja igual, pero decir
+            // «PLAZO AGOTADO (120s)» de algo instantáneo manda a depurar un
+            // interbloqueo que no existe.
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!(
+                "PLAZO AGOTADO ({PLAZO:?}): un hilo no contestó a tiempo. Sin este \
+                 plazo, un interbloqueo se vería como una compilación lenta."
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!(
+                "un hilo MURIÓ sin contestar (canal desconectado). No es un plazo \
+                 agotado: mira el pánico del hilo más arriba en la salida."
             ),
         }
     }

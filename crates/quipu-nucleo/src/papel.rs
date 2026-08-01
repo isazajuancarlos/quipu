@@ -396,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn perder_mas_de_la_cota_ya_no_se_recupera() {
+    fn la_cota_de_perdida_no_es_vacua_y_no_promete_de_mas() {
         // La otra dirección, que es la que convierte la cota en cota. Sin esto,
         // «tolera N» sería una frase sin nada detrás: un formato que se
         // recuperara siempre haría pasar la prueba de arriba sin significar nada.
@@ -406,20 +406,41 @@ mod tests {
         let total = trozos.len();
         let tolerados = simbolos_perdidos_tolerados(total, paridad);
 
-        // Se van quitando símbolos hasta que deje de recuperarse, y se exige que
-        // ese punto llegue — no muy lejos de la cota, pero llegue.
+        // ESTE BANCO ERA UNA TAUTOLOGÍA, y lo halló una auditoría independiente.
+        // El bucle llegaba hasta `total`, y en esa última vuelta `trozos[total..]`
+        // es VACÍO —que cuenta como rotura—, así que `rompe_en` siempre era
+        // `Some` y `rompe_en > tolerados` era cierto por construcción del rango.
+        // Comprobado: con la cota inflada a `total/2` —la mentira histórica
+        // exacta, prometer 50 aguantando 5— este banco seguía VERDE.
+        //
+        // Y AL DESHACER LA TAUTOLOGÍA APARECIÓ OTRA COSA, que es lo que enseña
+        // este arreglo. La primera versión estricta exigía que perder UNO MÁS
+        // fallara, y falló ella: con 67 símbolos la cota promete 5 y el formato
+        // aguanta 6. `simbolos_perdidos_tolerados` es una COTA INFERIOR —«se
+        // pueden perder al menos tantos»—, no un techo exacto, y exigir que sea
+        // ajustada era exigirle algo que nunca prometió. Prometer de menos es
+        // seguro; prometer de más es lo que mata.
+        //
+        // Lo que sí hay que afirmar, y no es tautológico: que la cota no sea
+        // VACUA — que exista un nivel de pérdida REAL (no el conjunto vacío) que
+        // la rompa, y que esté por encima de la cota.
         let mut rompe_en = None;
-        for perdidos in (tolerados + 1)..=total {
+        for perdidos in (tolerados + 1)..total {
             let quedan: Vec<Vec<u8>> = trozos[perdidos..].to_vec();
-            if quedan.is_empty() || reensamblar(&quedan).is_err() {
+            debug_assert!(!quedan.is_empty(), "el rango excluye el caso vacío");
+            if reensamblar(&quedan).is_err() {
                 rompe_en = Some(perdidos);
                 break;
             }
         }
-        let rompe_en = rompe_en.expect("perder símbolos tiene que romperlo en algún punto");
+        let rompe_en = rompe_en.expect(
+            "perdiendo hasta total-1 símbolos NUNCA falló: o el formato es mágico \
+             o el banco no está midiendo la pérdida",
+        );
         assert!(
             rompe_en > tolerados,
-            "rompió en {rompe_en}, antes de la cota de {tolerados}: la cota MIENTE"
+            "rompió en {rompe_en}, que no supera la cota de {tolerados}: la cota \
+             MIENTE por exceso, que es la dirección peligrosa"
         );
     }
 
@@ -813,6 +834,14 @@ pub mod tecleable {
         Vacio,
         /// El marco protegido no pudo deshacerse.
         NoSeRecupera,
+        /// La paridad pedida pasa de [`crate::ecc::PARIDAD_MAXIMA`]. Se rechaza,
+        /// no se recorta: ver el porqué en [`escribir`].
+        ParidadExcesiva {
+            /// La que se pidió.
+            dada: u8,
+            /// La mayor que se acepta.
+            maxima: u8,
+        },
     }
 
     impl core::fmt::Display for TecleableError {
@@ -838,6 +867,12 @@ pub mod tecleable {
                 Self::NoSeRecupera => {
                     write!(f, "el marco protegido tiene más errores de los que corrige")
                 }
+                Self::ParidadExcesiva { dada, maxima } => write!(
+                    f,
+                    "la paridad pedida ({dada}) pasa del máximo de {maxima}: se rechaza \
+                     en vez de recortarla, para que quien imprime el papel sepa que no \
+                     lleva la protección que pidió"
+                ),
             }
         }
     }
@@ -865,9 +900,24 @@ pub mod tecleable {
     }
 
     /// Escribe el bloque para teclear: mayúsculas, en grupos y en líneas.
-    pub fn escribir(datos: &[u8], marco: Marco) -> String {
+    ///
+    /// **Rechaza** una paridad por encima de [`crate::ecc::PARIDAD_MAXIMA`] en
+    /// vez de recortarla. Devolvía `String` y dejaba que `ecc::protect`
+    /// recortara en silencio, mientras `papel::empaquetar` —la función hermana,
+    /// mismo parámetro, misma capa— sí rechazaba. La asimetría no tenía
+    /// justificación: quien imprime un papel tiene que enterarse de que no va a
+    /// llevar la protección que pidió, entre en esta puerta o en la otra.
+    ///
+    /// Con `Marco::Desnudo` no puede fallar nunca.
+    pub fn escribir(datos: &[u8], marco: Marco) -> Result<String, TecleableError> {
         let flujo = match marco {
             Marco::Desnudo => datos.to_vec(),
+            Marco::Protegido { paridad } if paridad > ecc::PARIDAD_MAXIMA => {
+                return Err(TecleableError::ParidadExcesiva {
+                    dada: paridad,
+                    maxima: ecc::PARIDAD_MAXIMA,
+                });
+            }
             Marco::Protegido { paridad } => ecc::protect(datos, paridad),
         };
         let simbolos = a_cinco_bits(&flujo);
@@ -887,7 +937,7 @@ pub mod tecleable {
                 None => RELLENO,
             });
         }
-        s
+        Ok(s)
     }
 
     /// Lee lo que [`escribir`] produjo, tolerando cómo escribe la gente.
@@ -1113,6 +1163,16 @@ pub mod palabras {
         SumaDeVerificacion,
         /// No había ninguna palabra.
         Vacio,
+        /// La lista embebida no tiene las 2 048 palabras: está corrupta.
+        ///
+        /// No debería ocurrir nunca —el archivo va en el binario y una prueba
+        /// comprueba su SHA-256 contra el canónico—, y por eso mismo se devuelve
+        /// como error en vez de entrar en pánico: si llegara a pasar, quien lo
+        /// sufre es quien intenta guardar una clave.
+        ListaCorrupta {
+            /// El índice que no existía.
+            indice: usize,
+        },
     }
 
     impl core::fmt::Display for PalabrasError {
@@ -1152,6 +1212,11 @@ pub mod palabras {
                      o en otro orden — el secreto NO se devuelve a medias"
                 ),
                 Self::Vacio => write!(f, "no había ninguna palabra"),
+                Self::ListaCorrupta { indice } => write!(
+                    f,
+                    "la lista de palabras embebida no tiene el índice {indice}: \
+                     está corrupta y nada de lo que se escriba será legible"
+                ),
             }
         }
     }
@@ -1205,7 +1270,16 @@ pub mod palabras {
             if p > 0 {
                 frase.push(' ');
             }
-            frase.push_str(lista()[idx as usize]);
+            // `.get` y no `[]`: `idx` son 11 bits, así que es < 2048 SIEMPRE —
+            // mientras la lista tenga 2048 palabras. Lo que hoy lo sostiene es
+            // una PRUEBA (`la_lista_es_la_canonica`), no el tipo; si alguien
+            // tocara el archivo de la lista, esto entraría en pánico en vez de
+            // fallar. Directiva 6: mejor código que lo impide que prueba que
+            // lo caza.
+            let palabra = lista()
+                .get(idx as usize)
+                .ok_or(PalabrasError::ListaCorrupta { indice: idx as usize })?;
+            frase.push_str(palabra);
         }
         Ok(frase)
     }
@@ -1331,7 +1405,7 @@ mod pruebas_tecleable {
             ("foobar", "MZXW6YTBOI======"),
         ] {
             assert_eq!(
-                apretado(&escribir(claro.as_bytes(), Marco::Desnudo)),
+                apretado(&escribir(claro.as_bytes(), Marco::Desnudo).unwrap()),
                 esperado,
                 "«{claro}» no coincide con el vector de la RFC 4648"
             );
@@ -1342,7 +1416,7 @@ mod pruebas_tecleable {
     fn el_desnudo_va_y_vuelve() {
         for n in [1usize, 5, 32, 64, 200] {
             let d: Vec<u8> = (0..n).map(|i| (i * 53 + 3) as u8).collect();
-            let t = escribir(&d, Marco::Desnudo);
+            let t = escribir(&d, Marco::Desnudo).unwrap();
             assert_eq!(leer(&t, Marco::Desnudo).unwrap(), d, "falló con {n} bytes");
         }
     }
@@ -1351,7 +1425,7 @@ mod pruebas_tecleable {
     fn el_protegido_va_y_vuelve() {
         let d: Vec<u8> = (0..64u16).map(|i| (i * 7) as u8).collect();
         let m = Marco::Protegido { paridad: 32 };
-        let t = escribir(&d, m);
+        let t = escribir(&d, m).unwrap();
         assert_eq!(leer(&t, m).unwrap(), d);
     }
 
@@ -1362,7 +1436,7 @@ mod pruebas_tecleable {
         let d: Vec<u8> = (0..48u16).map(|i| (i * 11 + 5) as u8).collect();
         let m = Marco::Protegido { paridad: 32 };
 
-        let mut t: Vec<char> = escribir(&d, m).chars().collect();
+        let mut t: Vec<char> = escribir(&d, m).unwrap().chars().collect();
         let pos = t.iter().position(|c| c.is_ascii_alphanumeric()).unwrap() + 7;
         t[pos] = if t[pos] == 'A' { 'B' } else { 'A' };
         let roto: String = t.into_iter().collect();
@@ -1372,7 +1446,7 @@ mod pruebas_tecleable {
             "el marco protegido tiene que absorber un carácter mal tecleado"
         );
 
-        let mut t: Vec<char> = escribir(&d, Marco::Desnudo).chars().collect();
+        let mut t: Vec<char> = escribir(&d, Marco::Desnudo).unwrap().chars().collect();
         t[pos] = if t[pos] == 'A' { 'B' } else { 'A' };
         let roto: String = t.into_iter().collect();
         assert_ne!(
@@ -1386,20 +1460,20 @@ mod pruebas_tecleable {
     fn los_dos_marcos_no_producen_el_mismo_texto() {
         let d = b"una clave cualquiera";
         assert_ne!(
-            escribir(d, Marco::Desnudo),
-            escribir(d, Marco::Protegido { paridad: 32 })
+            escribir(d, Marco::Desnudo).unwrap(),
+            escribir(d, Marco::Protegido { paridad: 32 }).unwrap()
         );
         // Y el desnudo es MÁS CORTO, porque no lleva paridad ni cabecera.
         assert!(
-            apretado(&escribir(d, Marco::Desnudo)).len()
-                < apretado(&escribir(d, Marco::Protegido { paridad: 32 })).len()
+            apretado(&escribir(d, Marco::Desnudo).unwrap()).len()
+                < apretado(&escribir(d, Marco::Protegido { paridad: 32 }).unwrap()).len()
         );
     }
 
     #[test]
     fn se_tolera_como_escribe_la_gente() {
         let d = b"secreto";
-        let t = escribir(d, Marco::Desnudo);
+        let t = escribir(d, Marco::Desnudo).unwrap();
         let maltratado = format!("  {}  ", apretado(&t).to_lowercase())
             .chars()
             .enumerate()
@@ -1412,7 +1486,7 @@ mod pruebas_tecleable {
     fn el_cero_se_corrige_porque_es_inequivoco() {
         // El `0` no está en el alfabeto y la `O` sí: no hay nada que adivinar.
         let d = b"hola";
-        let t = apretado(&escribir(d, Marco::Desnudo)).replace('O', "0");
+        let t = apretado(&escribir(d, Marco::Desnudo).unwrap()).replace('O', "0");
         assert_eq!(leer(&t, Marco::Desnudo).unwrap(), d.to_vec());
     }
 
