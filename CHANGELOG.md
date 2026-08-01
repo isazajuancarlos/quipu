@@ -6,6 +6,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **`#![forbid(unsafe_code)]` en los CINCO crates, no en uno.** Estaba solo en
+  `quipu-cnsa`; `quipu`, `quipu-nucleo`, `quipu-voprf` y el servidor OPRF tenían
+  cero `unsafe` **hoy** y nada que lo impidiera **mañana**.
+
+  Es la diferencia entre una propiedad medida y una garantizada, y el `CLAUDE.md`
+  la difuminaba sin querer: «la única aparición en el árbol es un
+  `forbid(unsafe_code)`» es literalmente cierto y se lee como si el árbol entero
+  estuviera protegido.
+
+  Nota para quien lo herede: se probó primero con
+  `cfg_attr(not(feature = "python"), ...)` suponiendo que las 28 macros de PyO3
+  generarían `unsafe` en el crate. **No lo hacen** — el `forbid` incondicional
+  compila también con `--features python`—, así que el condicional se quitó. Un
+  mecanismo que sobra engaña sobre por qué está.
+
 ### Added
 - **`papel::tecleable` — la capa que un humano copia sin ninguna máquina, con el
   marco Reed-Solomon OPCIONAL.** Es la condición que hace válida la única razón
