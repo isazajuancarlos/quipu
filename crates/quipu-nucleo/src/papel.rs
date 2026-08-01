@@ -272,6 +272,37 @@ pub fn reensamblar(trozos: &[Vec<u8>]) -> Result<Vec<u8>, PapelError> {
         return Err(PapelError::TrozosIncoherentes);
     }
 
+    // EL `largo` LO ESCRIBE QUIEN HACE LA HOJA, y esta es la capa más externa:
+    // lo que llega es un papel fotografiado, que puede haber fabricado un
+    // tercero. Sin esta cota, NUEVE bytes —`[ver|0|1|0xFFFFFFFF]`— reservaban
+    // 4 GiB, medido: `VmPeak` de 3 a 4 099 MiB. Y no bastaba con que `ecc`
+    // tenga su propio anti-DoS, porque su comprobación es `data_len >
+    // protected.len()` y `protected` ES este buffer inflado: la cota quedaba
+    // satisfecha por construcción y `recover` pedía otros 4 GiB, esta vez
+    // llenándolos byte a byte.
+    //
+    // LA COTA ES EXACTA, no un número prudente. Con el intercalado, el símbolo
+    // `j` lleva las posiciones `j, j+total, j+2·total…`, así que el que más
+    // lleva —el 0— tiene `ceil(largo/total)` bytes. Si el 0 se perdió, el mayor
+    // que quede tiene al menos `floor(largo/total)`. De ahí:
+    //
+    //     largo <= total · (mayor_carga_vista + 1)
+    //
+    // El `+1` cubre la división no exacta. No rechaza ninguna hoja legítima —ni
+    // siquiera una a la que le falten los símbolos largos— y ata el buffer a los
+    // bytes que DE VERDAD llegaron. Además, un `largo` muy por encima de lo
+    // aportado no se podría recuperar de todos modos: el presupuesto de paridad
+    // no da.
+    let mayor_carga = trozos
+        .iter()
+        .map(|t| t.len().saturating_sub(CABECERA))
+        .max()
+        .unwrap_or(0);
+    let techo = c0.total.saturating_mul(mayor_carga.saturating_add(1));
+    if c0.largo > techo {
+        return Err(PapelError::TrozosIncoherentes);
+    }
+
     let mut flujo = vec![0u8; c0.largo];
     let mut vistos = vec![false; c0.total];
     for t in trozos {
@@ -288,7 +319,14 @@ pub fn reensamblar(trozos: &[Vec<u8>]) -> Result<Vec<u8>, PapelError> {
         }
         vistos[c.indice] = true;
         for (k, b) in t[CABECERA..].iter().enumerate() {
-            let pos = c.indice + k * c0.total;
+            // `checked_mul` y no `*`: en un target de 32 bits —un lector de QR
+            // en un móvil es el consumidor natural de esto— `k * total` desborda
+            // con una carga de unos 64 KiB. En debug sería pánico; en release,
+            // un `pos` envuelto que además PASA la comprobación de abajo y
+            // escribe un byte en el sitio equivocado. Aquí se corta.
+            let Some(pos) = k.checked_mul(c0.total).and_then(|d| c.indice.checked_add(d)) else {
+                break;
+            };
             if pos >= flujo.len() {
                 // Sobra relleno del símbolo: no es un error, es el último trozo
                 // de una división que no fue exacta.
