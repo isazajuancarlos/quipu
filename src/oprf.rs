@@ -13,6 +13,13 @@
 //! El output OPRF alimenta luego al KDF (p. ej. como pepper), convirtiendo el
 //! fuerza bruta OFFLINE (intentos ilimitados) en ONLINE (limitado por servidor).
 
+// USO INTERNO DE LO OBSOLETO: este módulo ES la superficie marcada, o su
+// transporte. Silenciarlo AQUÍ y solo aquí es lo que deja el aviso vivo
+// para quien lo importe desde fuera, que es el único a quien va dirigido.
+// Sin esto, `clippy -D warnings` rompería el CI por avisos que no son
+// para nosotros.
+#![allow(deprecated)]
+
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::{RistrettoPoint, Scalar};
 use sha2::{Digest, Sha256, Sha512};
@@ -26,12 +33,20 @@ fn random_scalar() -> Scalar {
 }
 
 /// Servidor OPRF: guarda la clave secreta y limita el nº de evaluaciones.
+#[deprecated(
+    since = "0.10.1",
+    note = "OPRF sin prueba DLEQ: el cliente no detecta un servidor deshonesto (T4). Use `quipu::voprf`, conforme a la RFC 9497."
+)]
 pub struct Server {
     key: Scalar,
     remaining: u32,
 }
 
 /// Estado del cliente entre el cegado y la finalización.
+#[deprecated(
+    since = "0.10.1",
+    note = "OPRF sin prueba DLEQ: el cliente no detecta un servidor deshonesto (T4). Use `quipu::voprf`, conforme a la RFC 9497."
+)]
 pub struct BlindState {
     r_inv: Scalar,
 }
@@ -80,6 +95,10 @@ impl Server {
 }
 
 /// Ciega la `password`: produce el estado y el punto cegado a enviar al servidor.
+#[deprecated(
+    since = "0.10.1",
+    note = "OPRF sin prueba DLEQ: el cliente no detecta un servidor deshonesto (T4). Use `quipu::voprf`, conforme a la RFC 9497."
+)]
 pub fn blind(password: &[u8]) -> (BlindState, [u8; 32]) {
     let h = RistrettoPoint::hash_from_bytes::<Sha512>(password);
     let r = random_scalar();
@@ -91,6 +110,10 @@ pub fn blind(password: &[u8]) -> (BlindState, [u8; 32]) {
 }
 
 /// Finaliza: combina la respuesta del servidor para obtener PRF_k(password).
+#[deprecated(
+    since = "0.10.1",
+    note = "OPRF sin prueba DLEQ: el cliente no detecta un servidor deshonesto (T4). Use `quipu::voprf`, conforme a la RFC 9497."
+)]
 pub fn finalize(password: &[u8], state: &BlindState, evaluated: &[u8; 32]) -> Option<[u8; 32]> {
     let ev = CompressedRistretto::from_slice(evaluated)
         .ok()?
@@ -107,6 +130,9 @@ pub fn finalize(password: &[u8], state: &BlindState, evaluated: &[u8; 32]) -> Op
 }
 
 #[cfg(test)]
+// El arnés de `#[test]` genera código que referencia estos ítems desde
+// FUERA del `allow` del módulo, así que hace falta aquí también.
+#[allow(deprecated)]
 mod tests {
     use super::*;
 
