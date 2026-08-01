@@ -8,9 +8,20 @@ SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 Perfil de [Quipu](https://github.com/isazajuancarlos/quipu) alineado con los
 algoritmos de **CNSA 2.0** que cubre: AES-256-GCM y HKDF-SHA-384.
 
-**Alcance: solo cifrado simétrico.** No hay firma ni establecimiento de clave, así
-que ML-DSA-87 y ML-KEM-1024 —que CNSA 2.0 exige para esas dos funciones— no están
-aquí todavía. `quipu` sí los tiene; ver «Lo que todavía no cubre».
+**Alcance desde el 2026-07-31: cifrado simétrico, FIRMA y CANAL DE
+DESTINATARIO.** Se añadieron **ML-DSA-87** (módulo `firma`) y **ML-KEM-1024**
+(módulo `destinatario`), que son los dos algoritmos que CNSA 2.0 exige para esas
+funciones.
+
+**Y van PUROS, no híbridos — eso es MÁS DÉBIL que `quipu`.** Aquel firma
+Ed25519 **y** ML-DSA-87, y encapsula X25519 **y** ML-KEM-1024, de modo que
+romperlo exige romper las dos familias. Aquí no hay socio clásico: si el
+algoritmo de retículos cae, no queda nada sujetando. Es lo que dice el mandato,
+que no pide híbrido — y es la razón por la que **si puedes elegir, usa `quipu`**.
+
+La asimetría que conviene ver: una firma rota se explota el día que se rompe;
+**un secreto cifrado hoy se guarda y se descifra mañana**. Contra «cosecha ahora,
+descifra después» el híbrido protege y el puro no.
 
 Hasta el 2026-07-27 el titular de este archivo y la descripción del crate
 anunciaban ML-KEM-1024, y no estaba implementado en ninguna parte: la
@@ -107,9 +118,12 @@ un archivo de estado que corromper y sincronizar entre procesos.
 
 ## Lo que todavía NO cubre
 
-**No hay firma todavía.** Este perfil solo cifra y descifra. El modo streaming,
-el canal de destinatario (ML-KEM) y los enlaces para otros lenguajes tampoco
-están. Llegan sobre el mismo núcleo.
+**El modo streaming** y los enlaces para otros lenguajes. Llegan sobre el mismo
+núcleo.
+
+La firma (`firma`, ML-DSA-87) y el canal de destinatario (`destinatario`,
+ML-KEM-1024) **ya están** desde el 2026-07-31; esta sección los listaba como
+pendientes hasta entonces.
 
 ### Sobre LMS/XMSS, con el matiz correcto
 
