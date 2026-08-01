@@ -32,6 +32,27 @@
 //! presentarse bajo otra en un protocolo que las mezcle (sustitución de clave).
 //! Es la misma defensa que usa `quipu::pqsign`, y aquí importa más porque no hay
 //! una segunda firma que discrepe.
+//!
+//! # La firma es DETERMINISTA, y conviene que esté dicho
+//!
+//! `ml-dsa` expone `raw_sign_deterministic` con contexto vacío. Es conforme a
+//! FIPS 204 y es lo que hace que dos firmas del mismo mensaje con la misma clave
+//! sean idénticas — cosa que las pruebas dan por buena.
+//!
+//! **Lo que se paga:** la variante determinista es la expuesta a **inyección de
+//! fallos**. Un adversario con acceso físico que provoque un fallo diferencial
+//! puede obtener dos firmas del mismo mensaje que difieran y, con ellas, extraer
+//! clave. Por eso FIPS 204 ofrece también la variante *hedged*, que mezcla
+//! aleatoriedad fresca.
+//!
+//! **Por qué se acepta aquí:** la inyección de fallos exige acceso físico al
+//! dispositivo que firma, que es la clase de adversario que el modelo de amenaza
+//! de Quipu deja fuera (ver `docs/THREAT_MODEL.md`). Si algún día este perfil se
+//! usa en una tarjeta o un HSM al alcance de quien lo ataca, **hay que pasar a
+//! la variante hedged** — y esta nota es el sitio donde mirarlo.
+//!
+//! Estaba sin escribir hasta el 2026-08-01: el módulo razonaba con detalle por
+//! qué es puro y no híbrido, y no decía una palabra de esto.
 
 use ml_dsa::signature::{Keypair as _, Signer as _, Verifier as _};
 use ml_dsa::{
@@ -110,15 +131,34 @@ impl SigningKey {
         }
     }
 
+    /// La semilla de 32 bytes, para poder guardarla.
+    ///
+    /// SIN ESTO, UNA CLAVE GENERADA POR LA LIBRERÍA NO SE PODÍA PERSISTIR:
+    /// existía `desde_semilla` y no su inversa, así que el único camino práctico
+    /// era que el usuario sorteara sus propios 32 bytes y los importara —
+    /// esquivando el manejo de entropía del crate, que es justo lo contrario de
+    /// lo que se quiere. El módulo hermano ya lo resolvía bien
+    /// (`destinatario::SecretKey::a_bytes`); esta es la simétrica.
+    ///
+    /// Devuelve `Zeroizing`: la copia que se lleva el llamante se limpia sola al
+    /// soltarla.
+    pub fn a_bytes(&self) -> Zeroizing<Vec<u8>> {
+        Zeroizing::new(self.semilla.to_vec())
+    }
+
     /// Firma `mensaje`.
+    ///
+    /// EXPANDE LA SEMILLA UNA SOLA VEZ. Antes lo hacía dos —una dentro de
+    /// `clave_de_verificacion()` y otra para firmar—, y en ML-DSA la expansión
+    /// (matriz + NTT) es la parte cara: se pagaba el doble por firma y se
+    /// duplicaba la superficie de residuo de la clave privada en memoria.
     pub fn firmar(&self, mensaje: &[u8]) -> Vec<u8> {
-        let vk = self.clave_de_verificacion();
+        let sk = clave_desde_semilla(&self.semilla);
+        let vk = VerifyingKey {
+            ml: sk.verifying_key(),
+        };
         let p = preimagen(&vk.a_bytes(), mensaje);
-        clave_desde_semilla(&self.semilla)
-            .sign(&p)
-            .encode()
-            .as_slice()
-            .to_vec()
+        sk.sign(&p).encode().as_slice().to_vec()
     }
 }
 

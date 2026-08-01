@@ -58,6 +58,7 @@
 //! Sale de [`crate::aleatorio`], que falla ruidosamente si no hay entropía.
 
 use crate::aleatorio;
+use crate::antihacker;
 use crate::cipher;
 use crate::kdf::{self, KdfParams};
 use quipu_nucleo::prelayers;
@@ -101,6 +102,12 @@ pub enum NegacionError {
     },
     /// El señuelo está vacío. Es deliberado: ver el §9.2 del diseño.
     SenueloVacio,
+    /// El señuelo y el oculto llevan la MISMA contraseña.
+    ///
+    /// Se rechaza porque destruye la única promesa del módulo: bajo coacción, el
+    /// usuario entregaría la clave que abre el volumen verdadero. Ningún uso
+    /// legítimo la necesita.
+    MismaContrasena,
     /// El contenedor es más corto que el mínimo: no puede serlo.
     ContenedorCorto,
     /// Ninguna región abrió con esa contraseña. **No dice cuál falló**, y no es
@@ -126,6 +133,12 @@ impl core::fmt::Display for NegacionError {
                 f,
                 "el {volumen} necesita {necesario} B y su región solo tiene {disponible} B: \
                  declara un contenedor más grande"
+            ),
+            Self::MismaContrasena => write!(
+                f,
+                "el señuelo y el volumen oculto llevan la misma contraseña: entregarla \
+                 bajo coacción entregaría el volumen verdadero, que es justo lo que este \
+                 formato existe para evitar"
             ),
             Self::SenueloVacio => write!(
                 f,
@@ -216,7 +229,20 @@ impl Perfil {
     /// Argon2id a toda apertura sin pista (§5.2), así que crear perfiles no debe
     /// ser cómodo. La feature `lab` nunca viaja en un build publicado.
     #[cfg(feature = "lab")]
-    pub const fn de_laboratorio(nombre: &'static str, params: KdfParams) -> Perfil {
+    pub fn de_laboratorio(nombre: &'static str, params: KdfParams) -> Perfil {
+        // `is_sane()` existe justamente para esto y no se estaba llamando: unos
+        // parámetros con `parallelism: 0` llegaban al `expect("parámetros
+        // Argon2id válidos")` de `kdf.rs` y entraban en pánico. Los pone el
+        // llamante y no un atacante, pero un perfil de laboratorio que tumba el
+        // banco en vez de rechazarse es ruido en el sitio donde se mide.
+        assert!(
+            params.is_sane(),
+            "perfil de laboratorio «{nombre}» con parámetros fuera de rango: \
+             mem_kib={}, iterations={}, parallelism={}",
+            params.mem_kib,
+            params.iterations,
+            params.parallelism
+        );
         Perfil { nombre, params }
     }
 }
@@ -257,6 +283,25 @@ fn claves_de_region(
     (clave, nonce)
 }
 
+/// El dato autenticado de las dos regiones: `salt ‖ tamaño_total`.
+///
+/// **El tamaño va DENTRO del AAD y no es adorno.** El corte entre las dos
+/// regiones lo deriva [`tramos`] de la longitud del archivo, así que con solo el
+/// salt autenticado un byte añadido al final movía la región del oculto sin
+/// tocar la del señuelo: el señuelo seguía abriendo con toda normalidad —el
+/// usuario recibe la señal «el archivo está bien»— mientras el volumen oculto
+/// quedaba irrecuperable PARA SIEMPRE. Y `abrir` no podía avisar, porque
+/// «oculto corrupto» y «no hay oculto» son el mismo `NoAbre` por diseño.
+///
+/// Con el tamaño autenticado, cualquier cambio de longitud rompe LAS DOS
+/// regiones, y entonces sí hay señal: el señuelo tampoco abre.
+fn dato_autenticado(salt: &[u8; kdf::SALT_LEN], tamano_total: usize) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(kdf::SALT_LEN + 8);
+    aad.extend_from_slice(salt);
+    aad.extend_from_slice(&(tamano_total as u64).to_be_bytes());
+    aad
+}
+
 /// Prepara el texto en claro de una región: `Padmé(datos)` y relleno del CSPRNG
 /// hasta ocupar la región entera menos el tag.
 ///
@@ -284,9 +329,15 @@ fn claro_de_region(datos: &[u8], largo_claro: usize, volumen: Volumen) -> Result
 /// quien lo crea** y no derivado del contenido. `oculto` es opcional, y el
 /// contenedor mide y parece lo mismo con él y sin él.
 ///
-/// El señuelo y el oculto pueden compartir contraseña sin peligro —cada región
-/// deriva su clave con una etiqueta de dominio distinta—, pero no tiene sentido
-/// hacerlo: entregar esa contraseña entrega los dos.
+/// **El señuelo y el oculto NO pueden compartir contraseña**, y se rechaza con
+/// [`NegacionError::MismaContrasena`].
+///
+/// Hasta el 2026-08-01 esto se aceptaba en silencio, con la nota de que «no
+/// tiene sentido hacerlo». Aceptar en silencio lo que no tiene sentido es la
+/// directiva 20 aplicada a un parámetro: la contraseña compartida **destruye la
+/// única promesa del módulo**, porque bajo coacción el usuario entrega la clave
+/// que abre el volumen verdadero. Y no hay ningún uso legítimo que la necesite,
+/// que es la prueba que decide si una restricción está bien puesta.
 pub fn crear(
     tamano_total: usize,
     senuelo: &[u8],
@@ -304,6 +355,15 @@ pub fn crear(
         });
     }
 
+    // La contraseña compartida se rechaza ANTES de gastar un Argon2id. La
+    // comparación va en tiempo constante por costumbre, no porque aquí haya un
+    // secreto que proteger: las dos las trae el mismo llamante.
+    if let Some((_, clave_oculta)) = oculto
+        && antihacker::ct_eq(clave_senuelo.as_bytes(), clave_oculta.as_bytes())
+    {
+        return Err(NegacionError::MismaContrasena);
+    }
+
     let (r_senuelo, r_oculto) = tramos(tamano_total);
     let mut fuera = vec![0u8; tamano_total];
 
@@ -315,21 +375,48 @@ pub fn crear(
         .try_into()
         .expect("el salt mide SALT_LEN");
 
+    let aad = dato_autenticado(&salt, tamano_total);
+
     // Señuelo.
-    let maestra = kdf::derive_master_key(clave_senuelo, &salt, b"", &perfil.params);
-    let (clave, nonce) = claves_de_region(&maestra, INFO_SENUELO);
-    let claro = claro_de_region(senuelo, r_senuelo.len() - TAG, Volumen::Senuelo)?;
-    let cifrado = cipher::encrypt(&clave, &nonce, &claro, &salt);
+    //
+    // TODO LO SENSIBLE SE BORRA ANTES DE SOLTARLO, y aquí no es una formalidad:
+    // el claro del volumen oculto y la maestra que lo abre, si quedan en el
+    // swap o en un volcado, SON LA PRUEBA de que el segundo volumen existe —
+    // que es exactamente lo que este módulo entero existe para que no exista.
+    // El módulo hermano `api.rs` lleva la misma secuencia de borrados desde
+    // siempre; esta ruta nació sin ellos.
+    let mut maestra = kdf::derive_master_key(clave_senuelo, &salt, b"", &perfil.params);
+    let (mut clave, nonce) = claves_de_region(&maestra, INFO_SENUELO);
+    antihacker::wipe(&mut maestra);
+    let mut claro = match claro_de_region(senuelo, r_senuelo.len() - TAG, Volumen::Senuelo) {
+        Ok(c) => c,
+        Err(e) => {
+            antihacker::wipe(&mut clave);
+            return Err(e);
+        }
+    };
+    let cifrado = cipher::encrypt(&clave, &nonce, &claro, &aad);
+    antihacker::wipe(&mut clave);
+    antihacker::wipe(&mut claro);
     debug_assert_eq!(cifrado.len(), r_senuelo.len());
     fuera[r_senuelo].copy_from_slice(&cifrado);
 
     // Oculto, si lo hay. Si no lo hay, su región se queda con el azar de arriba:
     // esa es toda la diferencia, y es indistinguible por construcción.
     if let Some((datos, clave_oculta)) = oculto {
-        let maestra = kdf::derive_master_key(clave_oculta, &salt, b"", &perfil.params);
-        let (clave, nonce) = claves_de_region(&maestra, INFO_OCULTO);
-        let claro = claro_de_region(datos, r_oculto.len() - TAG, Volumen::Oculto)?;
-        let cifrado = cipher::encrypt(&clave, &nonce, &claro, &salt);
+        let mut maestra = kdf::derive_master_key(clave_oculta, &salt, b"", &perfil.params);
+        let (mut clave, nonce) = claves_de_region(&maestra, INFO_OCULTO);
+        antihacker::wipe(&mut maestra);
+        let mut claro = match claro_de_region(datos, r_oculto.len() - TAG, Volumen::Oculto) {
+            Ok(c) => c,
+            Err(e) => {
+                antihacker::wipe(&mut clave);
+                return Err(e);
+            }
+        };
+        let cifrado = cipher::encrypt(&clave, &nonce, &claro, &aad);
+        antihacker::wipe(&mut clave);
+        antihacker::wipe(&mut claro);
         debug_assert_eq!(cifrado.len(), r_oculto.len());
         fuera[r_oculto].copy_from_slice(&cifrado);
     }
@@ -348,26 +435,38 @@ fn intentar(contenedor: &[u8], contrasena: &str, perfil: Perfil) -> Option<Apert
         .try_into()
         .expect("ya se comprobó la longitud");
     let (r_senuelo, r_oculto) = tramos(contenedor.len());
-    let maestra = kdf::derive_master_key(contrasena, &salt, b"", &perfil.params);
+    let aad = dato_autenticado(&salt, contenedor.len());
+    let mut maestra = kdf::derive_master_key(contrasena, &salt, b"", &perfil.params);
 
-    let (k_s, n_s) = claves_de_region(&maestra, INFO_SENUELO);
-    let (k_o, n_o) = claves_de_region(&maestra, INFO_OCULTO);
-    let abre_senuelo = cipher::decrypt(&k_s, &n_s, &contenedor[r_senuelo], &salt).ok();
-    let abre_oculto = cipher::decrypt(&k_o, &n_o, &contenedor[r_oculto], &salt).ok();
+    let (mut k_s, n_s) = claves_de_region(&maestra, INFO_SENUELO);
+    let (mut k_o, n_o) = claves_de_region(&maestra, INFO_OCULTO);
+    antihacker::wipe(&mut maestra);
+    let mut abre_senuelo = cipher::decrypt(&k_s, &n_s, &contenedor[r_senuelo], &aad).ok();
+    let mut abre_oculto = cipher::decrypt(&k_o, &n_o, &contenedor[r_oculto], &aad).ok();
+    antihacker::wipe(&mut k_s);
+    antihacker::wipe(&mut k_o);
 
     // El oculto manda si los dos abrieran: solo puede pasar si se usó la misma
     // contraseña para ambos, y en ese caso lo que el usuario quiere es lo suyo.
+    let mut salida = None;
     for (volumen, claro) in [
-        (Volumen::Oculto, abre_oculto),
-        (Volumen::Senuelo, abre_senuelo),
+        (Volumen::Oculto, &mut abre_oculto),
+        (Volumen::Senuelo, &mut abre_senuelo),
     ] {
-        if let Some(claro) = claro
-            && let Ok(datos) = prelayers::unpad(&claro)
+        if salida.is_none()
+            && let Some(c) = claro.as_ref()
+            && let Ok(datos) = prelayers::unpad(c)
         {
-            return Some(Apertura { volumen, datos });
+            salida = Some(Apertura { volumen, datos });
         }
     }
-    None
+    // El claro con relleno se borra SIEMPRE, abra o no y por el camino que sea:
+    // un `return` temprano dentro del bucle lo habría dejado en memoria justo
+    // en el caso que importa, que es cuando el oculto abre.
+    for c in [abre_senuelo.as_mut(), abre_oculto.as_mut()].into_iter().flatten() {
+        antihacker::wipe(c);
+    }
+    salida
 }
 
 /// Abre el contenedor con una contraseña. Cuál de los dos volúmenes responde lo
@@ -587,30 +686,64 @@ mod tests {
         );
     }
 
+    /// LA CONTRASEÑA COMPARTIDA SE RECHAZA, no se acepta con una nota.
+    ///
+    /// Esta prueba decía antes que compartirla «es inútil pero no es
+    /// catastrófico», y comprobaba que las dos regiones no salieran iguales.
+    /// Eso era cierto y era lo de menos: con la misma contraseña, entregarla
+    /// bajo coacción entrega el volumen verdadero — la única promesa del módulo,
+    /// rota, y aceptada en silencio. Lo que se comprueba ahora es el rechazo.
     #[test]
-    fn misma_contrasena_para_los_dos_no_reutiliza_keystream() {
-        // Cada región deriva con su propia etiqueta de dominio, así que compartir
-        // contraseña es inútil pero no es catastrófico. Si algún día las
-        // etiquetas se unificaran por error, esta prueba lo caza.
-        let c = crear(
-            S,
-            b"senuelo",
-            "misma",
-            Some((b"oculto".as_slice(), "misma")),
-            barato(),
-        )
-        .unwrap();
-        let (rs, ro) = tramos(S);
-        let n = rs.len().min(ro.len());
-        assert_ne!(
-            c[rs.start..rs.start + n],
-            c[ro.start..ro.start + n],
-            "las dos regiones no pueden salir iguales"
-        );
-        // Y con esa contraseña abre el oculto, que es lo que el usuario querría.
+    fn la_misma_contrasena_para_los_dos_se_rechaza() {
         assert_eq!(
-            abrir(&c, "misma", Some(barato())).unwrap().volumen,
-            Volumen::Oculto
+            crear(S, b"senuelo", "misma", Some((b"oculto".as_slice(), "misma")), barato())
+                .unwrap_err(),
+            NegacionError::MismaContrasena
+        );
+
+        // Y el gemelo, o la regla estaría rechazando lo legítimo: contraseñas
+        // distintas sí pasan, y cada una abre LO SUYO.
+        let c = crear(S, b"senuelo", "una", Some((b"oculto".as_slice(), "otra")), barato())
+            .unwrap();
+        assert_eq!(abrir(&c, "una", Some(barato())).unwrap().volumen, Volumen::Senuelo);
+        assert_eq!(abrir(&c, "otra", Some(barato())).unwrap().volumen, Volumen::Oculto);
+
+        // Ni siquiera prefijos: son cadenas distintas y las dos valen.
+        assert!(crear(S, b"s", "clave", Some((b"o".as_slice(), "clave2")), barato()).is_ok());
+    }
+
+    /// UN BYTE AÑADIDO NO PUEDE DESTRUIR EL OCULTO EN SILENCIO.
+    ///
+    /// El corte entre regiones lo deriva `tramos` de la longitud del archivo.
+    /// Con solo el salt autenticado, añadir un byte movía la región del oculto
+    /// SIN tocar la del señuelo: el señuelo seguía abriendo —«el archivo está
+    /// bien»— mientras el oculto quedaba irrecuperable para siempre, y `abrir`
+    /// no podía avisar porque «oculto corrupto» y «no hay oculto» son el mismo
+    /// error por diseño. Con el tamaño dentro del AAD, se rompen LAS DOS y el
+    /// usuario ve la señal.
+    #[test]
+    fn cambiar_el_tamano_rompe_tambien_el_senuelo_para_que_haya_senal() {
+        let c = crear(S, b"senuelo", "una", Some((b"oculto".as_slice(), "otra")), barato())
+            .unwrap();
+        assert_eq!(abrir(&c, "una", Some(barato())).unwrap().volumen, Volumen::Senuelo);
+
+        let mut mas_largo = c.clone();
+        mas_largo.push(0x00);
+        assert_eq!(
+            abrir(&mas_largo, "una", Some(barato())).unwrap_err(),
+            NegacionError::NoAbre,
+            "el señuelo tiene que dejar de abrir: es la ÚNICA señal de que el \
+             archivo se tocó, y sin ella el oculto se pierde en silencio"
+        );
+        assert_eq!(
+            abrir(&mas_largo, "otra", Some(barato())).unwrap_err(),
+            NegacionError::NoAbre
+        );
+
+        let mas_corto = &c[..c.len() - 1];
+        assert_eq!(
+            abrir(mas_corto, "una", Some(barato())).unwrap_err(),
+            NegacionError::NoAbre
         );
     }
 

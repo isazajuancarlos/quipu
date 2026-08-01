@@ -363,3 +363,79 @@ si la contraseña abrió: recibe el contenido.
 
 Lo que sí habría que revisar si ese número creciera: que no empiece a distinguir
 *qué región* falló.
+
+## 11. Lo que encontró la revisión independiente (2026-08-01)
+
+Se despachó una revisión de seguridad a un contexto que **no escribió este
+código** (skill `revisar-seguridad`). Cuatro de sus puntos se arreglaron el mismo
+día; los tres de aquí abajo no, y quedan escritos porque el sitio donde se
+violarían es este documento.
+
+### 11.1 ARREGLADO — el material sensible no se borraba
+
+`negacion.rs` no tenía **una sola** llamada de borrado, mientras el módulo
+hermano `api.rs` limpia en cada paso y en cada camino de error. Quedaban en
+memoria liberada la clave maestra del volumen oculto, las subclaves de las dos
+regiones y —lo peor— **el texto en claro del oculto**, que ocupa casi media
+región.
+
+Y aquí el residuo no es una fuga de confidencialidad más: en un módulo cuya
+única promesa es que nadie pueda **probar** que hay un segundo volumen, un claro
+en el swap o en un volcado **es esa prueba**. Corregido: `antihacker::wipe` en
+`crear` y en `intentar`, incluidos los caminos de error.
+
+### 11.2 ARREGLADO — el tamaño no estaba autenticado
+
+El AAD era solo el salt, y `tramos()` deriva el corte entre regiones de la
+longitud del archivo. Consecuencia medida: **añadir un byte movía la región del
+oculto sin tocar la del señuelo**. El señuelo seguía abriendo con normalidad —el
+usuario recibe la señal «el archivo está bien»— mientras el volumen oculto
+quedaba irrecuperable para siempre. Y `abrir` no podía avisar, porque «oculto
+corrupto» y «no hay oculto» son el mismo error **por diseño**.
+
+Corregido: `aad = salt ‖ tamaño_total`. Ahora un cambio de longitud rompe **las
+dos** regiones, y entonces sí hay señal.
+
+### 11.3 ARREGLADO — la contraseña compartida se aceptaba en silencio
+
+`crear` admitía la misma contraseña para señuelo y oculto, con una nota que decía
+que «no tiene sentido hacerlo», e `intentar` prefería el oculto si las dos
+abrían. Combinado: quien reutilizara la contraseña entregaba, bajo coacción, la
+clave que muestra el volumen verdadero. La única promesa del módulo, rota por una
+vía que el código permitía sin decir nada. Ahora es `NegacionError::MismaContrasena`.
+
+### 11.4 ABIERTO — el tamaño total lo elige el llamante y no hay escalera canónica
+
+El módulo promete que con y sin oculto «mide y parece lo mismo», y es cierto
+**para un tamaño fijo**. La información se va por la ELECCIÓN de ese tamaño: un
+contenedor de 50 MB «para la lista de la compra» delata operativamente, sin que
+ningún byte del formato tenga la culpa.
+
+El §4 trata esto como requisito cumplido, y solo lo está a medias. Lo que falta
+es exponer una **escalera de tamaños canónicos** —potencias de dos, digamos— y
+documentar que salirse de ella es donde vive la fuga que queda.
+
+No se arregla hoy porque es una decisión de producto, no un fallo: fijar la
+escalera obliga a decidir el grano, y un grano grueso desperdicia disco mientras
+uno fino no oculta nada.
+
+### 11.5 ABIERTO — con DOS perfiles, `abrir` revelará cuál usa el contenedor
+
+`abrir` con `perfil = None` recorre `Perfil::conocidos()` con `find_map` y corta
+al primer éxito. Con un solo perfil eso es inerte. En cuanto exista un `V2`, un
+contenedor del perfil nuevo costará **una** pasada de Argon2id y uno antiguo
+costará N: el reloj dirá qué perfil lleva el archivo.
+
+El §5.3 lo asumió («solo los antiguos pagan más») sin nombrar que eso **es un
+canal por tiempo sobre el archivo**. Hoy no muerde y por eso no se toca; pero la
+decisión —recorrer siempre todos los perfiles, o aceptar y documentar la fuga—
+hay que tomarla **antes** de publicar el segundo perfil, no después.
+
+### 11.6 ABIERTO — el laboratorio no cubre `negacion` en el residuo de memoria
+
+`tests/residuo_memoria.rs` mide cero residuo para la clave maestra derivada, y
+ese cero lo produce precisamente el `antihacker::wipe` de `api.rs`. Sus tres
+escenarios son `pila`, `cifrado` y el de Shamir: **`negacion` no está**. Ahora que
+los borrados existen, el banco debería medirlos — con su control de fuga
+deliberada, o el cero valdría lo mismo que los cuatro ceros falsos que ya dio
+este proyecto.

@@ -39,8 +39,16 @@ argon2 = "0.5"
 # queda nada sujetando— y está dicho en la cabecera de cada módulo.
 # Se dependen DIRECTAMENTE y no vía `quipu`: este perfil es hermano de aquel,
 # no cliente suyo, y arrastrar `quipu` traería XChaCha20 y todo lo demás.
-ml-dsa = "0.1.1"
-ml-kem = "0.3"
+# `features = ["zeroize"]` NO es opcional aquí, aunque la feature sí lo sea en
+# el crate: sin ella los `Drop` de `SigningKey` y `ExpandedSigningKey` quedan
+# fuera de la compilación y `s1`, `s2` y `t0` —la clave privada real de
+# ML-DSA-87— se sueltan intactas en cada firma. Este crate envuelve la SEMILLA
+# en `Zeroizing` y documenta que «se limpia sola»; sin esta línea esa frase era
+# falsa justo para el buffer más grande y más sensible.
+ml-dsa = { version = "0.1.1", features = ["zeroize"] }
+# Lo mismo: sin `zeroize` el `Drop` de `DecapsulationKey` no existe y `dk_pke`,
+# `d` y `z` no se borran nunca.
+ml-kem = { version = "0.3", features = ["zeroize"] }
 rand_core = "0.10"
 rand_chacha = "0.10"
 

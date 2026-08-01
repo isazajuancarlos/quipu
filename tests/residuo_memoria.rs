@@ -76,6 +76,19 @@ const FRASE_CANARIO: &str = "canario-de-residuo-Xq7v2Lm9Pk4Rt8Wz3Nb6Hd1Fg5Js0Ay"
 /// saber QUÉ buscar, y no es una debilidad del código sino del canario.
 const SAL_FIJA: [u8; 16] = *b"sal-fija-de-test";
 
+/// El contenido del volumen OCULTO en el escenario de negación.
+///
+/// Es la aguja que más pesa de todo este banco: en un módulo cuya única promesa
+/// es que nadie pueda **probar** que hay un segundo volumen, este texto en una
+/// imagen de swap o en un volcado **es esa prueba**. No es una fuga de
+/// confidencialidad más — es la fuga que anula el formato entero.
+///
+/// Se elige largo y sin estructura repetida por lo mismo que el resto: un patrón
+/// corto o constante sale por casualidad y produce falsos positivos.
+#[cfg(all(feature = "negacion", feature = "lab"))]
+const OCULTO_CANARIO: &[u8] =
+    b"oculto-Zt4Nq8Vw1Yr6Bm3Xk9Lp2Hs7Dc0Gj5Af-el-que-no-debe-quedar-en-memoria";
+
 /// Deja el canario en un marco de pila y vuelve, dejándolo atrás.
 ///
 /// `inline(never)` para que el marco exista de verdad y no se funda con el del
@@ -315,6 +328,59 @@ fn cuerpo_del_hijo() {
         return;
     }
 
+    #[cfg(all(feature = "negacion", feature = "lab"))]
+    if escenario.starts_with("negacion") {
+        use quipu::negacion::{abrir, crear, Perfil};
+
+        // El claro del OCULTO es la aguja: en un módulo cuya única promesa es que
+        // nadie pueda PROBAR que hay un segundo volumen, ese claro en el swap o
+        // en un volcado ES esa prueba. Es lo que más pesa de todo este banco.
+        let mut oculto = OCULTO_CANARIO.to_vec();
+        let perfil = Perfil::de_laboratorio("residuo", params_baratos());
+        let c = crear(
+            2048,
+            b"la lista de la compra",
+            "clave-del-senuelo",
+            Some((oculto.as_slice(), FRASE_CANARIO)),
+            perfil,
+        )
+        .expect("crea");
+        // EL BUFFER DE ENTRADA ES DEL LLAMANTE, y la librería no puede borrarlo:
+        // le llega por referencia. Si se deja vivo, el banco cuenta UNA copia y
+        // se la atribuye a `negacion` — el instrumento contándose a sí mismo,
+        // que es el defecto que la cabecera de este archivo describe para el
+        // escaneo del propio proceso. Medido: sin este `wipe` la prueba daba 1.
+        quipu::antihacker::wipe(&mut oculto);
+        let a = abrir(&c, FRASE_CANARIO, Some(perfil)).expect("abre el oculto");
+        assert_eq!(a.datos, OCULTO_CANARIO);
+        // `a.datos` es la copia que se le entrega al llamante: se borra a mano,
+        // porque el residuo que se mide es el que deja la LIBRERÍA, no el que el
+        // llamante decida conservar.
+        let mut devueltos = a.datos;
+        quipu::antihacker::wipe(&mut devueltos);
+        std::hint::black_box(&c);
+
+        // Fuga deliberada: si esto no se viera, los ceros de las pruebas no
+        // probarían que no hay residuo — probarían que el escáner mira donde no es.
+        if escenario == "negacion-con-fuga" {
+            let mut v = OCULTO_CANARIO.to_vec();
+            v.extend_from_slice(&quipu::kdf::derive_master_key(
+                FRASE_CANARIO,
+                &SAL_FIJA,
+                b"",
+                &params_baratos(),
+            ));
+            fuga = Some(v);
+        }
+
+        println!("LISTO");
+        std::io::stdout().flush().ok();
+        let mut s = String::new();
+        std::io::stdin().read_line(&mut s).ok();
+        std::hint::black_box(&fuga);
+        return;
+    }
+
     {
         use quipu::firmante::firmar_con_comparticiones;
         use quipu::{pqsign, shamir};
@@ -423,6 +489,51 @@ fn el_medidor_ve_una_fuga_deliberada_tambien_al_cifrar() {
         medir_aguja("cifrado-con-fuga", &clave) > 0,
         "el medidor no ve una copia de la CLAVE MAESTRA dejada viva en el montón"
     );
+}
+
+/// EL CONTROL DEL ESCENARIO DE NEGACIÓN, y sin él las dos de abajo no valdrían.
+///
+/// El literal `OCULTO_CANARIO` vive en memoria de solo lectura, que este escáner
+/// no barre. Si una copia EN EL MONTÓN tampoco se viera, un cero significaría
+/// «el escáner mira donde no es», que es exactamente el cero falso que este
+/// proyecto ya produjo cuatro veces.
+#[cfg(all(feature = "negacion", feature = "lab"))]
+#[test]
+fn el_medidor_ve_una_fuga_deliberada_tambien_en_negacion() {
+    let clave = quipu::kdf::derive_master_key(FRASE_CANARIO, &SAL_FIJA, b"", &params_baratos());
+    assert!(
+        medir_aguja("negacion-con-fuga", OCULTO_CANARIO) > 0,
+        "el medidor no ve una copia del CLARO DEL OCULTO dejada viva en el montón"
+    );
+    assert!(
+        medir_aguja("negacion-con-fuga", &clave) > 0,
+        "el medidor no ve una copia de la CLAVE MAESTRA dejada viva en el montón"
+    );
+}
+
+/// LO QUE ESTE MÓDULO NO PUEDE PERMITIRSE: que el claro del volumen oculto
+/// sobreviva a la operación que lo escribió y lo leyó.
+///
+/// Hasta el 2026-08-01 `negacion.rs` no tenía **una sola** llamada de borrado,
+/// mientras el módulo hermano `api.rs` limpiaba en cada paso. Lo halló la
+/// revisión independiente; esto es lo que impide que vuelva.
+#[cfg(all(feature = "negacion", feature = "lab"))]
+#[test]
+fn el_contenedor_con_negacion_no_deja_el_claro_del_oculto_en_memoria() {
+    let n = medir_aguja("negacion", OCULTO_CANARIO);
+    assert_eq!(
+        n, 0,
+        "quedan {n} copias del CLARO DEL VOLUMEN OCULTO en memoria tras crear y          abrir el contenedor — y ese residuo ES la prueba de que el segundo          volumen existe, que es justo lo que el formato existe para que no exista"
+    );
+}
+
+/// Y la clave maestra que lo abre, por la misma razón.
+#[cfg(all(feature = "negacion", feature = "lab"))]
+#[test]
+fn el_contenedor_con_negacion_no_deja_la_clave_maestra_en_memoria() {
+    let clave = quipu::kdf::derive_master_key(FRASE_CANARIO, &SAL_FIJA, b"", &params_baratos());
+    let n = medir_aguja("negacion", &clave);
+    assert_eq!(n, 0, "quedan {n} copias de la clave maestra del volumen oculto");
 }
 
 /// La superficie ANCHA: la clave maestra que `encode`/`decode` derivan de la
