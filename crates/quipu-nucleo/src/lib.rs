@@ -36,4 +36,9 @@ pub mod codec;
 pub mod container;
 pub mod dictionary;
 pub mod ecc;
+/// Carga útil del portador de papel: trocear, proteger con Reed-Solomon e
+/// intercalar, para que perder un símbolo entero no mate el documento. **No
+/// renderiza el símbolo**: eso es presentación, y lo decidió la medición de
+/// `quipu::lab::papel` (hoja de ruta §6).
+pub mod papel;
 pub mod prelayers;

@@ -7,6 +7,29 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`quipu-nucleo::papel` — la carga útil del portador de papel, sin ninguna
+  dependencia nueva.** `empaquetar` trocea, protege con Reed-Solomon e
+  **intercala**; `reensamblar` reconstruye con los trozos que se hayan podido
+  leer, en cualquier orden y sin necesitarlos todos.
+
+  El núcleo **no renderiza el símbolo**, y es la decisión que salió de medir
+  (hoja de ruta §6): dibujar un QR es presentación, y en la mayoría de los
+  productos ya lo hace el frontend. Así la simbología estándar se usa sin que el
+  núcleo cargue con una dependencia para dibujarla.
+
+  El intercalado es lo que convierte «se perdió un símbolo» en «falta un byte de
+  cada N», que es la diferencia entre recuperarse y no.
+
+  **Y el cuello de botella no está donde parecía.** La cuenta por bloques de
+  datos daba 50 símbolos perdidos tolerables con 155 símbolos y paridad 200; la
+  prueba dijo que con 50 no se recupera nada. La causa: `ecc::protect` antepone
+  un bloque propio de **15 bytes que corrige 5 errores**, y esos 15 bytes caen en
+  los 15 PRIMEROS símbolos — perder los 50 primeros no le quita a ese bloque una
+  fracción, se lo lleva entero. El bloque más pequeño es el más frágil y es el
+  que manda. `simbolos_perdidos_tolerados` devuelve ahora el mínimo de las dos
+  cuentas, y la garantía se prueba perdiendo los símbolos del PRINCIPIO, que es
+  el peor caso.
+
 - **`quipu-cnsa` crece a firma y canal de destinatario.** El perfil ya no es solo
   cifrado simétrico: `firma` implementa **ML-DSA-87** y `destinatario`
   **ML-KEM-1024** sobre AES-256-GCM, que son los dos algoritmos que CNSA 2.0
