@@ -404,38 +404,83 @@ abrían. Combinado: quien reutilizara la contraseña entregaba, bajo coacción, 
 clave que muestra el volumen verdadero. La única promesa del módulo, rota por una
 vía que el código permitía sin decir nada. Ahora es `NegacionError::MismaContrasena`.
 
-### 11.4 ABIERTO — el tamaño total lo elige el llamante y no hay escalera canónica
+### 11.4 CERRADO — hay escalera de tamaños canónicos, y son potencias de dos
 
-El módulo promete que con y sin oculto «mide y parece lo mismo», y es cierto
-**para un tamaño fijo**. La información se va por la ELECCIÓN de ese tamaño: un
-contenedor de 50 MB «para la lista de la compra» delata operativamente, sin que
-ningún byte del formato tenga la culpa.
+El contenedor mide y parece lo mismo con oculto y sin él **para un tamaño fijo**.
+Lo que quedaba fuera del formato era la ELECCIÓN de ese tamaño: un contenedor de
+50 MB «para la lista de la compra» delata operativamente sin que ningún byte
+tenga la culpa.
 
-El §4 trata esto como requisito cumplido, y solo lo está a medias. Lo que falta
-es exponer una **escalera de tamaños canónicos** —potencias de dos, digamos— y
-documentar que salirse de ella es donde vive la fuga que queda.
+**Resuelto con `negacion::tamano_canonico`**, que sube a la siguiente potencia de
+dos y nunca baja de `TAMANO_MINIMO`. Y con `es_canonico`, para que una
+herramienta encima pueda AVISAR sin rechazar.
 
-No se arregla hoy porque es una decisión de producto, no un fallo: fijar la
-escalera obliga a decidir el grano, y un grano grueso desperdicia disco mientras
-uno fino no oculta nada.
+**POR QUÉ NO PADMÉ, que estaba a mano en el propio árbol** — es la parte que
+enseña algo. `prelayers::pad` implementa Padmé y parecía la respuesta obvia:
+mismo proyecto, mismo problema aparente, cero código nuevo. Medido en 1 KiB–1 GiB:
 
-### 11.5 ABIERTO — con DOS perfiles, `abrir` revelará cuál usa el contenedor
+| | sobrecoste peor | tamaños distintos |
+|---|---|---|
+| Padmé | 5,73 % | **496** |
+| potencias de dos | 100 % | **21** |
 
-`abrir` con `perfil = None` recorre `Perfil::conocidos()` con `find_map` y corta
-al primer éxito. Con un solo perfil eso es inerte. En cuanto exista un `V2`, un
-contenedor del perfil nuevo costará **una** pasada de Argon2id y uno antiguo
-costará N: el reloj dirá qué perfil lleva el archivo.
+Padmé optimiza **pagar poco relleno**, que es justo la variable que aquí no
+cuesta nada: en este formato el espacio sobrante **no es desperdicio, es el
+diseño** —se llena de azar del CSPRNG haya o no volumen oculto—. Lo único que
+importa es cuánta información lleva la elección del tamaño, y 496 valores la
+llevan casi entera: con Padmé el tamaño del archivo revela el del contenido con
+un 6 % de error. Con 21, saber el tamaño solo sitúa el contenido dentro de un
+factor 2.
 
-El §5.3 lo asumió («solo los antiguos pagan más») sin nombrar que eso **es un
-canal por tiempo sobre el archivo**. Hoy no muerde y por eso no se toca; pero la
-decisión —recorrer siempre todos los perfiles, o aceptar y documentar la fuga—
-hay que tomarla **antes** de publicar el segundo perfil, no después.
+La escalera **no se impone**: `crear` sigue aceptando cualquier tamaño ≥ mínimo.
+Forzarla rompería a quien necesite un tamaño exacto por una razón legítima —un
+campo de formulario, un soporte de capacidad fija—, y esa es la prueba de si una
+restricción está bien puesta. Lo que sí se hace es decirlo en `crear`.
 
-### 11.6 ABIERTO — el laboratorio no cubre `negacion` en el residuo de memoria
+### 11.5 CERRADO — se prueban SIEMPRE todos los perfiles
 
-`tests/residuo_memoria.rs` mide cero residuo para la clave maestra derivada, y
-ese cero lo produce precisamente el `antihacker::wipe` de `api.rs`. Sus tres
-escenarios son `pila`, `cifrado` y el de Shamir: **`negacion` no está**. Ahora que
-los borrados existen, el banco debería medirlos — con su control de fuga
-deliberada, o el cero valdría lo mismo que los cuatro ceros falsos que ya dio
-este proyecto.
+`abrir` con `perfil = None` recorría `Perfil::conocidos()` con `find_map`, que
+corta al primer éxito. Con un solo perfil es inerte; con dos, un contenedor del
+perfil nuevo costaría **una** pasada de Argon2id y uno antiguo costaría N — y el
+reloj diría qué perfil lleva el archivo, de ahí cuándo se creó. Eso es metadato,
+que es exactamente lo que este formato existe para no tener.
+
+El §5.3 lo asumió («solo los antiguos pagan más») sin nombrar que es un canal por
+tiempo **sobre el archivo**.
+
+**Resuelto recorriendo siempre todos**, que es el mismo criterio que ya gobierna
+`intentar` —prueba siempre las dos regiones para que abrir el señuelo no cueste
+un AEAD menos que abrir el oculto—. Aplicarlo a las regiones y no a los perfiles
+habría sido cerrar una puerta y dejar la otra.
+
+**SE IMPLEMENTÓ AHORA Y NO CUANDO HAYA DOS PERFILES**, que es lo que evita el
+error clásico: hacerlo después significa que la primera versión con dos perfiles
+sale con la fuga puesta.
+
+Lo sujeta `el_reloj_no_delata_que_perfil_usa_el_contenedor`, que fabrica dos
+perfiles de laboratorio —única forma de ver la propiedad antes de que exista el
+segundo de verdad— y **trae su caso rojo dentro**: mide la misma carga por los
+dos caminos y exige que el `find_map` SÍ muestre la diferencia. Sin eso, el
+verde no probaría nada. Comprobado además contra la función real: al volver a
+`find_map`, el banco se pone rojo.
+
+### 11.6 CERRADO — el banco de residuo ya cubre `negacion`
+
+`tests/residuo_memoria.rs` medía cero residuo para la clave maestra, y ese cero
+lo producía el `antihacker::wipe` de `api.rs`; sus escenarios eran `pila`,
+`cifrado` y el de Shamir. Ahora hay escenario `negacion`, con su **control de
+fuga deliberada** —sin él un cero significaría «el escáner mira donde no es», que
+es el cero falso que este proyecto ya produjo cuatro veces— y con línea propia en
+el CI, porque necesita `escrow + negacion + lab` a la vez y ninguna otra las
+junta.
+
+Trampa que costó una corrida y queda anotada: la primera versión daba 1 copia, y
+era **el buffer de entrada del propio banco**. La librería no puede borrarlo —le
+llega por referencia—, así que el instrumento se estaba contando a sí mismo.
+
+---
+
+Con esto, las tres decisiones que el §11 dejó abiertas el 2026-08-01 están
+cerradas el mismo día. Lo que queda del módulo no son decisiones pendientes sino
+los límites declarados del §1: la negación protege contra la PRUEBA, no contra la
+SOSPECHA, y el adversario que ve dos instantáneas del mismo contenedor la rompe.
