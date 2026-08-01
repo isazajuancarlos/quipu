@@ -54,7 +54,68 @@ use core::fmt;
 /// Más intentos no compran nada y retrasan el diagnóstico de las permanentes.
 const INTENTOS: u32 = 3;
 
-/// El sistema no pudo entregar aleatoriedad.
+/// Cuántos bytes idénticos seguidos bastan para declarar la fuente atascada.
+///
+/// Ocho. La probabilidad de que salgan por azar en una posición dada es 2⁻⁵⁶: no
+/// va a ocurrir nunca en la vida del programa. Un número más pequeño empezaría a
+/// producir falsas alarmas, y una alarma que resulta falsa dos veces es una
+/// alarma que a la tercera nadie mira.
+const REPETICION_QUE_DELATA: usize = 8;
+
+/// Por qué no se confía en lo que la fuente entregó.
+///
+/// # Lo que estas pruebas SÍ detectan
+///
+/// Entornos donde la fuente **está rota y lo aparenta**: un filtro seccomp que
+/// devuelve éxito con el buffer intacto, un `chroot` sin `/dev/urandom` mal
+/// emulado, un objetivo empotrado o un *shim* de WASM que devuelve constantes.
+/// Son fallos deterministas del despliegue, y aparecen siempre.
+///
+/// # Lo que NO detectan, y hay que decirlo
+///
+/// **Un generador subvertido pero estadísticamente bueno pasa TODAS estas
+/// pruebas**, y pasaría también monobit, rachas y cualquier batería que se le
+/// añada: esa es justo la definición de un buen PRNG con semilla conocida por
+/// otro. Contra eso no hay comprobación estadística posible — la defensa es la
+/// procedencia del binario (build reproducible, release firmado), no una prueba
+/// de salida.
+///
+/// Decirlo importa: una comprobación que se anuncia como más de lo que es
+/// produce la misma falsa sensación de cobertura que un antivirus mal colocado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FalloDeSalud {
+    /// La fuente devolvió un buffer entero de ceros.
+    TodoCeros,
+    /// Salieron [`REPETICION_QUE_DELATA`] o más bytes idénticos seguidos.
+    Atascada {
+        /// El byte que se repetía.
+        byte: u8,
+        /// Cuántas veces seguidas.
+        veces: usize,
+    },
+}
+
+impl fmt::Display for FalloDeSalud {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TodoCeros => write!(f, "la fuente devolvió TODO CEROS"),
+            Self::Atascada { byte, veces } => write!(
+                f,
+                "la fuente devolvió el byte {byte:#04x} {veces} veces seguidas"
+            ),
+        }
+    }
+}
+
+/// El sistema no pudo entregar aleatoriedad **en la que se pueda confiar**.
+///
+/// Cubre dos casos que exigen respuestas distintas y por eso se distinguen con
+/// [`SinEntropia::salud`]:
+///
+/// - la fuente **no contestó** (`salud: None`) — revisar el despliegue;
+/// - la fuente **contestó y su salida no supera las pruebas de salud**
+///   (`salud: Some(_)`) — mucho más grave: está entregando algo que no es
+///   aleatorio y lo presenta como si lo fuera.
 ///
 /// No lleva ningún dato derivado de material sensible: un fallo de entropía
 /// ocurre *antes* de que exista nada que proteger, así que el mensaje se puede
@@ -67,6 +128,49 @@ pub struct SinEntropia {
     pub intentos: u32,
     /// Código que devolvió el sistema operativo, si lo hubo.
     pub codigo_os: Option<i32>,
+    /// Qué prueba de salud falló, si el fallo fue de salud y no de respuesta.
+    pub salud: Option<FalloDeSalud>,
+}
+
+/// Pruebas de salud CONTINUAS sobre lo que la fuente acaba de entregar.
+///
+/// Van en cada extracción y no solo al arrancar, que es la diferencia que
+/// importa: una fuente puede degradarse DESPUÉS del arranque —un `seccomp` que
+/// se endurece, una migración de máquina virtual— y una comprobación única no lo
+/// vería. Es el mismo principio que la SP 800-90B de NIST exige para las fuentes
+/// de ruido, aplicado aquí a la salida del CSPRNG del sistema.
+///
+/// Coste: una pasada O(n) con una comparación por byte. Frente a un Argon2id o
+/// un AEAD, no se nota.
+fn salud_de(muestra: &[u8]) -> Option<FalloDeSalud> {
+    // UNA SOLA COTA, y es la de repetición. La primera versión tenía además un
+    // `MINIMO_PARA_CEROS = 16` para la prueba de «todo ceros», y era REGLA
+    // MUERTA: quince ceros ya disparan la de repetición, así que las dos se
+    // contradecían — una decía «plausible» y la otra «atascada» sobre el mismo
+    // buffer. Lo cazó la mitad del banco que comprueba que NO se rechaza lo
+    // legítimo, que es justo para lo que existe esa mitad.
+    //
+    // `TodoCeros` sobrevive como DIAGNÓSTICO, no como regla aparte: un buffer
+    // entero de ceros es el caso del `seccomp` que devuelve éxito sin tocar
+    // nada, y decirlo así ahorra media hora a quien lo lea en un registro.
+    if muestra.len() >= REPETICION_QUE_DELATA && muestra.iter().all(|b| *b == 0) {
+        return Some(FalloDeSalud::TodoCeros);
+    }
+    let mut seguidos = 1usize;
+    for par in muestra.windows(2) {
+        if par[0] == par[1] {
+            seguidos += 1;
+            if seguidos >= REPETICION_QUE_DELATA {
+                return Some(FalloDeSalud::Atascada {
+                    byte: par[0],
+                    veces: seguidos,
+                });
+            }
+        } else {
+            seguidos = 1;
+        }
+    }
+    None
 }
 
 impl SinEntropia {
@@ -81,6 +185,13 @@ impl SinEntropia {
     /// nunca va a funcionar lo mete en un bucle; decirle que revise el
     /// despliegue cuando bastaba esperar le cuesta una mirada.
     pub fn probablemente_transitorio(&self) -> bool {
+        // UN FALLO DE SALUD NUNCA ES TRANSITORIO, y decir lo contrario sería
+        // peligroso: quien reintente acabará obteniendo una extracción que
+        // «parece bien» de la MISMA fuente rota, y seguirá adelante con ella.
+        // Ahí no se reintenta; se para.
+        if self.salud.is_some() {
+            return false;
+        }
         // EMFILE (24) y ENFILE (23): descriptores agotados, en el proceso o en
         // el sistema. Son los únicos que se resuelven solos.
         matches!(self.codigo_os, Some(23) | Some(24))
@@ -89,6 +200,15 @@ impl SinEntropia {
 
 impl fmt::Display for SinEntropia {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(s) = self.salud {
+            return write!(
+                f,
+                "la fuente de aleatoriedad ENTREGÓ {} bytes pero no son de fiar: {s}. \
+                 NO se generó ninguna clave. Esto no se reintenta: la misma fuente \
+                 rota puede devolver a la siguiente algo que PAREZCA bien",
+                self.bytes
+            );
+        }
         write!(
             f,
             "el sistema no entregó {} bytes de aleatoriedad tras {} intento(s)",
@@ -120,7 +240,24 @@ pub fn llenar(destino: &mut [u8]) -> Result<(), SinEntropia> {
     let mut ultimo: Option<i32> = None;
     for intento in 1..=INTENTOS {
         match getrandom::fill(destino) {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                // LA SALUD SE COMPRUEBA ANTES DE DEVOLVER. Si la fuente contestó
+                // pero lo que entregó no pasa las pruebas, se BORRA el buffer —
+                // el llamante no puede quedarse con bytes que ya sabemos malos—
+                // y se falla sin reintentar.
+                return match salud_de(destino) {
+                    None => Ok(()),
+                    Some(fallo) => {
+                        destino.fill(0);
+                        Err(SinEntropia {
+                            bytes: destino.len(),
+                            intentos: intento,
+                            codigo_os: None,
+                            salud: Some(fallo),
+                        })
+                    }
+                };
+            }
             Err(e) => {
                 ultimo = e.raw_os_error();
                 // Si el sistema dice claramente que esto no va a funcionar
@@ -132,6 +269,7 @@ pub fn llenar(destino: &mut [u8]) -> Result<(), SinEntropia> {
                         bytes: destino.len(),
                         intentos: intento,
                         codigo_os: ultimo,
+                        salud: None,
                     });
                 }
             }
@@ -141,6 +279,7 @@ pub fn llenar(destino: &mut [u8]) -> Result<(), SinEntropia> {
         bytes: destino.len(),
         intentos: INTENTOS,
         codigo_os: ultimo,
+        salud: None,
     })
 }
 
@@ -219,11 +358,13 @@ mod tests {
 
     #[test]
     fn el_mensaje_distingue_transitorio_de_permanente() {
-        let transitorio = SinEntropia { bytes: 32, intentos: 3, codigo_os: Some(24) };
+        let transitorio =
+            SinEntropia { bytes: 32, intentos: 3, codigo_os: Some(24), salud: None };
         assert!(transitorio.probablemente_transitorio());
         assert!(transitorio.to_string().contains("reintentar puede servir"));
 
-        let permanente = SinEntropia { bytes: 32, intentos: 1, codigo_os: Some(1) };
+        let permanente =
+            SinEntropia { bytes: 32, intentos: 1, codigo_os: Some(1), salud: None };
         assert!(!permanente.probablemente_transitorio());
         assert!(permanente.to_string().contains("revise el despliegue"));
         // Y dice lo más importante: que NO se fabricó nada.
@@ -233,7 +374,8 @@ mod tests {
     #[test]
     fn sin_codigo_del_sistema_se_asume_permanente() {
         // Ante la duda, no se manda a nadie a un bucle de reintentos.
-        let desconocido = SinEntropia { bytes: 32, intentos: 3, codigo_os: None };
+        let desconocido =
+            SinEntropia { bytes: 32, intentos: 3, codigo_os: None, salud: None };
         assert!(!desconocido.probablemente_transitorio());
     }
 
@@ -309,5 +451,80 @@ mod tests {
         };
         assert_eq!(politica(&mut fuente), Ok(1));
         assert_eq!(llamadas, 1, "reintentó sin motivo");
+    }
+}
+
+#[cfg(test)]
+mod pruebas_salud {
+    use super::*;
+
+    /// LO QUE LA PRUEBA DETECTA. Sin estos casos, `salud_de` podría devolver
+    /// `None` siempre y todo lo demás pasaría igual.
+    #[test]
+    fn caza_las_fuentes_rotas_que_lo_aparentan() {
+        // El caso del seccomp que devuelve éxito sin tocar el buffer.
+        assert_eq!(salud_de(&[0u8; 32]), Some(FalloDeSalud::TodoCeros));
+        assert_eq!(salud_de(&[0u8; REPETICION_QUE_DELATA]), Some(FalloDeSalud::TodoCeros));
+
+        // La fuente atascada en un valor.
+        assert_eq!(
+            salud_de(&[0xAAu8; 32]),
+            Some(FalloDeSalud::Atascada { byte: 0xAA, veces: REPETICION_QUE_DELATA })
+        );
+
+        // Y atascada solo en un TRAMO, con el resto correcto: no vale mirar
+        // únicamente el principio o el final.
+        let mut a_medias = vec![0x11u8, 0x22, 0x33, 0x44];
+        a_medias.extend_from_slice(&[0x77u8; REPETICION_QUE_DELATA]);
+        a_medias.extend_from_slice(&[0x55u8, 0x66]);
+        assert!(
+            matches!(salud_de(&a_medias), Some(FalloDeSalud::Atascada { byte: 0x77, .. })),
+            "un tramo atascado en medio tiene que verse"
+        );
+    }
+
+    /// LO QUE NO PUEDE RECHAZAR, que es la mitad que decide si la regla está
+    /// bien puesta: aleatoriedad legítima no puede disparar la alarma.
+    #[test]
+    fn no_rechaza_aleatoriedad_legitima() {
+        // La fuente real, muchas veces y en muchos tamaños.
+        for n in [1usize, 2, 8, 16, 32, 64, 256, 4096] {
+            for _ in 0..40 {
+                let mut buf = vec![0u8; n];
+                llenar(&mut buf).expect("la fuente del sistema debe responder");
+                assert_eq!(
+                    salud_de(&buf),
+                    None,
+                    "falsa alarma sobre {n} bytes de aleatoriedad real: {:02x?}",
+                    &buf[..buf.len().min(16)]
+                );
+            }
+        }
+
+        // Y los bordes que NO deben disparar. La cota es UNA: siete bytes
+        // idénticos —ceros incluidos— se quedan por debajo, y siete ceros por
+        // azar son 2⁻⁵⁶, que es donde tiene que estar el suelo.
+        assert_eq!(salud_de(&[0u8; REPETICION_QUE_DELATA - 1]), None);
+        assert_eq!(salud_de(&[0x5Au8; REPETICION_QUE_DELATA - 1]), None);
+        assert_eq!(salud_de(&[]), None);
+    }
+
+    /// Un fallo de salud NO se anuncia como transitorio: reintentar con la misma
+    /// fuente rota acabaría dando algo que «parece bien».
+    #[test]
+    fn un_fallo_de_salud_nunca_invita_a_reintentar() {
+        let e = SinEntropia {
+            bytes: 32,
+            intentos: 1,
+            codigo_os: None,
+            salud: Some(FalloDeSalud::TodoCeros),
+        };
+        assert!(!e.probablemente_transitorio());
+        assert!(e.to_string().contains("no son de fiar"));
+        assert!(e.to_string().contains("no se reintenta"));
+
+        // Y el contraste: la falta de respuesta por descriptores agotados SÍ.
+        let t = SinEntropia { bytes: 32, intentos: 3, codigo_os: Some(24), salud: None };
+        assert!(t.probablemente_transitorio());
     }
 }
