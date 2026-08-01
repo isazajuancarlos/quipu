@@ -365,14 +365,25 @@ the operation, a local physical side channel, or control of the binary/OS.
     The framing that delayed this was wrong: it was filed under "next format
     break", and it never needed one. Restricting what the library *writes* was
     enough.
-  - **The other half still needs a format version**, and that is not a break
-    either: a **keyed codebook fingerprint** (`HMAC(master_key, alphabet)`
-    instead of truncated SHA-256) kills both the invertibility and the
-    linkability of those 8 bytes, at the cost of paying one Argon2id before
-    "wrong alphabet" can be reported. The header carries a version byte and
-    `parse` rejects unknown versions cleanly, so a v2 container is refused by a
-    v1 decoder with a clear error rather than misread, a v2 decoder reads both,
-    and **old data stays readable for ever**.
+  - **The other half needs a format VERSION, and the decision is: not yet.**
+    A **keyed codebook fingerprint** (`HMAC(master_key, alphabet)` instead of
+    truncated SHA-256) would kill both the invertibility and the linkability of
+    those 8 bytes, at the cost of paying one Argon2id before "wrong alphabet"
+    can be reported. And it is **not a break**: the header carries a version byte
+    and `parse` already rejects unknown versions cleanly, so a v2 container is
+    refused by a v1 decoder with a clear error rather than misread, a v2 decoder
+    reads both, and **old data stays readable for ever**.
+    **So why not now?** Because a second format version is not free: it means two
+    decoder paths, for ever, each needing its own tests and its own place in
+    every future audit. Paying that to improve a **declared non-goal** — with the
+    remaining leak already collapsed to a world constant for anyone on the
+    defaults — is the wrong trade.
+    **The condition, so this is not an open-ended wait:** cut v2 when there is a
+    reason that is *not* these two — a client whose threat model genuinely needs
+    unlinkability, or any other change that requires a version anyway. When that
+    day comes, the keyed fingerprint and the KDF domain separator (see
+    `src/kdf.rs`) ride along, because both change derived keys and doing them in
+    two separate versions would be paying the cost twice.
 - **N8. Key commitment / partitioning oracles** (added 2026-08-01, after an
   independent review). XChaCha20-Poly1305 is **not key-committing**: a ciphertext
   that validates under two distinct keys is constructible (Len–Grubbs–Ristenpart,

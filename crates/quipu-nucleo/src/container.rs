@@ -332,6 +332,29 @@ mod pruebas_campos_reservados {
         }
     }
 
+    /// PASO 2 de la retirada: lo que `encode` ESCRIBE es siempre cero.
+    ///
+    /// Se comprueba aquí, en el crate del formato, y no solo en `api`: es la
+    /// propiedad que hace que el paso 3 —validar a cero al leer— llegue algún
+    /// día a ser seguro. Si alguien reintrodujera el valor del llamante, el
+    /// paso 3 empezaría a huerfanar datos sin que nadie lo hubiera decidido.
+    #[test]
+    fn lo_que_se_escribe_lleva_codebook_id_en_cero() {
+        let h = Header::<16, 24> {
+            version: VERSION,
+            flags: 0,
+            codebook_id: 0,
+            codebook_hash_prefix: [1u8; 8],
+            salt: [2u8; 16],
+            nonce: [3u8; 24],
+            kdf_mem_kib: 65536,
+            kdf_iterations: 3,
+            kdf_parallelism: 1,
+        };
+        let b = h.to_bytes();
+        assert_eq!(&b[6..8], &[0, 0], "el campo tiene que salir en cero");
+    }
+
     /// `codebook_id` NO se rechaza, y es deliberado.
     ///
     /// A diferencia de `flags`, este campo es PÚBLICO y ajustable desde

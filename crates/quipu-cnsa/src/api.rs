@@ -110,7 +110,20 @@ pub fn encode_to_blob(
     let header = Header {
         version: VERSION,
         flags: 0,
-        codebook_id: opts.codebook_id,
+        // PASO 2 DE LA RETIRADA DE `codebook_id` (2026-08-01): se escribe
+        // SIEMPRE 0, ignorando lo que pida el llamante.
+        //
+        // El campo nunca se lee —quien decide qué alfabeto se usó es la huella,
+        // que sí se comprueba— y son 16 bits de metadato en claro, elegidos por
+        // quien cifra y estables entre todos sus contenedores (N9).
+        //
+        // POR QUÉ ESTE PASO Y NO EL BORRADO: quitar el campo del formato, o
+        // rechazarlo al leer, dejaría ILEGIBLE cualquier contenedor que alguien
+        // ya haya creado con un valor. Escribir cero al crear no huerfana nada:
+        // los viejos se siguen abriendo, y los nuevos dejan de sumar al
+        // problema. Cuando no queden contenedores nuevos con valor, el paso 3
+        // es validarlo a cero como se hizo con `flags`.
+        codebook_id: 0,
         codebook_hash_prefix: codebook_fingerprint,
         salt,
         nonce,
