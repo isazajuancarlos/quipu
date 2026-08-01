@@ -7,6 +7,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Feature `qr` en `quipu-nucleo`: el símbolo hecho**, para quien no tenga
+  frontend que lo dibuje. `papel::qr::simbolos` devuelve la matriz de módulos de
+  cada trozo, con nivel de corrección **alto (30 %)** por defecto — más de lo
+  habitual, porque la medición mostró que el papel castiga más de lo que sugiere
+  la intuición. Cada símbolo es un QR estándar independiente: sin *Structured
+  Append*.
+
+  El círculo se cierra con un decoder **ajeno** (`rqrr`, dev-dependency): un
+  encoder roto de forma consistente pasaría una prueba contra sí mismo y fallaría
+  en el primer papel real. Y las dos capas de corrección quedan fijadas por
+  separado — la del QR repara una mancha DENTRO de un símbolo, la de Reed-Solomon
+  repara que un símbolo ENTERO no se pueda leer— con el caso rojo que comprueba
+  que un símbolo destrozado de verdad no se lee.
+
 - **`quipu-nucleo::papel` — la carga útil del portador de papel, sin ninguna
   dependencia nueva.** `empaquetar` trocea, protege con Reed-Solomon e
   **intercala**; `reensamblar` reconstruye con los trozos que se hayan podido

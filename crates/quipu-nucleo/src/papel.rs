@@ -83,6 +83,10 @@ pub enum PapelError {
     TrozosIncoherentes,
     /// Faltan o llegaron dañados más bytes de los que la paridad puede corregir.
     NoSeRecupera,
+    /// El trozo no cabe en ningún símbolo QR con el nivel de corrección pedido.
+    /// Lleva el motivo de la librería porque aquí un mensaje genérico no ayuda:
+    /// lo que hay que cambiar es la capacidad por símbolo o el nivel.
+    SimboloImposible(String),
 }
 
 impl core::fmt::Display for PapelError {
@@ -107,6 +111,9 @@ impl core::fmt::Display for PapelError {
                 f,
                 "faltan o llegaron dañados más bytes de los que la paridad corrige"
             ),
+            Self::SimboloImposible(m) => {
+                write!(f, "el trozo no cabe en un símbolo QR: {m}")
+            }
         }
     }
 }
@@ -435,5 +442,212 @@ mod tests {
         // mirando solo los bloques de datos, esta prueba se lo dice.
         assert_eq!(simbolos_perdidos_tolerados(155, 200), 5);
         assert_eq!(simbolos_perdidos_tolerados(1000, 254), 5);
+    }
+}
+
+/// El símbolo hecho, para quien no quiera renderizarlo por su cuenta.
+///
+/// **No es el camino recomendado y por eso es opcional.** Dibujar un QR es
+/// presentación, y en la mayoría de los productos ya lo hace el frontend con la
+/// librería que prefiera; [`super::empaquetar`] le entrega los trozos y no hace
+/// falta nada más. Esto existe para el caso contrario: una herramienta de línea
+/// de órdenes, o un binario que imprime sin frontend.
+///
+/// `qrcode` entra con `default-features = false`, y así **no arrastra ninguna
+/// dependencia transitiva**: lo único que declara es `image`, y es opcional —
+/// son los renderizadores a PNG y SVG, que aquí no se quieren porque lo que se
+/// devuelve es la matriz de módulos y el llamante decide cómo pintarla.
+#[cfg(feature = "qr")]
+pub mod qr {
+    use super::PapelError;
+    use qrcode::{Color, EcLevel, QrCode};
+
+    /// Nivel de corrección de errores DEL PROPIO QR.
+    ///
+    /// No se confunde con la paridad de [`super::empaquetar`], y las dos hacen
+    /// falta porque cubren daños distintos: la del QR repara lo que se estropea
+    /// DENTRO de un símbolo (una mancha, un doblez), y la de Reed-Solomon repara
+    /// que un símbolo ENTERO se pierda o no se pueda leer.
+    pub use qrcode::EcLevel as Nivel;
+
+    /// Nivel por defecto: **alto (30 %)**.
+    ///
+    /// El habitual en las librerías es el medio, y aquí se sube a propósito: la
+    /// medición de degradación (hoja de ruta §6) mostró que el papel castiga
+    /// mucho más de lo que sugiere la intuición, y este portador existe justo
+    /// para el papel que envejece mal. Se paga en capacidad, que es lo barato:
+    /// para lo caro —volver a imprimir un documento que ya no se puede— no hay
+    /// remedio.
+    pub const NIVEL_POR_DEFECTO: EcLevel = EcLevel::H;
+
+    /// Un símbolo QR como matriz cuadrada de módulos.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Simbolo {
+        /// Lado en módulos. **No incluye la zona de silencio**: quien imprime
+        /// tiene que dejar el margen de 4 módulos que exige la norma, o muchos
+        /// lectores no lo encuentran.
+        pub lado: usize,
+        oscuros: Vec<bool>,
+    }
+
+    impl Simbolo {
+        /// `true` si el módulo `(x, y)` es oscuro.
+        pub fn oscuro(&self, x: usize, y: usize) -> bool {
+            x < self.lado && y < self.lado && self.oscuros[y * self.lado + x]
+        }
+
+        /// Invierte un módulo. **Solo para las pruebas del laboratorio**: es como
+        /// se simula una mancha o un doblez sin tener que imprimir nada.
+        #[cfg(test)]
+        pub(crate) fn ensuciar(&mut self, x: usize, y: usize) {
+            if x < self.lado && y < self.lado {
+                let i = y * self.lado + x;
+                self.oscuros[i] = !self.oscuros[i];
+            }
+        }
+
+        /// El símbolo en texto, para verlo en una terminal o en un diff.
+        pub fn a_texto(&self) -> String {
+            let mut s = String::with_capacity((self.lado + 1) * self.lado);
+            for y in 0..self.lado {
+                for x in 0..self.lado {
+                    s.push(if self.oscuro(x, y) { '#' } else { '.' });
+                }
+                s.push('\n');
+            }
+            s
+        }
+    }
+
+    /// Convierte cada trozo de [`super::empaquetar`] en un símbolo QR.
+    ///
+    /// Cada símbolo es un QR **estándar e independiente**: no se usa *Structured
+    /// Append*. Así cualquier lector saca la carga de cualquiera de ellos por su
+    /// cuenta, no se depende de que la librería soporte esa extensión, y la
+    /// cabecera de reensamblado viaja DENTRO del flujo protegido por Reed-Solomon
+    /// en vez de en un campo del símbolo.
+    pub fn simbolos(trozos: &[Vec<u8>], nivel: EcLevel) -> Result<Vec<Simbolo>, PapelError> {
+        trozos
+            .iter()
+            .map(|t| {
+                let code = QrCode::with_error_correction_level(t, nivel)
+                    .map_err(|e| PapelError::SimboloImposible(e.to_string()))?;
+                let lado = code.width();
+                Ok(Simbolo {
+                    lado,
+                    oscuros: code.to_colors().iter().map(|c| *c == Color::Dark).collect(),
+                })
+            })
+            .collect()
+    }
+}
+
+/// El círculo completo: lo que escribimos lo lee un decoder INDEPENDIENTE.
+///
+/// `rqrr` es dev-dependency y no viaja en el artefacto. Está aquí por una razón
+/// concreta: un encoder roto **de forma consistente** pasaría una prueba de ida y
+/// vuelta contra sí mismo sin despeinarse, y fallaría en el primer papel real.
+/// Lo único que descarta eso es que quien lea no sea quien escribió.
+#[cfg(all(test, feature = "qr"))]
+mod pruebas_qr {
+    use super::qr::{simbolos, Simbolo, NIVEL_POR_DEFECTO};
+    use super::*;
+
+    /// Decodifica un símbolo con `rqrr`. `None` si no se puede leer.
+    ///
+    /// Se usa `decode_to` sobre un `Vec<u8>` y no `decode`, que devuelve
+    /// `String`: la carga es ciphertext, no texto, y por ahí se habría perdido
+    /// en cuanto un byte no fuera UTF-8 válido.
+    fn leer(s: &Simbolo) -> Option<Vec<u8>> {
+        let rejilla = rqrr::SimpleGrid::from_func(s.lado, |x, y| s.oscuro(x, y));
+        let mut out = Vec::new();
+        rqrr::Grid::new(rejilla).decode_to(&mut out).ok()?;
+        Some(out)
+    }
+
+    fn caso() -> (Vec<u8>, Vec<Vec<u8>>, Vec<Simbolo>) {
+        let d: Vec<u8> = (0..300u16).map(|i| (i * 37 + 11) as u8).collect();
+        let trozos = empaquetar(&d, 100, 200).unwrap();
+        let s = simbolos(&trozos, NIVEL_POR_DEFECTO).unwrap();
+        (d, trozos, s)
+    }
+
+    #[test]
+    fn un_decoder_independiente_lee_cada_trozo_tal_cual() {
+        let (_, trozos, simbolos) = caso();
+        assert_eq!(simbolos.len(), trozos.len());
+        for (i, (s, t)) in simbolos.iter().zip(&trozos).enumerate() {
+            assert_eq!(
+                leer(s).as_ref(),
+                Some(t),
+                "el símbolo {i} no devolvió su trozo"
+            );
+        }
+    }
+
+    #[test]
+    fn el_circulo_completo_devuelve_el_documento() {
+        let (d, _, simbolos) = caso();
+        let leidos: Vec<Vec<u8>> = simbolos.iter().filter_map(leer).collect();
+        assert_eq!(reensamblar(&leidos).unwrap(), d);
+    }
+
+    #[test]
+    fn la_correccion_del_propio_qr_repara_una_mancha() {
+        // Las DOS capas de corrección existen porque cubren daños distintos, y
+        // esta prueba fija la de dentro: unos módulos estropeados en un símbolo
+        // los repara el QR por su cuenta, sin gastar presupuesto del
+        // Reed-Solomon de `empaquetar`.
+        let (_, trozos, simbolos) = caso();
+        let s = &simbolos[0];
+        let mut manchado = s.clone();
+        // Una mancha pequeña lejos de los patrones de posición.
+        for y in (s.lado / 2)..(s.lado / 2 + 2) {
+            for x in (s.lado / 2)..(s.lado / 2 + 2) {
+                manchado.ensuciar(x, y);
+            }
+        }
+        assert_ne!(manchado, *s, "la mancha tiene que cambiar algo");
+        assert_eq!(
+            leer(&manchado).as_ref(),
+            Some(&trozos[0]),
+            "el nivel alto de corrección debería absorber cuatro módulos"
+        );
+    }
+
+    #[test]
+    fn un_simbolo_ilegible_lo_salva_el_reed_solomon_de_arriba() {
+        // Y esta fija la capa de fuera, que es la razón de intercalar: un
+        // símbolo que no se puede leer EN ABSOLUTO —se perdió la hoja, se quemó
+        // la esquina— y el documento sale igual.
+        let (d, _, simbolos) = caso();
+        let total = simbolos.len();
+        assert!(
+            simbolos_perdidos_tolerados(total, 200) >= 1,
+            "con {total} símbolos la cota tiene que admitir al menos uno"
+        );
+        let leidos: Vec<Vec<u8>> = simbolos.iter().skip(1).filter_map(leer).collect();
+        assert_eq!(leidos.len(), total - 1);
+        assert_eq!(reensamblar(&leidos).unwrap(), d);
+    }
+
+    #[test]
+    fn destrozar_un_simbolo_lo_vuelve_ilegible_de_verdad() {
+        // El caso rojo de las dos pruebas de arriba. Si un símbolo destrozado
+        // siguiera leyéndose, «tolera daño» no significaría nada: hay que ver
+        // que el canal ROMPE antes de creerle que repara.
+        let (_, _, simbolos) = caso();
+        let mut roto = simbolos[0].clone();
+        for y in 0..roto.lado {
+            for x in 0..roto.lado {
+                if (x + y) % 2 == 0 {
+                    roto.ensuciar(x, y);
+                }
+            }
+        }
+        assert!(
+            leer(&roto).is_none(),
+            "un símbolo con la mitad de los módulos invertidos NO puede leerse"
+        );
     }
 }

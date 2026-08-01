@@ -141,6 +141,14 @@ required-features = ["lab"]
 name = "gen_vectors"
 required-features = ["honey"]
 
+# La medición del portador de papel vive en el laboratorio, así que su ejemplo
+# tampoco puede compilarse sin él. Sin esta declaración,
+# `cargo test --workspace --all-targets` —la línea principal del CI— intenta
+# construirlo sin `lab` y falla con «cannot find `lab` in `quipu`».
+[[example]]
+name = "papel"
+required-features = ["lab"]
+
 # --- Endurecimiento del binario / ruedas (Capa 5) ---
 # overflow-checks: mantiene la comprobación de overflow de enteros EN RELEASE
 #   — defensa en profundidad para una lib que parsea entrada no confiable
