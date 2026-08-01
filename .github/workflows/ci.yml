@@ -66,6 +66,10 @@ jobs:
         run: cargo clippy --features honey --all-targets -- -D warnings
       - name: Clippy (escrow)
         run: cargo clippy --features escrow --all-targets -- -D warnings
+      - name: Tests (negacion — contenedor con señuelo y volumen oculto)
+        run: cargo test --features negacion --all-targets
+      - name: Clippy (negacion, deny warnings)
+        run: cargo clippy --features negacion --all-targets -- -D warnings
       # Custodia del seed del OPRF (Shamir k-de-n). Es feature del CRATE DEL
       # SERVIDOR, no del núcleo, y no-default: no viaja en el binario del VPS.
       # Va aquí porque una herramienta que solo se usa el día del desastre es
@@ -126,6 +130,19 @@ jobs:
         run: cargo test --features "lab honey" honey_attack
       - name: Lab tests (honey parser fuzz)
         run: cargo test --features "lab honey" honey_fuzz
+      # El banco del §8 del diseño de negación: contenedor contra azar, con
+      # oculto contra sin oculto, y ninguna posición predecible. Trae sus cuatro
+      # casos ROJOS dentro, así que un verde aquí significa que las sondas ven.
+      - name: Lab tests (negación — banco de indistinguibilidad)
+        run: cargo test --features "lab negacion" --test negacion_indistinguibilidad
+      # Directiva 8: 120 contenedores, 104 aperturas concurrentes con timeout, y
+      # el camino de error inyectado que demuestra que la de arriba discrimina.
+      # Va con `lab` porque el perfil barato es lo que la hace correr en el CI
+      # sin pedir 2 GB; el formato que ejercita es el mismo.
+      - name: Lab tests (negación — simulación)
+        run: cargo test --features "lab negacion" --test negacion_simulacion
+      - name: Clippy (lab + negacion, deny warnings)
+        run: cargo clippy --features "lab negacion" --all-targets -- -D warnings
       - name: Red-team (all surfaces consolidated)
         run: cargo run --example redteam --features "lab slh honey" --release
 

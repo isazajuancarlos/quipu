@@ -42,6 +42,13 @@ slh = ["dep:fips205"]
 # frases mnemónicas). Opt-in y SIN autenticación por diseño (un tag sería un
 # oráculo de éxito); no es sustituto del núcleo AEAD. Ver `src/honey.rs`.
 honey = []
+# Contenedor con negación: un archivo, dos contraseñas, y nada dentro que diga
+# si existe el segundo volumen. NO-default por dos razones, y la segunda pesa
+# más que la primera: un formato con promesa de seguridad seria no se enciende
+# por descuido, y su perfil de coste fija Argon2id en 256 MiB —cuatro veces el
+# camino normal— porque los parámetros NO viajan en el contenedor y subirlos
+# después lo paga el usuario legítimo en cada apertura. Ver `docs/DISENO_NEGACION.md`.
+negacion = []
 # Custodia de claves por umbral (Shamir k-de-n). NO-default: es una
 # herramienta de ESCROW, no del núcleo de cifrado. Aislada tras su propio
 # gate para que quien no la necesite no la lleve compilada — menos

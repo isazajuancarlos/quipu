@@ -39,6 +39,27 @@ datos → KDF(passphrase+pepper) → AEAD → contenedor → codec base-N → di
 | Firmado triple (alta garantía, feature `slh`) | `api::encode_signed_triple` / `decode_verified_triple` | Firma triple-híbrida **Ed25519 + ML-DSA-87 + SLH-DSA-256s** (AND 3-de-3): infalsificable mientras sobreviva ≥1 de {curva, retículo, hash}. Opt-in; firma ~34 KB |
 | Streaming (archivos grandes) | `api::encrypt_stream` / `decrypt_stream` | Cifrado por chunks (memoria acotada) para datos en reposo grandes; resistente a truncación/reordenamiento/splice. Contenedor `QST1` |
 | Señuelos / Honey (feature `honey`) | `honey::encrypt_pin` / `decrypt_pin` (y genérico `encrypt`/`decrypt`) | **Honey Encryption** para secretos de baja entropía (PIN, frase mnemónica): cualquier passphrase equivocada descifra a **otro secreto plausible**, no a un error → sin oráculo de fuerza bruta. Opt-in. **Sin autenticación por diseño** (un tag sería un oráculo); no sustituye al núcleo AEAD, solo para secuencias uniformes |
+| Negación (feature `negacion`) | `negacion::crear` / `abrir` | Un archivo, **dos contraseñas**: una abre el señuelo que se entrega bajo coacción y otra el volumen verdadero. **Nada dentro del contenedor dice si el segundo existe**, y el resto se rellena con azar exista o no. Opt-in. Ver el límite en negrita más abajo |
+
+## Negación: lo que promete y lo que NO (feature `negacion`)
+
+**Protege contra la PRUEBA, no contra la SOSPECHA de quien ya decidió
+sospechar.** Ante coacción física esa distinción puede no valer nada. Esto **no**
+es «cifrado indetectable», y quien lo use puede ser alguien cuya libertad dependa
+de entender la diferencia.
+
+El modelo de amenaza supone que el adversario ve el contenedor **una vez**. Quien
+guarde versiones sucesivas del mismo archivo en un respaldo —o lo sincronice a la
+nube— **pierde la negación**: comparar dos instantáneas delata qué región cambió.
+
+Lo que sí está medido, con casos rojos que ponen rojo el banco: el contenedor no
+se distingue de azar, ninguna posición de byte es predecible, uno con volumen
+oculto no se distingue de uno sin él, y abrir el señuelo cuesta lo mismo que
+abrir el oculto (`t = 0,73`, umbral 10). El diseño, las desviaciones y las
+mediciones están en [`docs/DISENO_NEGACION.md`](docs/DISENO_NEGACION.md).
+
+No viaja en las ruedas de Python en esta versión: una API mal usada aquí no
+produce un error, produce una falsa sensación de negación.
 
 ## Custodia de claves (k-de-n, feature `escrow`)
 

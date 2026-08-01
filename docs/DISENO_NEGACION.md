@@ -3,15 +3,25 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 -->
 
-# Contenedor con negación — diseño cerrado, sin implementar
+# Contenedor con negación — diseño, e implementación
 
-Estado: **diseño**. No hay código, y no lo habrá hasta que lo de aquí se acepte.
-Cierra las fichas **#99** (el mecanismo) y **#118** (los tres hallazgos que lo
-fijan), que son la misma cosa mirada dos veces.
+Estado: **implementado** el 2026-07-31 en `src/negacion.rs`, tras la feature
+`negacion` (no-default). Cierra las fichas **#99** (el mecanismo) y **#118** (los
+tres hallazgos que lo fijan), que son la misma cosa mirada dos veces.
 
-Existe porque las dos fichas decían «no empezar a implementar sin diseño cerrado y
-modelo de amenaza escrito», y la decisión de Juan del 2026-07-31 dio luz verde a
-**planificar**, no a construir. Esto es el entregable de esa luz verde.
+El diseño de aquí se escribió antes que el código y el código lo siguió, con
+**tres desviaciones argumentadas** que se listan en la §10 — no enterradas al
+final por vergüenza, sino porque solo se entienden después de leer el diseño.
+
+Lo que la §8 pedía medir está medido, y con sus casos rojos:
+
+| Sonda | Resultado |
+|---|---|
+| Contenedor contra azar (agregada) | no distingue |
+| **Ninguna posición predecible** | no delata — y la sonda hubo que **construirla**, ver §10.4 |
+| Con oculto contra sin oculto | no distingue |
+| Tiempo: abrir señuelo vs abrir oculto | `t = 0,73` con umbral 10 — indistinguible |
+| Tiempo: acertar vs fallar | `t = 3,35` con umbral 10 — bajo umbral, ver §10.5 |
 
 Todo lo que sigue está verificado contra el repositorio, no citado de memoria.
 
@@ -277,14 +287,79 @@ ponerse rojo. Un banco que nunca dice que no, no dice nada.
    arrastra y no se había visto es que **(a) aplaza el coste de (c) en vez de
    evitarlo**, y que por eso hace falta construir la pista de perfil fuera de
    banda (§5.3).
-2. **Si el señuelo es obligatorio.** Un contenedor con volumen oculto y señuelo
-   VACÍO es un contenedor que, abierto con A, muestra nada — y «no tengo nada
-   guardado ahí» es una respuesta peor que un señuelo creíble. Propuesta: exigir
-   señuelo no vacío, y decir por qué en el error.
-3. **Si esto va en la próxima versión o en una rama de formato.** Toca
-   compatibilidad: no rompe lo escrito —es un formato nuevo, no una modificación
-   del actual— pero sí añade una segunda familia de artefactos que el verificador
-   y la documentación tienen que cubrir.
+2. ~~**Si el señuelo es obligatorio.**~~ **RESUELTA: sí**, tomando la propuesta
+   que este mismo punto traía. Un contenedor con volumen oculto y señuelo VACÍO,
+   abierto con A, muestra nada — y «no tengo nada guardado ahí» es una respuesta
+   peor que un señuelo creíble. `crear` devuelve `SenueloVacio` y el mensaje
+   explica el porqué, no solo la regla.
+3. ~~**Si esto va en la próxima versión o en una rama de formato.**~~
+   **RESUELTA: formato nuevo que convive**, tras la feature `negacion`
+   (no-default) y sin tocar el contenedor `QUIP`. No rompe nada de lo escrito, y
+   no entra en las ruedas de Python en esta versión (§7).
 
-Mientras estas tres no se cierren, no se escribe código. Es lo que decía la ficha
-antes de la luz verde y lo que la luz verde confirmó.
+---
+
+## 10. Lo que el código hizo distinto, y por qué
+
+El diseño se escribió antes que el código. Tres cosas cambiaron al escribirlo, y
+una cuarta la descubrió una prueba que falló.
+
+### 10.1 No hay «cabecera cifrada» aparte
+
+El §4 la dibujaba para llevar la longitud del señuelo. **No hace falta**: si el
+AEAD cubre la región ENTERA, la longitud viaja dentro del texto en claro —el
+prefijo de Padmé, que ya existía— y el ciphertext mide siempre lo mismo. Una
+pieza menos, y ninguna fuera del cifrado, que es justo lo que pide el frente de
+la sospecha.
+
+### 10.2 Las regiones son fijas, no derivadas de la contraseña
+
+El §4 hablaba de un «desplazamiento distinto» para el oculto. No aporta, y el
+argumento está en el propio §4: **localizar una región no es fuga**, porque el
+relleno es azar exista o no el oculto. Derivar el desplazamiento sí añade un modo
+de fallo real —solapar con la región que autentica el AEAD del señuelo, que el §4
+prohíbe expresamente— a cambio de nada.
+
+El precio, dicho para que nadie lo descubra a la mala: **el volumen oculto no
+puede pasar de la mitad del cuerpo**. Es predecible y sale por error (`NoCabe`),
+no por truncamiento.
+
+### 10.3 Se prueban SIEMPRE las dos regiones
+
+Aunque la primera acierte. Salir antes haría que abrir el señuelo costara un AEAD
+menos que abrir el oculto, y el §8.3 exige que el reloj no sea el campo que
+dijimos que no existía. Medido: `t = 0,73` frente a un umbral de 10.
+
+### 10.4 La sonda que el §8 daba por hecha NO existía
+
+El §8 decía que el banco de indistinguibilidad «acepta cualquier sonda de bytes»
+y que la sonda 1 cazaría el mágico. **No lo cazaba.** El caso rojo —estampar
+`QUIP` a mano en un contenedor de 1024 bytes— dio **53 % de acierto**, o sea
+nada, y el banco lo habría aprobado.
+
+La causa no es un fallo del distinguidor sino su alcance: sus doce rasgos son
+**agregados de todo el blob** —monobit, chi², correlación serial— y cuatro bytes
+constantes en mil quedan diluidos. La pregunta del frente de la sospecha es otra,
+y es **posicional**: ¿hay alguna posición de byte cuyo valor se pueda predecir?
+
+Se construyó `distinguidor::posicion_mas_delatora`, que la contesta: cuenta, para
+cada posición, cuántas veces se repite su valor más frecuente, con un umbral
+derivado de la cola de Poisson y corregido por mirar `largo × 256` casillas a la
+vez. Con el mágico puesto, delata y **dice en qué posición**; sin él, no delata
+ni contra el azar puro.
+
+La lección, que vale más que la sonda: **un caso rojo que falla no siempre
+significa que el sistema esté roto — a veces significa que el medidor no mide lo
+que creías.** Arreglarlo en el caso (buscar un rojo que la sonda sí viera) habría
+dejado el agujero intacto y con un verde encima.
+
+### 10.5 Acertar y fallar no cuestan exactamente lo mismo
+
+`t = 3,35` frente al umbral de 10: pasa, pero es el número más alto del banco y
+conviene no venderlo como cero. Es esperable —el camino de acierto hace el
+`unpad` y construye el resultado— y **no distingue cuál de los dos volúmenes
+abrió**, que es lo único que el formato promete. El adversario, además, ya sabe
+si la contraseña abrió: recibe el contenido.
+
+Lo que sí habría que revisar si ese número creciera: que no empiece a distinguir
+*qué región* falló.

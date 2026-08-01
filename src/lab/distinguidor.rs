@@ -312,6 +312,118 @@ pub fn entrenar_y_evaluar(a: &[Vec<u8>], b: &[Vec<u8>]) -> Veredicto {
     }
 }
 
+// --- Sesgo POSICIONAL ------------------------------------------------------
+//
+// [`entrenar_y_evaluar`] no puede responder esta pregunta, y conviene decirlo
+// donde se lea: sus doce rasgos son AGREGADOS de todo el blob —monobit, chi²,
+// correlación serial—, así que un campo constante corto queda diluido. Medido
+// el 2026-07-31 con el contenedor de negación: un mágico de 4 bytes en 1024
+// dio 53 % de acierto, o sea nada.
+//
+// Un formato que promete ser indistinguible de azar hace una pregunta distinta,
+// y es POSICIONAL: ¿existe alguna posición de byte cuyo valor se pueda predecir
+// mirando muchos contenedores? Un mágico, un byte de versión, unas banderas o un
+// entero pequeño la contestan que sí. Eso es lo que mide lo que sigue.
+
+/// Lo que delata la posición más predecible de una población de blobs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SesgoPosicional {
+    /// La posición de byte más repetitiva.
+    pub posicion: usize,
+    /// Cuántas veces sale ahí su valor más frecuente.
+    pub repeticiones: usize,
+    /// A partir de cuántas repeticiones se considera delación.
+    pub umbral: usize,
+    /// Cuántos blobs se miraron.
+    pub muestras: usize,
+}
+
+impl SesgoPosicional {
+    /// `true` si alguna posición repite su valor más de lo que el azar explica.
+    pub fn delata(&self) -> bool {
+        self.muestras > 0 && self.repeticiones >= self.umbral
+    }
+}
+
+impl core::fmt::Display for SesgoPosicional {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "posición {} repite su valor {}/{} veces (umbral {}) — {}",
+            self.posicion,
+            self.repeticiones,
+            self.muestras,
+            self.umbral,
+            if self.delata() { "DELATA" } else { "no delata" }
+        )
+    }
+}
+
+/// El umbral de repeticiones a partir del cual una posición delata.
+///
+/// No se fija a ojo. Bajo la hipótesis nula cada (posición, valor) es una
+/// binomial(n, 1/256), y se miran `largo × 256` de esas a la vez: sin corregir
+/// por eso, con mil posiciones sale «fuga» todos los días. Se toma el menor `k`
+/// cuyo número ESPERADO de aciertos por azar en toda la rejilla baje de 0,01
+/// —una falsa alarma cada cien corridas—, calculado con la cola de Poisson, que
+/// aproxima la binomial por arriba con `p` diminuta.
+///
+/// El suelo de 3 existe porque con poblaciones pequeñas la cuenta daría 2, y dos
+/// coincidencias en una posición son un martes cualquiera.
+fn umbral_posicional(muestras: usize, largo: usize) -> usize {
+    let lambda = muestras as f64 / 256.0;
+    let rejilla = (largo as f64) * 256.0;
+    let mut termino = (-lambda).exp(); // P(X = 0)
+    let mut cola = 1.0f64; // P(X >= 0)
+    for k in 1..=muestras {
+        cola -= termino; // ahora es P(X >= k)
+        if rejilla * cola < 0.01 {
+            return k.max(3);
+        }
+        termino *= lambda / k as f64;
+    }
+    muestras.max(3)
+}
+
+/// Busca la posición de byte más predecible de una población de blobs del mismo
+/// largo. Es la sonda del frente de la SOSPECHA: contesta «¿hay algún byte que
+/// siempre valga lo mismo?», que es lo que un mágico o un campo de versión
+/// hacen y lo que el azar no hace.
+///
+/// Los blobs de largo distinto se recortan al más corto: comparar posiciones
+/// exige que la posición signifique lo mismo en todos.
+pub fn posicion_mas_delatora(muestras: &[Vec<u8>]) -> SesgoPosicional {
+    let largo = muestras.iter().map(Vec::len).min().unwrap_or(0);
+    let n = muestras.len();
+    if largo == 0 || n == 0 {
+        return SesgoPosicional {
+            posicion: 0,
+            repeticiones: 0,
+            umbral: usize::MAX,
+            muestras: 0,
+        };
+    }
+    let umbral = umbral_posicional(n, largo);
+    let (mut peor_pos, mut peor_rep) = (0usize, 0usize);
+    for p in 0..largo {
+        let mut cuenta = [0u32; 256];
+        for m in muestras {
+            cuenta[m[p] as usize] += 1;
+        }
+        let rep = *cuenta.iter().max().expect("256 casillas") as usize;
+        if rep > peor_rep {
+            peor_rep = rep;
+            peor_pos = p;
+        }
+    }
+    SesgoPosicional {
+        posicion: peor_pos,
+        repeticiones: peor_rep,
+        umbral,
+        muestras: n,
+    }
+}
+
 /// Muestras de bytes del PRNG del laboratorio. Es el «azar» de referencia.
 pub fn muestras_pseudoaleatorias(rng: &mut Rng, cuantas: usize, largo: usize) -> Vec<Vec<u8>> {
     (0..cuantas)
