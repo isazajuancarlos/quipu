@@ -44,7 +44,9 @@ hiding the format, it is a design defect.
 ## 2. Adversaries and capabilities
 
 - **T1. Observer of data at rest / in transit:** has the full encrypted container
-  (bytes or PNG image) and the public codebook. Does **not** have the
+  (bytes; the "or PNG image" this used to say was removed 2026-08-01 — **that
+  channel no longer exists**, deleted in PR #93/#99, and neither does the glyph
+  renderer) and the public codebook. Does **not** have the
   passphrase, pepper, or secret keys. Goal: read the plaintext or distinguish it
   from random.
 - **T1b. Observer who sees the container MORE THAN ONCE** (added 2026-08-01).
@@ -66,9 +68,46 @@ hiding the format, it is a design defect.
   passphrase, holding the container.
 - **T4. Dishonest or compromised OPRF server** (online mode): responds with the
   wrong key or tries to deflect the derivation.
-- **T5. "Harvest now, decrypt later" adversary** with a future quantum computer:
-  stores today's asymmetric traffic to decrypt it once the classical part
-  (X25519) can be broken.
+- **T5. Adversary with a future quantum computer (CRQC).** Rewritten 2026-08-01:
+  the previous wording said "stores today's asymmetric traffic to decrypt it once
+  the classical part **(X25519)** can be broken", and that parenthesis quietly
+  narrowed the adversary to the one place the design already handles. A category
+  closed around what somebody thought of is the failure mode this document exists
+  to avoid.
+  T5 breaks **every elliptic-curve construction in the tree**, and the tree has
+  three: X25519, Ed25519 and **ristretto255**. The first two are covered by
+  construction — the hybrid KEM and the AND signature keep working while ML-KEM
+  and ML-DSA stand. The third is not, and it is the one that matters:
+  - **The VOPRF hardening (`api::encode_online`) is ristretto255 and is not
+    post-quantum.** Its public key `Y = k·G` is *published by design*: the server
+    serves it at `/v1/public-key` and S5 **requires** clients to pin it out of
+    band. So this is not theft of `k` — it is **arithmetic on a value the design
+    obliges us to publish**. Shor recovers `k` with nothing captured and nobody
+    breached.
+  - With `k`, the adversary evaluates the OPRF locally and the **rate limit
+    disappears**. That rate limit is the whole of what the online mode adds (see
+    §8, T3): Argon2id prices each guess, only the VOPRF caps how many there are.
+    The victim is back to T3 with no signal anywhere.
+  - **It is the FIRST link to fall, not the last.** 256-bit ECDLP needs roughly
+    2 330 logical qubits against ~4 100 for RSA-2048 (Roetteler et al., 2017), so
+    this breaks *before* the RSA everyone quotes as the deadline — and long before
+    ML-KEM-1024 or ML-DSA-87 are in the conversation.
+  - **And it is retroactive with no recovery.** Every container hardened online,
+    and every password table hardened through `quipu-oprf-django`, that an
+    attacker holds *today* becomes offline-guessable the day a CRQC exists. `k`
+    and the domain never rotate, by project rule. This is the most concrete
+    harvest-now case in the whole tree.
+  - What survives, and it is not nothing: **obliviousness is perfect and holds
+    even against a CRQC** — `B = r·H(pw)` with uniform `r` means every candidate
+    is explained by some `r`, so the server never sees the passphrase. And the
+    DLEQ proof stays sound (Chaum-Pedersen with Fiat-Shamir is statistical in the
+    ROM, not reducible to DL) — but the guarantee goes **vacuous**, because an
+    adversary holding `k` *is* the server and produces honest proofs.
+  - **There is no fix to apply.** No practical, standardised post-quantum OPRF
+    exists. The honest response is that this is written here, in §4, in §8 and in
+    the README next to where the guarantee is sold — and that clients with a long
+    horizon use **pepper AND VOPRF**, because the pepper is the only factor in
+    that table that survives T5.
 - **T6. Attacker with access to process memory AFTER an operation** (dump, swap,
   partial cold-boot): looks for residual keys.
 - **T7. Attacker of the operator, not the cryptography** (2026-07-26): reaches the
@@ -212,14 +251,39 @@ the operation, a local physical side channel, or control of the binary/OS.
 - VERIFIABILITY (VOPRF + DLEQ proof): the client checks the server used the pinned
   key; a dishonest server (T4) is DETECTED and the operation aborts (closes F1).
 
-**Visual channel (PNG) and ECC:**
-- Purely representation: adds/subtracts no security. The PNG carries exactly
-  the encrypted container. Reed-Solomon corrects channel errors; it is not a
-  cryptographic defense. Parsing treats input as UNtrusted (fuzzing + anti-DoS
-  guards).
+**Visual channel (PNG) and ECC — REMOVED, kept here as a tombstone:**
+- **This channel no longer exists.** The PNG carrier and the native glyph
+  renderer were deleted in PR #93/#99; there is no module for either in `src/`
+  or `crates/`. Whatever this section guaranteed, it guarantees about nothing.
+- Kept as a marker rather than deleted because a security document that silently
+  loses a section leaves an auditor unable to tell "removed" from "never
+  reviewed". What replaced it is the **paper carrier**: standard symbology (QR)
+  plus a typeable layer, with the payload in `quipu_nucleo::papel`. Its
+  guarantees are availability, not confidentiality — the payload is ciphertext,
+  so a broken encoder can only produce an unreadable sheet, never leak a key.
+- The `ecc` module survives, and the reason is in its own header: it is what the
+  paper carrier needs. Its hostile-input limits are documented at
+  `ecc::PARIDAD_MAXIMA`.
 
 ## 5. Non-goals (out of scope)
 
+- **N1a. Which modes actually apply Padmé — measured 2026-08-01, because N1's
+  wording was wider than the code.** N1 states length hiding as a library-wide
+  mitigation. It is not: `prelayers::pad` is applied by the symmetric and hybrid
+  container paths only. **`QST1` (streaming), `QSG1` and `QSG3` (signed) never
+  call it**, and for `QST1` the leak is not approximate but *exact* — an
+  independent review reconstructed the original size to the byte, 10 out of 10,
+  from the file size and the `chunk_size` that travels in clear in the header.
+  That is the mode used for large data at rest, which is where size matters most.
+  And where Padmé *is* applied, the honest number: it pins the true length inside
+  a **±0.8 % window** across the whole range, leaving only **422 observable file
+  sizes between 0 and 16 MiB**. At the small end it degenerates — a payload of
+  1–24 B shares its file size with just **2** lengths, 25–56 B with 4. The small
+  end is Quipu's showcase (a key, a PIN, a mnemonic), so a 12-word phrase and a
+  24-word one are told apart by the file size alone.
+  None of this contradicts N1 — hiding size is a declared non-goal. What was
+  wrong is that N1 named a mitigation without its scope or its magnitude, and a
+  reader concluded coverage that is not there.
 - **N1.** Hiding the EXISTENCE or exact SIZE of the message. Size is mitigated with
   Padmé padding (approximate length hiding), not full steganography.
 - **N2.** Protecting against an adversary controlling the machine DURING the
@@ -241,6 +305,22 @@ the operation, a local physical side channel, or control of the binary/OS.
   T3 with compute) or dedicated hardware. The honest mitigation is deployment-side
   — dedicated instances for anything deriving keys from a passphrase — and it is
   named here so that whoever deploys can weigh it.
+- **N8. Key commitment / partitioning oracles** (added 2026-08-01, after an
+  independent review). XChaCha20-Poly1305 is **not key-committing**: a ciphertext
+  that validates under two distinct keys is constructible (Len–Grubbs–Ristenpart,
+  2021). Out of scope, for two different reasons that must not be merged:
+  - **In the core modes**, because a partitioning oracle requires repeated,
+    adaptive decryption of attacker-supplied input with the victim's secret,
+    leaking whether it worked. Quipu has no such surface, and the failure of
+    `decode` collapses "wrong passphrase" and "tampered container" into one error
+    with no timing difference that depends on the passphrase.
+  - **In `negacion`, because the absence of commitment is a REQUIREMENT, not a
+    defect.** A key-committing AEAD would be precisely the field that says "this
+    region opened with THIS key" — the field the whole format exists not to have.
+    Hardening it there would break deniability. The operational invariant that
+    keeps this true is written next to the code: **`negacion::abrir` must never
+    be exposed as a service that decrypts other people's containers.** That day
+    the oracle is born.
 - **N4.** Low-entropy passphrases without a high KDF cost (see R1).
 - **N5.** Availability of the online mode if the OPRF server is down (see R2).
 - **N6.** Secrecy of the representation/codebook (public by design).
@@ -390,9 +470,9 @@ is worse than none — it reads as coverage. Completed 2026-08-01.
 | T1 | AEAD (XChaCha20-Poly1305); public representation with no secret value. |
 | T1b | **None for `negacion`** — deniability does not survive a second look at the same container. The other modes are unaffected: their guarantee never depended on the adversary seeing the file once. Deployment-side only: no versioned backup, no cloud sync, and be aware that an SSD keeps the old copy whatever you do. |
 | T2 | Header as AAD; `is_sane` validation of KDF params; parsing guards. |
-| T3 | Argon2id (memory-hard) + pepper; online mode with rate limiting. **Argon2id raises the price of each guess; only the VOPRF caps how many there are.** |
+| T3 | Argon2id (memory-hard) + pepper; online mode with rate limiting. **Argon2id raises the price of each guess; only the VOPRF caps how many there are — and that cap is classical: see T5.** |
 | T4 | VOPRF with DLEQ proof verified against a pinned public key (F1). |
-| T5 | Hybrid KEM X25519 + ML-KEM-1024 (F2, transcript with bound ek), hybrid signature Ed25519 + ML-DSA-87. **The VOPRF hardening is ristretto255 and is NOT post-quantum**; see the online mode's entry in §4. |
+| T5 | Hybrid KEM X25519 + ML-KEM-1024 (F2, transcript with bound ek), hybrid signature Ed25519 + ML-DSA-87 — both hold. **NONE for the VOPRF hardening**: ristretto255 is classical, its public key is published by design, and Shor on it removes the rate limit retroactively for every container ever hardened. No practical PQ OPRF exists to swap in. Mitigate by *also* using a pepper, the only factor that survives T5. |
 | T6 | Best-effort zeroization of sensitive material (partial; see R3), plus `limpiar_pila` for reconstructed material, measured in `tests/residuo_memoria.rs` in both debug and release. |
 | T7 | Not cryptographic and not solvable here: least privilege, encryption at rest so exfiltration is worthless (R8), and the operational hardening of `quipu-oprf-server`. This is the adversary every real incident studied in §10 actually was. |
 | T8 | Asymmetry of the admin operations: closing is cheap and reversible, reopening is **not available at all**. Never the requester's word; always the payment record. |

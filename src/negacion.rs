@@ -51,6 +51,32 @@
 //!    un señuelo creíble: «no tengo nada ahí» no es una respuesta que salve a
 //!    nadie.
 //!
+//! ## LA NEGACIÓN DEPENDE DE QUE EL AEAD **NO** COMPROMETA LA CLAVE
+//!
+//! Contraintuitivo, y por eso está escrito: es la clase de propiedad que un
+//! refactor bienintencionado destruye. XChaCha20-Poly1305 **no es
+//! key-committing**: existe un ciphertext que valida bajo dos claves distintas.
+//! En casi cualquier otro contexto eso es un defecto que hay que tapar (CTX,
+//! Bellare-Hoang) — **aquí es requisito**. Un compromiso de clave sería
+//! exactamente el campo que dice «esta región abrió con ESTA clave», o sea el
+//! campo que todo el formato existe para no tener.
+//!
+//! Si algún día alguien propone «endurecer» este módulo con un AEAD que
+//! comprometa la clave, la respuesta es NO, y esta es la razón.
+//!
+//! ## EL INVARIANTE OPERATIVO: `abrir` NO SE EXPONE COMO SERVICIO
+//!
+//! El no-commitment es seguro aquí **solo porque no existe un oráculo de
+//! partición** (Len–Grubbs–Ristenpart, 2021): nadie descifra, de forma repetida
+//! y adaptativa, contenedores que le suministra un atacante, revelando si
+//! abrieron. Esto es un volumen personal, no un servicio.
+//!
+//! **El día que `abrir` se ofrezca como endpoint —recibe un blob y una
+//! contraseña, responde si abrió— ese oráculo nace**, y con él el ataque: un
+//! contenedor fabricado cuya región valide bajo un conjunto elegido de
+//! contraseñas biseca el espacio de búsqueda en cada consulta. La defensa no es
+//! parchear la primitiva: es no crear el oráculo.
+//!
 //! ## Por qué el relleno sale del CSPRNG y no de un keystream
 //!
 //! Si el relleno saliera de cifrar ceros con una clave derivada, existiría una
@@ -468,7 +494,45 @@ pub fn crear(
 
     // Oculto, si lo hay. Si no lo hay, su región se queda con el azar de arriba:
     // esa es toda la diferencia, y es indistinguible por construcción.
-    if let Some((datos, clave_oculta)) = oculto {
+    // SE DERIVA SIEMPRE LA SEGUNDA CLAVE, HAYA O NO VOLUMEN OCULTO.
+    //
+    // Sin esto, `crear` tardaba EXACTAMENTE EL DOBLE cuando había oculto —medido
+    // con el perfil V1: 839 ms sin él, 1 659 ms con él, ratio 1,98— y gastaba dos
+    // veces los 256 MiB de Argon2id. O sea que el reloj y el perfil de memoria
+    // del proceso entregaban justo el único bit que este módulo entero existe
+    // para ocultar.
+    //
+    // Lo halló una revisión independiente, y lo que lo convierte en defecto y no
+    // en curiosidad es la ASIMETRÍA: el camino de LECTURA se cerró con enorme
+    // cuidado y por escrito —`intentar` prueba siempre las dos regiones, `abrir`
+    // recorre siempre todos los perfiles, con su banco de caso rojo—, y el de
+    // ESCRITURA se quedó con un delator de 2× que no mencionaba ni un comentario.
+    // Cerrar una puerta y dejar la otra no es media defensa: es ninguna.
+    //
+    // Cuando no hay oculto se deriva contra una contraseña ALEATORIA y se tira
+    // el resultado. El coste es real —crear un contenedor solo con señuelo pasa
+    // a costar lo mismo que uno con los dos— y es exactamente el precio que el
+    // camino de lectura ya paga.
+    //
+    // EL ADVERSARIO al que esto le importa no es el que controla la máquina
+    // (ese es N2/S7, fuera de alcance y ya vería el claro): es la telemetría de
+    // tiempos y RSS que un agente de monitorización, una máquina corporativa o
+    // una línea de tiempo forense recogen de rutina SIN ver jamás el contenido.
+    let (datos_reales, clave_real, hay_oculto) = match oculto {
+        Some((d, c)) => (d, c.to_string(), true),
+        None => {
+            // Contraseña de descarte: 32 bytes del CSPRNG en hexadecimal. No se
+            // usa para nada y su claro nunca se escribe.
+            let mut relleno = [0u8; 32];
+            aleatorio::llenar(&mut relleno)
+                .map_err(|e| NegacionError::SinEntropia(e.to_string()))?;
+            let frase: String = relleno.iter().map(|b| format!("{b:02x}")).collect();
+            (b"".as_slice(), frase, false)
+        }
+    };
+    {
+        let datos = datos_reales;
+        let clave_oculta: &str = &clave_real;
         let mut maestra = kdf::derive_master_key(clave_oculta, &salt, b"", &perfil.params);
         let (mut clave, nonce) = claves_de_region(&maestra, INFO_OCULTO);
         antihacker::wipe(&mut maestra);
@@ -483,7 +547,13 @@ pub fn crear(
         antihacker::wipe(&mut clave);
         antihacker::wipe(&mut claro);
         debug_assert_eq!(cifrado.len(), r_oculto.len());
-        fuera[r_oculto].copy_from_slice(&cifrado);
+        // Y AQUÍ ESTÁ LA ÚNICA DIFERENCIA que queda entre los dos casos: sin
+        // oculto, la región se deja con el azar del CSPRNG que ya tenía. Es una
+        // copia de memoria de la que no se entera ningún reloj, frente a los
+        // 256 MiB y el segundo de Argon2id que sí se enteraban.
+        if hay_oculto {
+            fuera[r_oculto].copy_from_slice(&cifrado);
+        }
     }
 
     Ok(fuera)
@@ -788,6 +858,79 @@ mod tests {
     /// Eso era cierto y era lo de menos: con la misma contraseña, entregarla
     /// bajo coacción entrega el volumen verdadero — la única promesa del módulo,
     /// rota, y aceptada en silencio. Lo que se comprueba ahora es el rechazo.
+    /// EL RELOJ TAMPOCO PUEDE DECIR SI SE ESTÁ CREANDO UN VOLUMEN OCULTO.
+    ///
+    /// Lo halló una revisión independiente y es la puerta hermana de la de
+    /// abajo: `crear` tardaba EXACTAMENTE EL DOBLE con oculto que sin él
+    /// —medido con el perfil V1: 839 ms contra 1 659 ms, ratio 1,98— porque el
+    /// segundo Argon2id vivía dentro del `if let`. El camino de LECTURA se había
+    /// cerrado con cuidado y el de ESCRITURA se quedó abierto.
+    ///
+    /// TRAE SU CONTROL DENTRO, y aquí hace falta más que en la otra: un umbral
+    /// de tiempo suelto es una prueba intermitente. El control mide UNA y DOS
+    /// derivaciones directas con los mismos parámetros y exige que la diferencia
+    /// se vea. Si no se viera, el verde de abajo solo diría que el banco no
+    /// distingue 2× a esta escala.
+    #[cfg(feature = "lab")]
+    #[test]
+    fn el_reloj_no_delata_que_se_esta_creando_un_oculto() {
+        use std::time::Instant;
+
+        let p = Perfil::de_laboratorio(
+            "lab-crear",
+            KdfParams { mem_kib: 32 * 1024, iterations: 3, parallelism: 1 },
+        );
+        let medir = |f: &dyn Fn()| -> u128 {
+            let mut m = u128::MAX;
+            for _ in 0..3 {
+                let t = Instant::now();
+                f();
+                m = m.min(t.elapsed().as_micros());
+            }
+            m
+        };
+
+        // CONTROL: ¿este banco distingue una derivación de dos, a esta escala?
+        let sal = [7u8; kdf::SALT_LEN];
+        let una = medir(&|| {
+            let mut k = kdf::derive_master_key("a", &sal, b"", &p.params);
+            antihacker::wipe(&mut k);
+        });
+        let dos = medir(&|| {
+            let mut k1 = kdf::derive_master_key("a", &sal, b"", &p.params);
+            let mut k2 = kdf::derive_master_key("b", &sal, b"", &p.params);
+            antihacker::wipe(&mut k1);
+            antihacker::wipe(&mut k2);
+        });
+        assert!(
+            dos > una * 3 / 2,
+            "el control no discrimina: una derivación dio {una} µs y dos {dos} µs. \
+             A esta escala el banco no puede ver un 2×, así que el verde de abajo \
+             no probaría nada"
+        );
+
+        // Y ahora lo que importa: crear con y sin oculto tiene que costar igual.
+        let sin = medir(&|| {
+            crear(S, b"la lista de la compra", "clave-senuelo", None, p).unwrap();
+        });
+        let con = medir(&|| {
+            crear(
+                S,
+                b"la lista de la compra",
+                "clave-senuelo",
+                Some((b"el secreto de verdad".as_slice(), "otra-clave")),
+                p,
+            )
+            .unwrap();
+        });
+        let (lento, rapido) = if sin > con { (sin, con) } else { (con, sin) };
+        assert!(
+            lento < rapido * 3 / 2,
+            "crear sin oculto costó {sin} µs y con oculto {con} µs: el reloj \
+             entrega el único bit que este módulo existe para ocultar"
+        );
+    }
+
     /// EL RELOJ NO PUEDE DECIR QUÉ PERFIL LLEVA EL CONTENEDOR.
     ///
     /// Con un solo perfil publicado esto es inerte, y por eso el banco fabrica
