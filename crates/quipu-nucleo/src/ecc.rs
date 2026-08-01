@@ -123,7 +123,7 @@ pub fn recover(protected: &[u8]) -> Option<Vec<u8>> {
     //     está leyendo la hoja. Ver el porqué en `PARIDAD_MAXIMA`.
     //
     // Rechazar aquí es lo que impide que la entrada hostil llegue al decoder.
-    if parity < 2 || parity > PARIDAD_MAXIMA {
+    if !(2..=PARIDAD_MAXIMA).contains(&parity) {
         return None;
     }
     let data_len = u32::from_le_bytes(cabecera[1..HEADER].try_into().ok()?) as usize;
