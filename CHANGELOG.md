@@ -7,6 +7,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`papel::tecleable` — la capa que un humano copia sin ninguna máquina, con el
+  marco Reed-Solomon OPCIONAL.** Es la condición que hace válida la única razón
+  por la que esa capa existe: `Marco::Desnudo` es `Base32(secreto)` según la RFC
+  4648 y **cualquier decodificador del mundo lo abre**, hoy y en 2050;
+  `Marco::Protegido` tolera errores de tecleo a cambio de necesitar esta
+  librería. Sin defecto: quien escribe elige.
+
+  Lo sujeta un KAT contra los vectores del §10 de la RFC —no contra nosotros
+  mismos—, con relleno `=` incluido porque un decodificador estricto lo exige.
+
+  Al leer se tolera cómo escribe la gente (minúsculas, espacios, guiones) y se
+  corrige el `0` por `O`, que es inequívoco. **Lo ambiguo se RECHAZA diciendo las
+  dos lecturas**: un `1` puede ser `I` o `L`, y adivinar produciría un secreto
+  distinto en silencio, que es el único fallo que este formato no puede
+  permitirse.
+
 - **Feature `qr` en `quipu-nucleo`: el símbolo hecho**, para quien no tenga
   frontend que lo dibuje. `papel::qr::simbolos` devuelve la matriz de módulos de
   cada trozo, con nivel de corrección **alto (30 %)** por defecto — más de lo
