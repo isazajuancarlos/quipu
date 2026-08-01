@@ -240,6 +240,84 @@ fn los_trozos_incoherentes_se_rechazan_siempre() {
     assert_eq!(rechazos, probados, "algo incoherente pasó como bueno");
 }
 
+/// EL `largo` DE LA CABECERA NO PUEDE RESERVAR MEMORIA A CAPRICHO.
+///
+/// Lo escribe quien hace la hoja, y `reensamblar` es la capa que recibe el papel
+/// fotografiado de un tercero. Medido antes del arreglo: NUEVE bytes
+/// —`[ver|0|1|0xFFFFFFFF]`— llevaban el `VmPeak` del proceso de 3 a 4 099 MiB, y
+/// con cualquier límite de memoria (contenedor, cgroup, `ulimit`, un target de
+/// 32 bits, el móvil que fotografía la hoja) eso ABORTA: en Rust un fallo de
+/// asignación no es un `Result` que nadie pueda atrapar.
+///
+/// No bastaba con el anti-DoS que `ecc::recover` ya tenía: su comprobación es
+/// `data_len > protected.len()` y `protected` ES este buffer inflado, así que
+/// quedaba satisfecha por construcción.
+#[test]
+fn un_largo_hostil_en_la_cabecera_no_reserva_memoria_a_capricho() {
+    // El caso exacto que se midió.
+    let nueve = vec![vec![papel::VERSION, 0, 0, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF]];
+    assert_eq!(
+        reensamblar(&nueve),
+        Err(PapelError::TrozosIncoherentes),
+        "un largo de 4 GiB declarado por un trozo de 9 bytes tiene que rechazarse"
+    );
+
+    // Y no es un caso suelto: se barre el rango entero de `u32` por potencias.
+    let mut rechazados = 0usize;
+    let mut probados = 0usize;
+    for exp in 8..32u32 {
+        for total in [1u16, 2, 7, 255, 4096] {
+            let largo = 1u32 << exp;
+            let mut t = vec![papel::VERSION];
+            t.extend_from_slice(&0u16.to_be_bytes());
+            t.extend_from_slice(&total.to_be_bytes());
+            t.extend_from_slice(&largo.to_be_bytes());
+            t.extend_from_slice(&[0u8; 40]); // 40 bytes de carga
+            // Techo real: total · (40 + 1). Solo se exige rechazo por encima.
+            if (largo as usize) > total as usize * 41 {
+                probados += 1;
+                if reensamblar(std::slice::from_ref(&t)) == Err(PapelError::TrozosIncoherentes) {
+                    rechazados += 1;
+                }
+            }
+        }
+    }
+    assert!(probados >= 100, "solo se probaron {probados} cabeceras hostiles");
+    assert_eq!(rechazados, probados, "alguna cabecera hostil reservó memoria");
+}
+
+/// EL GEMELO. La cota no puede rechazar una hoja legítima, ni siquiera a la que
+/// le falten justo los símbolos que más carga llevan — que es el caso que hace
+/// que la cota tenga que ser `mayor_carga + 1` y no `mayor_carga`.
+#[test]
+fn la_cota_del_largo_no_rechaza_ninguna_hoja_legitima() {
+    let mut az = Az::nuevo(0x434F_5441_4C41_5247);
+    let mut aceptadas = 0usize;
+
+    for _ in 0..CICLOS {
+        let n = 1 + az.hasta(2500);
+        let d = az.bytes(n);
+        let capacidad = papel::CABECERA + 1 + az.hasta(200);
+        let paridad = (10 + az.hasta(ecc::PARIDAD_MAXIMA as usize - 10)) as u8;
+        let trozos = empaquetar(&d, capacidad, paridad).unwrap();
+
+        // Se quita el símbolo 0, que es el que MÁS carga lleva. Si la cota fuera
+        // `total · mayor_carga` en vez de `· (mayor_carga + 1)`, aquí rechazaría
+        // una hoja perfectamente recuperable.
+        if trozos.len() > 1 {
+            let sin_el_primero = &trozos[1..];
+            assert_ne!(
+                reensamblar(sin_el_primero),
+                Err(PapelError::TrozosIncoherentes),
+                "la cota rechazó una hoja legítima a la que solo le falta el símbolo 0"
+            );
+        }
+        assert_eq!(reensamblar(&trozos).unwrap(), d);
+        aceptadas += 1;
+    }
+    assert_eq!(aceptadas, CICLOS);
+}
+
 /// La paridad excesiva se RECHAZA aquí, no se recorta.
 ///
 /// `ecc::protect` recorta porque devuelve `Vec` y no tiene cómo avisar. Esta
