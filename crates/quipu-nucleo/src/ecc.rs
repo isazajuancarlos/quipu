@@ -36,9 +36,54 @@ pub fn tamano_cabecera() -> usize {
     HEADER_BLOCK
 }
 
+/// La paridad más alta que este módulo acepta, por bloque de 255 bytes.
+///
+/// # Por qué existe un tope, y por qué es este número
+///
+/// **`reed-solomon 0.2.1` ENTRA EN PÁNICO** —no devuelve error— al decodificar
+/// un bloque dañado por encima de su capacidad cuando la paridad es alta. El
+/// bucle de Berlekamp-Massey de `decoder.rs` hace `push` sobre un `Polynom` de
+/// array FIJO de 256 bytes sin comprobar el límite, y el desbordamiento sale
+/// como `range end index 257 out of range for slice of length 256`. Es un fallo
+/// del crate, no de la aritmética de aquí.
+///
+/// Eso lo convierte en una **caída del proceso que lee la hoja**, provocable
+/// por quien fabrique el papel: la cabecera lleva la paridad y va protegida por
+/// Reed-Solomon, que es un código de corrección y **no un MAC** — cualquiera
+/// puede recalcularla.
+///
+/// **EL NÚMERO NO ESTÁ AJUSTADO A LA MEDICIÓN, y esa es la parte importante.**
+/// La primera batería de daño situó el umbral en 174; al ensanchar la batería
+/// —bloques finales cortos, cola a cero, cola invertida— bajó a **171**. Un tope
+/// puesto en 170 sería un tope ajustado al último banco que corrí, y el
+/// siguiente banco lo volvería a bajar.
+///
+/// Así que el tope se elige por una razón que no es la medición: con paridad
+/// 128 se corrigen 64 errores por bloque de 255 —el 25 % del bloque, con el
+/// 50 % de redundancia—, y a partir de ahí se gastan más bytes en paridad que
+/// en datos, que para una hoja de papel es peor negocio que imprimir la hoja
+/// dos veces. Quedan **43 de margen** sobre el umbral más bajo que se ha
+/// medido, y ese margen se revalida en cada CI: `la_bateria_de_dano_no_hace_
+/// entrar_en_panico_a_ninguna_paridad_aceptada` recorre todas las paridades que
+/// este módulo admite.
+///
+/// El arreglo de fondo es sustituir o vendorizar la implementación de
+/// Reed-Solomon; mientras tanto, esto impide que la entrada hostil llegue al
+/// decodificador.
+pub const PARIDAD_MAXIMA: u8 = 128;
+
 /// Protege `data` con Reed-Solomon usando `parity` bytes de paridad por bloque.
+///
+/// `parity` se ajusta al rango `2..=`[`PARIDAD_MAXIMA`]. El extremo bajo ya se
+/// ajustaba desde siempre (con menos de 2 no se corrige ni un error); el alto
+/// es la defensa descrita en [`PARIDAD_MAXIMA`].
+///
+/// AJUSTA EN SILENCIO PORQUE NO TIENE CÓMO HABLAR: devuelve `Vec<u8>`, no
+/// `Result`. Quien necesite que se le avise debe entrar por
+/// `papel::empaquetar`, que **rechaza** la paridad excesiva en vez de
+/// recortarla — es la capa que sí puede informar, y es la que usa la gente.
 pub fn protect(data: &[u8], parity: u8) -> Vec<u8> {
-    let parity = parity.max(2); // mínimo para corregir 1 error
+    let parity = parity.clamp(2, PARIDAD_MAXIMA);
     let chunk = 255 - parity as usize;
     let encoder = Encoder::new(parity as usize);
 
@@ -68,10 +113,17 @@ pub fn recover(protected: &[u8]) -> Option<Vec<u8>> {
         .ok()?;
     let cabecera = cabecera.data();
     let parity = cabecera[0];
-    // `parity` viene de la cabecera NO protegida. Debe dejar sitio para datos:
-    // con parity==255 el chunk sería 0 (bloque de pura paridad) -> trabajo inútil
-    // y parámetros Reed-Solomon degenerados. Exige 2 <= parity <= 254.
-    if parity < 2 || 255 - (parity as usize) == 0 {
+    // `parity` viene de la cabecera, y la cabecera la puede fabricar CUALQUIERA:
+    // su bloque Reed-Solomon corrige, no autentica. Así que este byte es entrada
+    // hostil y se valida como tal.
+    //
+    //   - por abajo: con menos de 2 no se corrige ni un error.
+    //   - por arriba: `PARIDAD_MAXIMA`, o el decodificador de `reed-solomon`
+    //     puede ENTRAR EN PÁNICO con un bloque dañado y tumbar al proceso que
+    //     está leyendo la hoja. Ver el porqué en `PARIDAD_MAXIMA`.
+    //
+    // Rechazar aquí es lo que impide que la entrada hostil llegue al decoder.
+    if parity < 2 || parity > PARIDAD_MAXIMA {
         return None;
     }
     let data_len = u32::from_le_bytes(cabecera[1..HEADER].try_into().ok()?) as usize;
@@ -174,6 +226,108 @@ mod tests {
         // data_len = u32::MAX en un buffer minúsculo -> None, sin reservar 4 GiB.
         let prot = con_cabecera_hostil(8, u32::MAX, b"unos pocos bytes");
         assert!(recover(&prot).is_none());
+    }
+
+    /// LA SALVAGUARDA DE `PARIDAD_MAXIMA`, revalidada en cada corrida.
+    ///
+    /// Recorre TODAS las paridades que el módulo acepta y, para cada una, un
+    /// banco de daño que incluye el peor caso conocido —bloque final corto y
+    /// corrupción por encima de la capacidad de corrección—. Ninguna puede
+    /// entrar en pánico.
+    ///
+    /// No comprueba que 129 SÍ reviente, a propósito: eso sería fijar una
+    /// prueba a un fallo de una dependencia, y si algún día lo arreglan la
+    /// prueba se pondría roja sin que nada nuestro esté mal. Lo que se afirma
+    /// es la propiedad que nos importa: **lo que aceptamos, no tumba a nadie.**
+    #[test]
+    fn la_bateria_de_dano_no_hace_entrar_en_panico_a_ninguna_paridad_aceptada() {
+        let anterior = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        let mut casos = 0usize;
+        let mut panicos = Vec::new();
+        for parity in 2..=PARIDAD_MAXIMA {
+            let chunk = 255 - parity as usize;
+            // Tamaños que dejan el ÚLTIMO bloque corto, que es donde apareció.
+            for largo in [1usize, 2, 5, 17, chunk / 2, chunk - 1, chunk, chunk + 1, chunk * 2 + 3] {
+                if largo == 0 {
+                    continue;
+                }
+                let d = vec![0x5Au8; largo];
+                let prot = protect(&d, parity);
+                for corte in [
+                    HEADER_BLOCK,
+                    prot.len() / 4,
+                    prot.len() / 2,
+                    prot.len() * 3 / 4,
+                    prot.len().saturating_sub(2),
+                ] {
+                    if corte >= prot.len() {
+                        continue;
+                    }
+                    // Cola a cero: el símbolo que no se pudo leer.
+                    let mut a = prot.clone();
+                    a[corte..].fill(0);
+                    // Cola invertida: la mancha de tóner.
+                    let mut b = prot.clone();
+                    for x in b[corte..].iter_mut() {
+                        *x ^= 0xFF;
+                    }
+                    for (etiqueta, roto) in [("ceros", a), ("invertida", b)] {
+                        casos += 1;
+                        if std::panic::catch_unwind(|| recover(&roto)).is_err() {
+                            panicos.push(format!(
+                                "paridad {parity}, largo {largo}, corte {corte} ({etiqueta})"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        std::panic::set_hook(anterior);
+
+        assert!(casos > 5_000, "el banco solo probó {casos} casos");
+        assert!(
+            panicos.is_empty(),
+            "{} de {casos} paridades ACEPTADAS entran en pánico — el tope de \
+             PARIDAD_MAXIMA ya no protege. Primeros: {:?}",
+            panicos.len(),
+            &panicos[..panicos.len().min(5)]
+        );
+    }
+
+    /// Una paridad por encima del tope no se recorta en silencio al leer: se
+    /// RECHAZA. Es lo que impide que la entrada hostil llegue al decodificador.
+    #[test]
+    fn una_paridad_por_encima_del_tope_se_rechaza_al_leer() {
+        for excesiva in [PARIDAD_MAXIMA + 1, 173, 200, 254] {
+            let prot = con_cabecera_hostil(excesiva, 4, b"lo que sea, da igual");
+            assert!(
+                recover(&prot).is_none(),
+                "una cabecera que declara paridad {excesiva} tenía que rechazarse"
+            );
+        }
+        // Y el borde justo por debajo SÍ se acepta, o el tope estaría de más.
+        let sana = protect(b"hola", PARIDAD_MAXIMA);
+        assert_eq!(recover(&sana).unwrap(), b"hola");
+    }
+
+    /// `protect` recorta por arriba, y lo que escribe en la cabecera es lo
+    /// recortado — o `recover` leería una paridad que no se usó.
+    #[test]
+    fn protect_recorta_y_la_cabecera_dice_la_verdad() {
+        for pedida in [PARIDAD_MAXIMA + 1, 200, 255] {
+            let prot = protect(b"contenido", pedida);
+            let cab = Decoder::new(HEADER_PARITY)
+                .correct(&prot[..HEADER_BLOCK], None)
+                .expect("la cabecera tiene que leerse");
+            assert_eq!(
+                cab.data()[0],
+                PARIDAD_MAXIMA,
+                "pidiendo {pedida} la cabecera tiene que declarar el recorte"
+            );
+            assert_eq!(recover(&prot).unwrap(), b"contenido");
+        }
     }
 
     #[test]
