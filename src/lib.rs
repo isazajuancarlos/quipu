@@ -38,10 +38,32 @@ pub mod kdf;
 #[cfg(feature = "negacion")]
 pub mod negacion;
 pub mod netlimit;
-/// OPRF **sin verificación** (sin prueba DLEQ). Prefiere `voprf` (verificable):
-/// con él el cliente detecta un servidor deshonesto. Se mantiene por
-/// compatibilidad y usos de bajo nivel; oculto de la documentación para no
-/// invitar a saltarse la verificación.
+/// OPRF **sin verificación** (sin prueba DLEQ). **OBSOLETO: use [`voprf`].**
+///
+/// # Por qué está marcado y no solo oculto
+///
+/// Con este módulo el cliente **no puede saber si el servidor usó la clave
+/// correcta**: un servidor deshonesto o comprometido —T4 del modelo de
+/// amenaza— desvía la derivación y nadie se entera. `voprf` (RFC 9497) lo
+/// cierra con una prueba DLEQ que el cliente verifica contra una clave fijada.
+///
+/// Llevaba `#[doc(hidden)]`, y eso **no es una barrera**: oculta de la
+/// documentación, pero el autocompletado del editor sigue ofreciéndolo, y el
+/// autocompletado no lee documentación. `#[deprecated]` sí avisa —en el sitio
+/// de uso, con el motivo— sin romper a nadie que ya dependa de él.
+///
+/// Cero consumidores en el árbol desde el 2026-08-01: el único que quedaba era
+/// `examples/v2demo.rs`, que **demostraba precisamente el camino sin
+/// verificar** — lo peor posible, porque un ejemplo es lo primero que se copia.
+/// Ahora demuestra el verificable, incluida la detección de un servidor
+/// deshonesto.
+///
+/// Se retira en la próxima ruptura de API.
+///
+/// La marca `#[deprecated]` va en los ÍTEMS y no en el módulo: puesta aquí
+/// contagiaría a las funciones de `#[test]` de dentro, y el arnés que genera
+/// `#[test]` las referencia desde fuera de cualquier `allow`. Marcar los ítems
+/// es además más preciso — apunta exactamente a lo que un consumidor llamaría.
 #[doc(hidden)]
 pub mod oprf;
 pub mod oprf_net;
