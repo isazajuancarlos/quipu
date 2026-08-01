@@ -41,6 +41,51 @@ datos → KDF(passphrase+pepper) → AEAD → contenedor → codec base-N → di
 | Señuelos / Honey (feature `honey`) | `honey::encrypt_pin` / `decrypt_pin` (y genérico `encrypt`/`decrypt`) | **Honey Encryption** para secretos de baja entropía (PIN, frase mnemónica): cualquier passphrase equivocada descifra a **otro secreto plausible**, no a un error → sin oráculo de fuerza bruta. Opt-in. **Sin autenticación por diseño** (un tag sería un oráculo); no sustituye al núcleo AEAD, solo para secuencias uniformes |
 | Negación (feature `negacion`) | `negacion::crear` / `abrir` | Un archivo, **dos contraseñas**: una abre el señuelo que se entrega bajo coacción y otra el volumen verdadero. **Nada dentro del contenedor dice si el segundo existe**, y el resto se rellena con azar exista o no. Opt-in. Ver el límite en negrita más abajo |
 
+## Qué protege tu secreto: los tres factores, y cuál elegir
+
+La tabla de arriba dice qué **hace** cada modo. Esta dice de qué depende que
+alguien pueda abrirlo, que es la pregunta que hay que responder antes.
+
+**El eje no es «clave o archivo».** Lo que decide la seguridad es *cuántos
+intentos consigue el atacante y si puede hacerlos sin pedir permiso a nadie*.
+
+| Factor | Qué es | Fuerte contra | Débil contra |
+|---|---|---|---|
+| **Contraseña** (siempre) | lo que SABES. Argon2id la convierte en clave | robo del archivo: no hay nada guardado que copiar | adivinación **offline, en paralelo y sin límite** — y coacción |
+| **`pepper`** (`Options::pepper`) | lo que TIENES: variable de entorno, código, HSM. Se mezcla antes del KDF | quien consigue el contenedor y no el pepper **no puede ni empezar** a adivinar | copiarse sin que te enteres; si lo pierdes, los datos se van con él |
+| **VOPRF online** (`encode_online`) | lo que un **servidor concede**, con prueba DLEQ verificada contra una clave fijada | es el único que **ACOTA EL NÚMERO DE INTENTOS**: cada uno exige una consulta que el servidor puede negar | disponibilidad — si el servidor cae, no se descifra ([R2/N5](docs/THREAT_MODEL.md)) |
+
+**Argon2id encarece cada intento; no limita cuántos hay.** Esa es la frase que
+ordena la tabla: contra alguien con tu contenedor, tiempo y máquinas, el coste
+por intento solo multiplica su factura. Lo único que le pone un techo al número
+de intentos es el VOPRF, y por eso es el servicio de pago y no un adorno.
+
+### Qué usar
+
+- **Nada más que la contraseña**: si es larga y aleatoria (una frase de
+  diccionario de 6+ palabras, no una que hayas inventado). Sin infraestructura,
+  y es el defecto. `Options::pepper` viene vacío: **por omisión no hay segundo
+  factor**, y conviene saberlo.
+- **Contraseña + `pepper`**: en cuanto exista un sitio para guardarlo que no sea
+  el mismo disco que el contenedor. Es la mejora más barata que hay.
+- **Contraseña + VOPRF**: cuando el adversario pueda llevarse el contenedor y
+  tenga paciencia. A cambio aceptas depender de un servicio — por eso su dominio
+  y su clave `k` **no rotan nunca**: rotar invalidaría todo lo derivado.
+- **Modo de clave pública** (`encode_to_recipient`): cuando quien cifra **no**
+  es quien descifra, o cuando no hay ningún humano que teclee nada (un servidor
+  cifrando su propia base). Ahí sí hay un secreto que guardar, y para eso están
+  el [HSM](#firma-en-un-dispositivo-hsmpkcs11-feature-hsm) y la
+  [custodia k-de-n](#custodia-de-claves-k-de-n-feature-escrow).
+
+### Por qué Quipu NO tiene «archivo de clave» a secas
+
+Sería un objeto único cuya **copia no deja rastro** y cuya **pérdida no tiene
+recurso**, y traslada el problema justo a donde un atacante con acceso al sistema
+de ficheros es más fuerte. El `pepper` es la versión estrictamente mejor de «algo
+que tienes»: no está obligado a ser un archivo —puede vivir en el entorno o en un
+HSM— y **suma** a la contraseña en vez de sustituirla. Añadir además un archivo de
+clave daría aspecto de más protección introduciendo un punto único de fallo.
+
 ## Negación: lo que promete y lo que NO (feature `negacion`)
 
 **Protege contra la PRUEBA, no contra la SOSPECHA de quien ya decidió
