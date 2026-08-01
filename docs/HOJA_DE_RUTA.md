@@ -154,7 +154,43 @@ de 6 puntos entrega 147 B a través de un fax sucio**, y una clave de Quipu son 
 
 **Consecuencia para el diseño: la capa Base32 NO se justifica por robustez.** Se
 justifica solo por otra propiedad, que esta medición no toca — que un humano
-pueda **teclearla sin escáner**. Si esa propiedad no se quiere, la capa sobra.
+pueda **teclearla sin escáner**.
+
+### Lo decidido con ese dato (2026-07-31)
+
+**1. La capa tecleable SE CONSERVA, y deja de llamarse «respaldo».** El argumento
+que la salva no es la robustez sino que **degrada a «teclee estos caracteres en
+cualquier decodificador Base32»**: cero dependencia de que Quipu exista en 2050,
+que es el objetivo declarado de esta sección. Condición para que ese argumento se
+sostenga: **el marco Reed-Solomon tiene que ser OPCIONAL**, o el Base32 crudo
+volvería a necesitar herramienta nuestra y perdería su única ventaja. Alcance
+nuevo: papel limpio, carga de tamaño de clave (≤64 B).
+
+**2. En el NÚCLEO no entra ninguna dependencia de QR.** La simbología estándar sí
+es obligatoria —inventar una matriz propia recrea el problema de los glifos—,
+pero **renderizar el símbolo no tiene por qué hacerlo Quipu**. El trabajo de
+Quipu es la carga útil: trocear, proteger con ECC y poner la cabecera de índice y
+total. Dibujar es presentación.
+
+| Capa | Dependencia |
+|---|---|
+| `papel::empaquetar` / `reensamblar` | **ninguna nueva** |
+| feature `qr` (no-default), símbolo hecho | `qrcode` (MIT OR Apache-2.0, encoder) |
+| solo pruebas | `rqrr` como dev-dependency (decoder) |
+
+El decoder **no viaja en el artefacto**: el usuario decodifica con su teléfono, y
+`rqrr` existe para que la prueba de ida y vuelta no sea un `assert` sobre nuestro
+propio encoder.
+
+**3. Sin *Structured Append*.** N símbolos QR independientes, cada uno con
+`[versión][índice][total]` dentro de su carga: cada símbolo es un QR estándar
+válido por su cuenta, no se depende de que la librería soporte SA, y la cabecera
+de reensamblado viaja DENTRO del flujo protegido por ECC.
+
+Lo que se le exige a `qrcode` es **disponibilidad, no confidencialidad**: la carga
+es ciphertext más ECC, así que un encoder con fallos solo puede producir un
+símbolo ilegible — nunca filtrar la clave. Eso baja el listón de `cargo-vet`, que
+es el check que gobierna esto (aquí no hay `deny.toml`).
 
 Y una advertencia sobre la propia medición, porque estuvo a punto de decir lo
 contrario: con el barrido cortado en módulo 4 el texto parecía ganar en «fax»
