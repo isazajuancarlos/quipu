@@ -158,6 +158,16 @@ jobs:
       # sin pedir 2 GB; el formato que ejercita es el mismo.
       - name: Lab tests (negación — simulación)
         run: cargo test --features "lab negacion" --test negacion_simulacion
+      # El residuo de memoria de `negacion`. Necesita las TRES features a la vez
+      # —`escrow` porque el archivo entero cuelga de ella, `negacion` por el
+      # módulo y `lab` por el perfil KDF barato— y ninguna otra línea las junta,
+      # así que sin esto el escenario no lo correría nadie.
+      #
+      # Lo que mide es lo que más pesa del módulo: que el CLARO del volumen
+      # oculto no sobreviva a la operación. Ese residuo en un swap ES la prueba
+      # de que el segundo volumen existe.
+      - name: Tests (residuo de memoria del contenedor con negación)
+        run: cargo test --features "escrow negacion lab" --test residuo_memoria
       - name: Clippy (lab + negacion, deny warnings)
         run: cargo clippy --features "lab negacion" --all-targets -- -D warnings
       - name: Red-team (all surfaces consolidated)
