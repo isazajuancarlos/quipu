@@ -73,6 +73,16 @@ jobs:
         run: cargo test -p quipu-nucleo --features qr
       - name: Clippy (qr, deny warnings)
         run: cargo clippy -p quipu-nucleo --features qr --all-targets -- -D warnings
+      # `palabras` (BIP-39), por lo mismo que `qr`: vive en `quipu-nucleo` y la
+      # matriz automática no la ve. Lo que aquí se juega no es que compile: son
+      # los 24 vectores OFICIALES de la norma y la ida y vuelta contra una
+      # implementación ajena. Si esto se rompe, lo que se imprima en un papel
+      # deja de poder leerlo el resto del mundo — y eso no se nota escribiendo
+      # y leyendo con nosotros mismos.
+      - name: Tests (palabras — BIP-39, vectores oficiales y lector ajeno)
+        run: cargo test -p quipu-nucleo --features palabras
+      - name: Clippy (palabras, deny warnings)
+        run: cargo clippy -p quipu-nucleo --features palabras --all-targets -- -D warnings
       - name: Tests (negacion — contenedor con señuelo y volumen oculto)
         run: cargo test --features negacion --all-targets
       - name: Clippy (negacion, deny warnings)
