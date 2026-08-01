@@ -27,5 +27,28 @@ num-traits = "0.2"
 # una fotocopia no se lleve el mensaje.
 reed-solomon = "0.2"
 
+# --- Renderizado del símbolo de papel, OPCIONAL ---
+# `qrcode` con `default-features = false` es un encoder SIN NINGUNA dependencia:
+# su único `[dependencies]` es `image`, y es opcional (los renderizadores a PNG y
+# SVG). Nosotros solo queremos la matriz de módulos, así que se queda en cero
+# dependencias transitivas — el mejor resultado posible de cadena de suministro
+# para una simbología estándar.
+#
+# Lo que se le exige es DISPONIBILIDAD, no confidencialidad: la carga es
+# ciphertext más Reed-Solomon, así que un encoder con fallos solo puede producir
+# un símbolo ilegible, nunca filtrar la clave.
+qrcode = { version = "0.14", default-features = false, optional = true }
+
+[features]
+# El símbolo hecho, para quien no quiera renderizarlo por su cuenta. NO-default:
+# el núcleo no debe cargar con una dependencia de dibujo que la mayoría de los
+# consumidores ya tienen resuelta en su frontend (ver docs/HOJA_DE_RUTA.md §6).
+qr = ["dep:qrcode"]
+
 [dev-dependencies]
+# Decoder de QR, SOLO para pruebas: el usuario decodifica con su teléfono y esto
+# NO viaja en el artefacto. Existe para que la prueba de ida y vuelta no sea un
+# `assert` sobre nuestro propio encoder — un encoder roto de forma consistente
+# pasaría esa prueba y fallaría en el primer papel real.
+rqrr = { version = "0.10", default-features = false }
 proptest = "1"
