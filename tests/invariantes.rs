@@ -327,3 +327,124 @@ fn media_firma_valida_no_autoriza_nada() {
         "una firma con SOLO la mitad ML-DSA verificó: el AND no se está aplicando"
     );
 }
+
+// ===========================================================================
+// ENLAZABILIDAD DEL CONTENEDOR — lo que la CONFIGURACIÓN revela, medido y fijado
+// ===========================================================================
+//
+// La prueba hermana de `shamir::tests::dos_comparticiones_no_se_delatan_como_pareja`,
+// que el proyecto ya escribió para el mismo problema en otro módulo: «en un
+// archivo con secretos de varios clientes eso los particiona en clases de
+// equivalencia». El contenedor `QUIP` tiene la propiedad y no tenía la prueba.
+//
+// AQUÍ SE AFIRMAN DOS COSAS DISTINTAS, y confundirlas es el error que esta
+// prueba existe para impedir:
+//
+//   1. La CLAVE no enlaza nada. Mil contenedores con la misma contraseña dan
+//      mil salts y mil nonces distintos. Es propiedad de SEGURIDAD y no puede
+//      regresar jamás — si alguien derivara el salt de la contraseña, aquí se
+//      ve.
+//   2. La CONFIGURACIÓN sí enlaza, y cuánto está FIJADO. Es un no-objetivo
+//      declarado (N9 del modelo de amenaza), no un defecto: el formato de Quipu
+//      es público por Kerckhoffs y el mágico `QUIP` está ahí a propósito. Lo que
+//      esta prueba impide es que la fuga CREZCA sin que nadie se entere.
+
+/// Bytes de cabecera que son idénticos entre contenedores del mismo autor.
+/// `[0..16)` = magic(4) ‖ version(1) ‖ flags(1) ‖ codebook_id(2) ‖ huella(8);
+/// `[56..68)` = los tres parámetros del KDF.
+const BYTES_ESTABLES_DECLARADOS: usize = 16 + 12;
+
+#[test]
+fn la_clave_no_enlaza_y_la_configuracion_enlaza_exactamente_lo_declarado() {
+    use quipu::api::{encode_to_blob, Options};
+    use quipu::dictionaries;
+    use quipu::dictionary::HuellaDeCodebook;
+    use std::collections::HashSet;
+
+    let dict = dictionaries::ascii94();
+    let opts = Options::default();
+    // Doscientos bastan para el argumento y no alargan el CI: con salt de 128
+    // bits, ver 200 valores distintos ya descarta cualquier derivación de la
+    // contraseña, que es lo único que esta mitad tiene que cazar.
+    const N: usize = 200;
+    let blobs: Vec<Vec<u8>> = (0..N)
+        .map(|i| {
+            let d = format!("dato numero {i}");
+            encode_to_blob(d.as_bytes(), "la misma contrasena de siempre", dict.fingerprint(), &opts)
+        })
+        .collect();
+
+    let distintos = |a: usize, b: usize| -> usize {
+        blobs.iter().map(|v| v[a..b].to_vec()).collect::<HashSet<_>>().len()
+    };
+
+    // --- 1. LA PROPIEDAD DE SEGURIDAD: nada derivado de la clave enlaza ------
+    assert_eq!(
+        distintos(16, 32), N,
+        "el SALT se repite entre contenedores de la misma contraseña. Si alguien \
+         lo derivó de la contraseña, mil archivos del mismo usuario quedan \
+         emparejados a simple vista y además vuelven los ataques multiobjetivo"
+    );
+    assert_eq!(
+        distintos(32, 56), N,
+        "el NONCE se repite. Con un nonce repetido bajo la misma clave el cifrado \
+         está roto, no solo enlazado"
+    );
+
+    // --- 2. LA FUGA DECLARADA: ni un byte más de lo dicho --------------------
+    let estables: usize = (0..blobs[0].len())
+        .filter(|&i| blobs.iter().all(|b| b[i] == blobs[0][i]))
+        .count();
+    assert_eq!(
+        estables, BYTES_ESTABLES_DECLARADOS,
+        "la cabecera tiene {estables} bytes estables y el modelo de amenaza \
+         declara {BYTES_ESTABLES_DECLARADOS} (N9). Si subió, hay un campo \
+         enlazable nuevo que nadie declaró; si bajó, la declaración se pasa de \
+         pesimista y hay que corregirla. Las dos cosas hay que mirarlas"
+    );
+}
+
+/// LA HUELLA DEL ALFABETO ES INVERTIBLE, y por eso un alfabeto propio es un
+/// pseudónimo y no solo una preferencia.
+///
+/// No es un fallo del hash: es que el ESPACIO de alfabetos que la propia
+/// librería ofrece construir es pequeño y enumerable. Se fija con una prueba
+/// para que la afirmación del modelo de amenaza tenga su medición al lado y no
+/// sea una impresión.
+#[test]
+fn la_huella_del_alfabeto_se_invierte_por_fuerza_bruta() {
+    use quipu::dictionaries;
+    use quipu::dictionary::HuellaDeCodebook;
+    use std::time::Instant;
+
+    let (inicio, cuantos) = (0x1F300u32, 512u32);
+    let objetivo = dictionaries::from_range(inicio, cuantos)
+        .expect("alfabeto válido")
+        .fingerprint();
+
+    let t0 = Instant::now();
+    let mut hallado = None;
+    'b: for s in 0x1F200u32..0x1F400 {
+        for c in [64u32, 128, 256, 512, 1024] {
+            if let Ok(d) = dictionaries::from_range(s, c)
+                && d.fingerprint() == objetivo
+            {
+                hallado = Some((s, c));
+                break 'b;
+            }
+        }
+    }
+    assert_eq!(
+        hallado,
+        Some((inicio, cuantos)),
+        "la huella dejó de ser invertible en este barrido. No es una mala \
+         noticia — pero el modelo de amenaza (N9) AFIRMA que lo es, así que o \
+         cambió el constructor de alfabetos o cambió la huella, y la \
+         declaración hay que rehacerla"
+    );
+    println!(
+        "huella invertida en {:?} sobre 1024 candidatos: un alfabeto propio \
+         IDENTIFICA a su dueño",
+        t0.elapsed()
+    );
+}

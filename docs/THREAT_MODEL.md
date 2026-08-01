@@ -305,6 +305,47 @@ the operation, a local physical side channel, or control of the binary/OS.
   T3 with compute) or dedicated hardware. The honest mitigation is deployment-side
   — dedicated instances for anything deriving keys from a passphrase — and it is
   named here so that whoever deploys can weigh it.
+- **N9. Linkability of containers by their CONFIGURATION** (added 2026-08-01,
+  after an independent review; measured independently before writing this).
+  A Quipu container announces itself as one — the `QUIP` magic is deliberate, and
+  Kerckhoffs governs this project: the format is public. Asking the symmetric
+  mode for indistinguishability would be asking for a property only `negacion`
+  promises, and `negacion` pays for it with a price the normal modes must not pay
+  (no magic, no version, KDF parameters outside the file).
+  So this is a **non-goal — but one that was neither promised nor ruled out, and
+  that is the dangerous category.** With its magnitude, so nobody has to guess:
+  - **The key links NOTHING.** Measured over 1 000 containers under one
+    passphrase: 1 000 distinct salts, 1 000 distinct nonces. This is a *security*
+    property and it must never regress. Pinned by
+    `la_clave_no_enlaza_y_la_configuracion_enlaza_exactamente_lo_declarado`.
+  - **The configuration links 28 bytes**, identical across every container the
+    same author writes: `[0..16)` = magic(4) ‖ version(1) ‖ flags(1) ‖
+    `codebook_id`(2) ‖ codebook fingerprint(8), and `[56..68)` = the three KDF
+    parameters.
+  - **For the common case those 28 bytes are a world constant.** `ascii94`,
+    `KdfParams::default()`, `codebook_id: 0` — what the Python wheel does — is
+    byte-identical for every Quipu user on earth. It says "a Quipu file", not
+    "your Quipu file".
+  - **Customising is where it turns into a pseudonym, and the alphabet
+    fingerprint is INVERTIBLE.** Measured: the exact alphabet was recovered by
+    brute force from its 8-byte fingerprint in **46.8 ms** over 5 120 candidates,
+    sweeping `dictionaries::from_range`, the constructor the library itself
+    offers. Not a weakness of the hash — the *space* of alphabets is small and
+    enumerable. Pinned by `la_huella_del_alfabeto_se_invierte_por_fuerza_bruta`.
+  - **Who this matters to:** whoever customises is precisely the security-minded
+    user, and the API invites it — `kdf_params` is documented as "adjustable
+    difficulty", `codebook_id` as a public "informational" field. Anyone whose
+    threat model includes a seized or leaked corpus of mixed provenance should
+    stay on the defaults, where the fields are a world constant.
+  - **If this ever becomes a goal**, the path is not encryption — the symmetric
+    mode needs the KDF parameters *before* it can derive the key that would
+    decrypt them. It is (a) **canonical KDF profiles**: one byte selecting from a
+    public ladder instead of 12 bytes of arbitrary configuration, the same shape
+    as `negacion::tamano_canonico`; and (b) a **keyed codebook fingerprint**
+    (`HMAC(master_key, alphabet)` instead of truncated SHA-256), which kills both
+    the invertibility and the linkability of those 8 bytes at the cost of paying
+    one Argon2id before "wrong alphabet" can be reported. Both break the format,
+    so they belong to the next format break, together.
 - **N8. Key commitment / partitioning oracles** (added 2026-08-01, after an
   independent review). XChaCha20-Poly1305 is **not key-committing**: a ciphertext
   that validates under two distinct keys is constructible (Len–Grubbs–Ristenpart,
