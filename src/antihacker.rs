@@ -74,6 +74,21 @@ const PILA_A_LIMPIAR: usize = 64 * 1024;
 /// adversario que lea la memoria MIENTRAS la operación corre. Eso es R5 en
 /// `docs/THREAT_MODEL.md`, endpoint comprometido, y está fuera de alcance por
 /// declaración. Esto cierra T6: la memoria leída DESPUÉS.
+///
+/// **Y NO PUEDE TOCAR EL MARCO DE QUIEN LA LLAMA.** Sobrescribe hacia ABAJO
+/// desde el punto de la llamada, así que todo lo que viva en marcos más
+/// superficiales —incluido el marco vivo del llamante— queda fuera de su
+/// alcance por construcción. No es una carencia: un limpiador no puede borrar la
+/// pila sobre la que está corriendo.
+///
+/// La consecuencia práctica, y costó media hora averiguarla: **si el llamante
+/// tiene el secreto en su PROPIO marco, esto no lo borra**, y en `--release` un
+/// `fill(0)` sobre esa variable puede no bastar porque el compilador deja copias
+/// en otros huecos del mismo marco. Lo correcto es que el material sensible viva
+/// en un marco anidado, de modo que quede por debajo del punto de limpieza.
+/// `tests/residuo_memoria.rs` lo hace así desde el 2026-08-01, y hasta entonces
+/// su propio canario producía un falso fallo en release que parecía un defecto
+/// de esta función.
 pub fn limpiar_pila() {
     let mut lienzo = [0u8; PILA_A_LIMPIAR];
     // Sin las dos barreras el optimizador tiene todo el derecho a eliminar un

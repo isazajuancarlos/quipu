@@ -269,17 +269,37 @@ fn cuerpo_del_hijo() {
     // salvaguarda nueva, y una salvaguarda sin una prueba que la vea fallar es
     // una creencia.
     if escenario.starts_with("pila") {
-        let mut canario = aguja();
-        std::hint::black_box(plantar_en_la_pila(&canario));
-        // EL ARNÉS SE LIMPIA A SÍ MISMO ANTES DE MEDIR, y esta línea es la
-        // diferencia entre medir la librería y medirme a mí. Si el canario sigue
-        // vivo aquí, el padre lo cuenta y se lo achaca al código.
-        canario.fill(0);
-        std::hint::black_box(&canario);
-
-        if escenario == "pila-limpia" {
-            quipu::antihacker::limpiar_pila();
+        // TODO EL CANARIO VIVE EN UN MARCO ANIDADO, y no es un capricho de
+        // estilo: es lo que hace que este banco mida la librería y no a sí mismo.
+        //
+        // Antes el canario nacía en el marco de `cuerpo_del_hijo` y se limpiaba
+        // con `canario.fill(0)`. En DEBUG bastaba; en RELEASE el compilador deja
+        // una copia más en otro hueco del mismo marco que ese `fill` no toca, y
+        // ese marco está POR ENCIMA del punto donde se llama al limpiador.
+        //
+        // `limpiar_pila` sobrescribe hacia ABAJO desde donde se la llama: no
+        // puede tocar el marco vivo de quien la invoca, y nunca lo prometió. Así
+        // que la prueba fallaba en release por una copia que el mecanismo no
+        // podía alcanzar por construcción — el instrumento contándose a sí mismo,
+        // igual que cuando se intentó escanear la memoria del propio proceso.
+        //
+        // MEDIDO el 2026-08-01, y es lo que separó «defecto» de «artefacto»: sin
+        // limpiar quedaban 2 copias, a 19 648 B y a 7 008 B del final de la pila
+        // (el final es la dirección alta: el marco MÁS SUPERFICIAL). Tras limpiar
+        // sobrevivía justo la de 7 008 B, la superficial. Subir la profundidad
+        // del limpiador de 64 KiB a 512 KiB no cambiaba nada, porque el problema
+        // no estaba debajo. Con el canario dentro del marco anidado: CERO.
+        #[inline(never)]
+        fn plantar_y_quizas_limpiar(limpiar: bool) {
+            let mut c = aguja();
+            std::hint::black_box(plantar_en_la_pila(&c));
+            c.fill(0);
+            std::hint::black_box(&c);
+            if limpiar {
+                quipu::antihacker::limpiar_pila();
+            }
         }
+        plantar_y_quizas_limpiar(escenario == "pila-limpia");
         println!("LISTO");
         std::io::stdout().flush().ok();
         let mut s = String::new();

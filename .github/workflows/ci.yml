@@ -166,6 +166,18 @@ jobs:
       # Lo que mide es lo que más pesa del módulo: que el CLARO del volumen
       # oculto no sobreviva a la operación. Ese residuo en un swap ES la prueba
       # de que el segundo volumen existe.
+      # EL RESIDUO SE MIDE TAMBIÉN EN RELEASE, que es lo que se publica.
+      #
+      # El banco vive en el job general, que corre en DEBUG, y ahí pasaba. En
+      # release fallaba — y llevaba fallando sin que nadie lo viera, porque la
+      # salvaguarda se medía exactamente en la pasada donde funciona. Resultó ser
+      # un artefacto del propio banco (su canario vivía en un marco que el
+      # limpiador no puede alcanzar), pero eso solo se supo al MIRARLO.
+      #
+      # El caso que esta línea existe para cazar es el contrario: que una
+      # optimización de release deje residuo que el debug no muestra.
+      - name: Tests (residuo de memoria, RELEASE — es lo que se publica)
+        run: cargo test --features escrow --test residuo_memoria --release
       - name: Tests (residuo de memoria del contenedor con negación)
         run: cargo test --features "escrow negacion lab" --test residuo_memoria
       - name: Clippy (lab + negacion, deny warnings)
