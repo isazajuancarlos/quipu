@@ -79,6 +79,26 @@ pub fn derive_master_key(
     // NFKC: la "misma" contraseña deriva siempre la misma clave.
     let mut normalized: String = passphrase.nfkc().collect();
     // El pepper se concatena al material de contraseña.
+    //
+    // AMBIGÜEDAD DE CODIFICACIÓN CONOCIDA, sin explotación hallada y anotada
+    // aquí porque este es el sitio donde se arreglaría. `NFKC(pw) ‖ pepper` sin
+    // separador significa que los pares (pw="ab", pepper="c") y (pw="a",
+    // pepper="bc") derivan LA MISMA clave. En el modo online la cadena es
+    // `pw ‖ pepper_base ‖ endurecido(64)`, con el mismo problema.
+    //
+    // POR QUÉ NO SE HA ENCONTRADO ATAQUE: quien elige la contraseña y quien
+    // elige el pepper son la misma parte, así que la colisión hay que
+    // provocársela uno mismo; y en el modo online el sufijo endurecido depende
+    // del propio `pw`, de modo que un par colisionante exigiría además
+    // `OPRF(pw₁) = OPRF(pw₂)`.
+    //
+    // POR QUÉ AUN ASÍ HAY QUE ARREGLARLO: es una ambigüedad gratuita en la ruta
+    // de derivación de claves, y las ambigüedades gratuitas son las que un día
+    // sostienen un ataque que nadie previó. El arreglo es un prefijo de longitud
+    // por campo, y es RUPTURA DE FORMATO — todas las claves derivadas cambian.
+    // Por eso va agrupado con las otras rupturas pendientes y no suelto:
+    // quitar `codebook_id`, borrar `src/oprf.rs`, perfiles canónicos de KDF y
+    // huella de alfabeto con clave. Una sola ruptura en vez de cinco.
     let mut secret = normalized.clone().into_bytes();
     normalized.zeroize(); // O5: no dejar la passphrase normalizada en memoria
     secret.extend_from_slice(pepper);

@@ -305,6 +305,22 @@ the operation, a local physical side channel, or control of the binary/OS.
   T3 with compute) or dedicated hardware. The honest mitigation is deployment-side
   — dedicated instances for anything deriving keys from a passphrase — and it is
   named here so that whoever deploys can weigh it.
+- **N10. Traffic analysis of the online mode** (added 2026-08-01). The VOPRF
+  exchange is **32 bytes out, 97 bytes in, always** (`SPEC.md` §8.2), and
+  `decode_online` performs it exactly as `encode_online` does. A passive network
+  observer therefore learns, per host and in real time, **when a file is
+  encrypted and when a file is OPENED** — not which file, not its content, but
+  the timeline. TLS hides the content and not the record sizes.
+  Out of scope. **And padding is not the answer**: the sizes are already
+  constant and published, so padding to a different constant is still a
+  constant. What betrays is the pattern and its timing; hiding that needs cover
+  traffic or batching, which is a different product. Offering padding would be
+  the appearance of a fix — the exact defect this document keeps finding
+  elsewhere.
+  §4 says the server "participates without seeing the passphrase or the result",
+  which is true and says nothing about who else sees **that it participated**.
+  Anyone whose threat model includes when-you-opened-a-file uses the offline mode
+  with a pepper.
 - **N9. Linkability of containers by their CONFIGURATION** (added 2026-08-01,
   after an independent review; measured independently before writing this).
   A Quipu container announces itself as one — the `QUIP` magic is deliberate, and

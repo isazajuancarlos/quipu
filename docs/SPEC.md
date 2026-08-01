@@ -309,6 +309,25 @@ All points are 32-byte compressed ristretto255 encodings.
 
 Minimal TCP protocol (put behind TLS in production):
 
+> **TLS hides the content, not the sizes — and here the sizes are a signature
+> (2026-08-01).** The exchange below is **32 bytes out, 97 bytes in, always**,
+> and `decode_online` performs it exactly like `encode_online` does. So a passive
+> network observer — an ISP, a corporate proxy, anyone on the same network —
+> learns, per host and in real time, **when a file is encrypted and when a file
+> is OPENED**. Not which file, not its content: the timeline.
+>
+> **Padding is not the answer, and saying so matters.** The sizes are *already*
+> constant, and published right here; padding to a different constant is still a
+> constant. What betrays is the pattern and its timing, so hiding it would take
+> cover traffic or batching — a different product, not a bigger buffer. Offering
+> padding would be the appearance of a fix.
+>
+> This is declared, not mitigated. §4 of the threat model says the server
+> "participates without seeing the passphrase or the result", and that is true —
+> it says nothing about who else sees **that it participated**. Anyone whose
+> threat model includes when-you-opened-a-file should use the offline mode with
+> a pepper.
+
 ```
 client → server:  B                       (32 bytes, blinded point)
 server → client:  status(1) ‖ Z(32) ‖ proof(64)   (97 bytes; status 1 = ok, 0 = denied)

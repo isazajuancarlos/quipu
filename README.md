@@ -41,6 +41,28 @@ datos → KDF(passphrase+pepper) → AEAD → contenedor → codec base-N → di
 | Señuelos / Honey (feature `honey`) | `honey::encrypt_pin` / `decrypt_pin` (y genérico `encrypt`/`decrypt`) | **Honey Encryption** para secretos de baja entropía (PIN, frase mnemónica): cualquier passphrase equivocada descifra a **otro secreto plausible**, no a un error → sin oráculo de fuerza bruta. Opt-in. **Sin autenticación por diseño** (un tag sería un oráculo); no sustituye al núcleo AEAD, solo para secuencias uniformes |
 | Negación (feature `negacion`) | `negacion::crear` / `abrir` | Un archivo, **dos contraseñas**: una abre el señuelo que se entrega bajo coacción y otra el volumen verdadero. **Nada dentro del contenedor dice si el segundo existe**, y el resto se rellena con azar exista o no. Opt-in. Ver el límite en negrita más abajo |
 
+### Un límite del alcance: no hay streaming CON CLAVE PÚBLICA
+
+La tabla de arriba tiene los dos modos, y **no se cruzan**:
+
+- `encrypt_stream` / `decrypt_stream` (`QST1`) cifra por trozos con memoria
+  acotada — pero es **simétrico**: deriva de una contraseña.
+- `encode_to_recipient` cifra hacia una clave pública post-cuántica — pero
+  recibe un `&[u8]` y devuelve una `String`: **carga el archivo entero en
+  memoria** y lo pasa por el codec base-N.
+
+O sea que **«cifrar un archivo grande hacia la clave pública de otro» no tiene
+hoy un camino con memoria acotada**. No es un fallo; es alcance que nadie ha
+pedido todavía, y está escrito aquí para que nadie lo descubra a mitad de una
+integración.
+
+Lo que costaría, para que no haya que volver a deducirlo: un `QST1` cuya
+cabecera lleve la encapsulación ML-KEM en lugar del salt y los parámetros de
+Argon2id. La clave de contenido ya sale de la decapsulación, así que el resto
+del formato de trozos —AAD por trozo, resistencia a truncación y
+reordenamiento— sirve igual. Es una variante de contenedor, no criptografía
+nueva.
+
 ## Qué protege tu secreto: los tres factores, y cuál elegir
 
 La tabla de arriba dice qué **hace** cada modo. Esta dice de qué depende que
