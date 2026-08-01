@@ -138,7 +138,20 @@ salen firmas y la clave pública.
 El trait `firmante::Custodio` separa *quién guarda la clave* de *cómo se arma la
 firma*. Pide operaciones, nunca material: no existe forma de sacar la clave,
 porque el punto entero es que no salga. Una firma hecha en un HSM y una hecha en
-memoria son **idénticas byte a byte** y las verifica el mismo verificador.
+memoria **las verifica el mismo verificador, sin distinguir su origen**.
+
+> **Corregido el 2026-08-01.** Esta frase decía «son **idénticas byte a byte**», y
+> es falsa: en PKCS#11 se pide `HedgeType::Preferred`, o sea ML-DSA **aleatorizado**
+> si el dispositivo lo admite, mientras el camino en memoria firma determinista.
+> Los bytes difieren; lo que no cambia es que ambas verifican con la misma clave y
+> el mismo verificador, que es lo único que necesita quien las usa. El *hedging*
+> además es lo que recomienda FIPS-204 frente a la inyección de fallos, así que la
+> diferencia juega a favor.
+>
+> Lo halló una revisión independiente, y la prueba que respaldaba la frase
+> —`firmar_por_el_trait_da_lo_mismo_que_el_camino_directo`— **solo ejercita el
+> custodio en memoria**, donde la igualdad se cumple trivialmente porque los dos
+> caminos llaman al mismo código. Pasaba por la razón equivocada.
 
 ```rust
 // El custodio en memoria de siempre (predeterminado, sin feature):
@@ -317,7 +330,7 @@ encima que declaran con qué criptografía se comprometen.
 |---|---|
 | [`crates/quipu-nucleo`](crates/quipu-nucleo) | Todo lo que **no** es criptografía: formato del contenedor, codec base-N, Reed-Solomon, relleno Padmé. **Cero primitivas.** |
 | `quipu` (este crate) | El perfil por defecto: **XChaCha20-Poly1305**, HKDF-SHA-256, nonce extendido de 192 bits. |
-| [`crates/quipu-cnsa`](crates/quipu-cnsa) | El perfil alineado con **CNSA 2.0**: AES-256-GCM, HKDF-SHA-384, nonce de 96 bits. **NO validado FIPS 140-3.** |
+| [`crates/quipu-cnsa`](crates/quipu-cnsa) | El perfil alineado con **CNSA 2.0**: AES-256-GCM, HKDF-SHA-384, nonce de 96 bits. **NO validado FIPS 140-3.** | **Y su canal de destinatario abandona el híbrido: es ML-KEM-1024 PURO, sin socio clásico.** Más fuerte frente a lo cuántico que `quipu` y más débil frente a un fallo clásico de retículos — quien elige este perfil por mandato normativo está aceptando además ese cambio de postura, y conviene saberlo aquí, que es donde se elige.
 
 La relación es la de Devuan con Debian: no una rama de mantenimiento, sino un
 **compromiso declarado** que comparte casi todo. El formato, el codec y el canal

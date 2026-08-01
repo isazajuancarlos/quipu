@@ -232,8 +232,20 @@ mod tests {
     use crate::pqsign::generate_keypair;
 
     /// La prueba que hace útil a todo el módulo: pasar por el trait tiene que
-    /// dar EXACTAMENTE la misma firma que el camino directo. Si no, cambiar de
-    /// custodio rompería las firmas ya emitidas.
+    /// dar EXACTAMENTE la misma firma que el camino directo.
+    ///
+    /// LO QUE ESTA PRUEBA **NO** DEMUESTRA, y el README llegó a afirmarlo: nada
+    /// sobre un custodio de HARDWARE. Solo ejercita `EnMemoria`, donde la
+    /// igualdad se cumple trivialmente porque los dos caminos llaman al mismo
+    /// código determinista. En PKCS#11 se pide `HedgeType::Preferred` —ML-DSA
+    /// aleatorizado si el dispositivo lo admite—, así que ahí los bytes SÍ
+    /// difieren, y eso es correcto: el hedging es lo que recomienda FIPS-204.
+    ///
+    /// Lo que de verdad importa —que la firma la verifique el verificador de
+    /// siempre, venga de donde venga— lo cubre la prueba de abajo, y esa sí es
+    /// la propiedad que un cambio de custodio no puede romper. Una prueba que
+    /// se lee como más general de lo que es acaba sosteniendo una frase falsa en
+    /// la portada, y eso fue exactamente lo que pasó.
     #[test]
     fn firmar_por_el_trait_da_lo_mismo_que_el_camino_directo() {
         let (_, sk) = generate_keypair();
