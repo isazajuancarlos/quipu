@@ -29,6 +29,17 @@ hiding the format, it is a design defect.
   with it **unrecoverable**; its theft enables offline dictionary attacks on
   those secrets.
 - **A6.** The pepper (a secret kept outside the data).
+  **Operational gap, found 2026-08-01: the container header carries NO pepper
+  identifier.** Verified — `container.rs` has no such field. The consequence is
+  not cryptographic but it bites at exactly the wrong moment: if a pepper is
+  compromised and has to be replaced, **there is no way to tell which containers
+  were made with the old one**. No inventory, no way to prove a given file has
+  been re-encrypted, no way to stop halfway and know where you are.
+  This is deliberate in one sense — a pepper id would be a linkable field across
+  every container of the same owner (see the linkability discussion) — so it is a
+  real trade-off and not an oversight to "fix". What was missing is that it was
+  never written down, so nobody could weigh it. Whoever deploys a pepper needs to
+  keep that inventory **outside** the containers, from day one.
 
 ## 2. Adversaries and capabilities
 
@@ -36,6 +47,18 @@ hiding the format, it is a design defect.
   (bytes or PNG image) and the public codebook. Does **not** have the
   passphrase, pepper, or secret keys. Goal: read the plaintext or distinguish it
   from random.
+- **T1b. Observer who sees the container MORE THAN ONCE** (added 2026-08-01).
+  Distinguished from T1 because the temporal dimension changes what is
+  achievable, and for one mode it is decisive: **`negacion` loses deniability
+  entirely** against it — comparing two snapshots reveals which region changed,
+  and therefore that a hidden volume exists.
+  This adversary is not exotic. He is *the default* in ordinary deployments:
+  a versioned backup, a cloud sync folder, a filesystem journal, a VM snapshot,
+  and — hardest to reason about — an **SSD**, where overwriting a file leaves the
+  previous version in unmapped-but-present flash that wear levelling declines to
+  erase.
+  The `negacion` module doc states this limit; it was missing here, which is the
+  wrong place for it to be missing: an auditor reads the threat model.
 - **T2. Active tamperer:** can alter, truncate, or forge containers and hand them
   to the victim to decrypt. Goal: cause acceptance of false data, panic/DoS, or
   leakage.
@@ -74,6 +97,54 @@ hiding the format, it is a design defect.
 - **T9. Attacker of availability with a security consequence:** takes down the
   distribution or update path so fixes do not arrive. Not a breach, and still a
   degradation of everyone downstream.
+
+- **T10. Supply-chain attacker** (added 2026-08-01): does not attack the
+  mathematics but the path the code takes to the user. Compromises a transitive
+  dependency, the build machine, or the published artifact, so that the binary
+  the victim runs is not the one the source describes. Goal: weaken the RNG, leak
+  keys, or make a check pass that should fail.
+  **This was the most conspicuous gap in the model, and the odd part is that the
+  defences already existed while the adversary did not.** R4 named third-party
+  crates as a residual risk — a *passive* framing ("a 0-day remains possible") —
+  even though the countermeasures in the tree are all aimed at a *deliberate*
+  attacker: reproducible builds (I5, byte-for-byte, enforced in CI),
+  `cargo-vet` provenance gating, signed releases, and the boot self-test whose
+  KATs a substituted primitive cannot pass. After xz/liblzma (2024), treating
+  this as bad luck rather than as an adversary is not defensible.
+  What it does **not** cover: an attacker who compromises the source repository
+  itself with the maintainer's consent, and a subverted-but-statistically-sound
+  RNG (see S2 — no output test can detect that; provenance is the only defence).
+
+  **T10a. The concrete payload, and why testing can never find it (2026-08-01).**
+  The natural weapon for T10 is not a backdoor in the mathematics — it is an
+  **Algorithm Substitution Attack**: a build that computes everything correctly
+  and hides the key in the fields that are *supposed* to look random.
+
+  Quipu writes **40 bytes of pure randomness in clear into every container** —
+  a 16-byte salt and a 24-byte nonce (`api::encode_to_blob`). A substituted
+  implementation can set
+
+      salt ‖ nonce  :=  Encrypt(attacker's public key, master key)
+
+  and the result is **indistinguishable from randomness by construction**: a
+  ciphertext is what randomness is supposed to look like. 320 bits of channel is
+  more than enough for a 256-bit key, so **one container exfiltrates everything**,
+  and every self-test, KAT, statistical battery and `dudect` measurement in this
+  repository still passes, because the implementation *is* correct in every
+  respect they measure.
+
+  **Can it be closed?** Not without losing something Quipu needs. Deriving the
+  salt deterministically from the passphrase would destroy its purpose (equal
+  passwords would share a salt, reopening multi-target attacks). Hedged
+  derivation still carries fresh randomness, so the channel survives. Squeezing
+  it out entirely means deterministic encryption (SIV-style), which costs the
+  randomised-encryption properties the rest of the design rests on.
+
+  So this is stated as an **irreducible consequence, not a to-do**: any format
+  with public random fields has this channel, and the defence is not a test but
+  the **provenance of the binary** — reproducible builds byte-for-byte, signed
+  releases, `cargo-vet`. It is the same reason the S2 note says a subverted RNG
+  is undetectable: these are one attack wearing two hats.
 
 Out of the adversary model (see §5): an attacker with access to memory **during**
 the operation, a local physical side channel, or control of the binary/OS.
@@ -153,8 +224,23 @@ the operation, a local physical side channel, or control of the binary/OS.
   Padmé padding (approximate length hiding), not full steganography.
 - **N2.** Protecting against an adversary controlling the machine DURING the
   operation (malware with live RAM access, keylogger, trojaned binary).
-- **N3.** Local physical side channels (fine timing, power, EM). Constant-time
+- **N3.** Local **physical** side channels (power, EM, probing). Constant-time
   comparison is used where applicable, but it is not the goal.
+- **N3b. Microarchitectural side channels from a CO-TENANT** — and this was a
+  HOLE, not a limit (found 2026-08-01). N3 used to read "local *physical* side
+  channels (fine timing, power, EM)", which quietly excluded the case that
+  actually applies: a process or VM sharing hardware, mounting a cache-timing
+  attack. That adversary is neither physical nor a network observer, so it fell
+  between the categories — covered by nothing, declared by nothing.
+  It is not hypothetical here. **Argon2id is deliberately data-dependent in its
+  second half** (that is the `id` trade-off: resistance to GPU/TMTO at the cost of
+  some cache-timing exposure), and `quipu-oprf-server` runs on a VPS, which is
+  shared hardware by definition.
+  Status: **out of scope, but now by DECISION rather than by omission.** Closing
+  it would mean Argon2**i** (weaker against the attacker who matters more here,
+  T3 with compute) or dedicated hardware. The honest mitigation is deployment-side
+  — dedicated instances for anything deriving keys from a passphrase — and it is
+  named here so that whoever deploys can weigh it.
 - **N4.** Low-entropy passphrases without a high KDF cost (see R1).
 - **N5.** Availability of the online mode if the OPRF server is down (see R2).
 - **N6.** Secrecy of the representation/codebook (public by design).
@@ -180,11 +266,36 @@ the operation, a local physical side channel, or control of the binary/OS.
 
 - **R1. Weak passphrase:** no KDF saves a guessable password. Mitigate with a high
   Argon2id cost + pepper + (optionally) the rate-limited online mode.
-- **R2. The OPRF server is a single point:** its downtime blocks online decryption;
-  losing its key makes secrets unrecoverable. Offline backup + planned rotation +
-  high availability. The offline backup now has a primitive in the library:
-  `quipu::shamir` splits the key into k-of-n shares held separately, so no single
-  custodian can recover it and no single loss destroys it.
+- **R2. The OPRF server is a single point**, and it has two halves that must not
+  be confused. Corrected 2026-08-01: only the first was written down, and the
+  mitigation named for it did not exist.
+  - **Availability half:** downtime blocks online decryption; **losing** the key
+    makes those secrets unrecoverable for ever. Mitigated by `quipu::shamir`,
+    which splits the key into k-of-n shares held separately, so no single
+    custodian can recover it and no single loss destroys it.
+  - **Confidentiality half — named in A5, absent HERE, and the worse one.** The
+    distinction matters and is the lesson of this correction: A5 already said
+    that theft of the key "enables offline dictionary attacks", but A5 is the
+    asset list. **R2 is where the mitigation is prescribed**, and R2 spoke only
+    of loss. A consequence listed among the assets and missing from the residual
+    risk is a consequence nobody plans for. Concretely: an attacker
+    who **steals** `k` can evaluate the OPRF offline, without ever talking to the
+    server, for **every container ever hardened — past and future**. That removes
+    the rate limit, and the rate limit is the entire reason the online mode
+    exists (see the README: Argon2id makes each guess expensive, only the VOPRF
+    caps how many there are). The victim is returned to T3, offline guessing,
+    with no signal that it happened.
+  - **AND THE STATED MITIGATION WAS FICTION.** This entry used to prescribe
+    "planned rotation". The project rule forbids it in as many words — `CLAUDE.md`
+    and the README both say the domain and key `k` **never rotate**, because
+    rotating invalidates everything derived from them. So there is no recovery
+    from theft of `k`: it is permanent and retroactive by construction. Naming a
+    mitigation that cannot be performed is worse than naming none, because it
+    closes the question.
+  - What this actually demands is **prevention, not recovery**: the key in an HSM
+    (feature `hsm`), custody split (`escrow`), and treating any suspicion of
+    compromise as the end of life of that OPRF domain — a new domain, and every
+    container hardened under the old one re-encrypted.
 - **R3. Zeroization in Rust is best-effort:** copies moved by the optimizer or
   spilled to swap may persist. `zeroize` is used on key buffers, but there is no
   absolute guarantee against T6.
@@ -270,14 +381,23 @@ the operation, a local physical side channel, or control of the binary/OS.
 
 ## 8. Traceability to mitigations (summary)
 
+**This table had drifted**: it stopped at T6 while the adversary list has run to
+T9 since 2026-07-26. A traceability table that does not track the list it traces
+is worse than none — it reads as coverage. Completed 2026-08-01.
+
 | Adversary | Mitigation |
 |-----------|-----------|
 | T1 | AEAD (XChaCha20-Poly1305); public representation with no secret value. |
+| T1b | **None for `negacion`** — deniability does not survive a second look at the same container. The other modes are unaffected: their guarantee never depended on the adversary seeing the file once. Deployment-side only: no versioned backup, no cloud sync, and be aware that an SSD keeps the old copy whatever you do. |
 | T2 | Header as AAD; `is_sane` validation of KDF params; parsing guards. |
-| T3 | Argon2id (memory-hard) + pepper; online mode with rate limiting. |
+| T3 | Argon2id (memory-hard) + pepper; online mode with rate limiting. **Argon2id raises the price of each guess; only the VOPRF caps how many there are.** |
 | T4 | VOPRF with DLEQ proof verified against a pinned public key (F1). |
-| T5 | Hybrid KEM X25519 + ML-KEM-1024 (F2, transcript with bound ek). |
-| T6 | Best-effort zeroization of sensitive material (partial; see R3). |
+| T5 | Hybrid KEM X25519 + ML-KEM-1024 (F2, transcript with bound ek), hybrid signature Ed25519 + ML-DSA-87. **The VOPRF hardening is ristretto255 and is NOT post-quantum**; see the online mode's entry in §4. |
+| T6 | Best-effort zeroization of sensitive material (partial; see R3), plus `limpiar_pila` for reconstructed material, measured in `tests/residuo_memoria.rs` in both debug and release. |
+| T7 | Not cryptographic and not solvable here: least privilege, encryption at rest so exfiltration is worthless (R8), and the operational hardening of `quipu-oprf-server`. This is the adversary every real incident studied in §10 actually was. |
+| T8 | Asymmetry of the admin operations: closing is cheap and reversible, reopening is **not available at all**. Never the requester's word; always the payment record. |
+| T9 | Reproducible builds and signed releases so a fix can be verified when it does arrive; no mitigation for the takedown itself. |
+| T10 | Reproducible build byte-for-byte enforced in CI (I5), `cargo-vet` provenance gating, signed releases, and boot self-test KATs that a substituted primitive cannot pass. **No mitigation** against a subverted-but-statistically-sound RNG — provenance is the only defence (S2). |
 
 ## 9. Continuous self-attack (Security Lab)
 
