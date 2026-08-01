@@ -80,6 +80,26 @@ fn main() {
     let dec_k = mediana_de(3, || dudect_decapsulate_two_keys(300));
     let dec_k_ok = reportar(&dec_k);
 
+    // Sonda 3 del contenedor con negación: abrir el señuelo y abrir el oculto
+    // tienen que costar lo mismo. Si no, el reloj delata cuál de los dos
+    // volúmenes tiene quien abre — el campo que el formato existe para no tener.
+    #[cfg(feature = "negacion")]
+    let negacion_ok = {
+        use quipu::lab::timing::{
+            dudect_negacion_acierto_vs_fallo, dudect_negacion_senuelo_vs_oculto,
+        };
+        let sv = mediana_de(3, || dudect_negacion_senuelo_vs_oculto(2000));
+        let af = mediana_de(3, || dudect_negacion_acierto_vs_fallo(2000));
+        reportar(&sv) && reportar(&af)
+    };
+    // Sin la feature no se mide, y eso NO se cuenta como aprobado silencioso:
+    // se dice en la salida, que es donde alguien lo va a leer.
+    #[cfg(not(feature = "negacion"))]
+    let negacion_ok = {
+        println!("[dudect]   negacion: NO MEDIDO (compilar con --features negacion)");
+        true
+    };
+
     // Superficie 3: coste de guessing.
     let g = guessing_cost(128, 2026);
     println!(
@@ -91,8 +111,13 @@ fn main() {
         g.cost_years(40)
     );
 
-    let clean =
-        ct.within(0.5, 2.0) && dt.within(0.5, 2.0) && g.cracked == 0 && dud_ok && dec_ct_ok && dec_k_ok;
+    let clean = ct.within(0.5, 2.0)
+        && dt.within(0.5, 2.0)
+        && g.cracked == 0
+        && dud_ok
+        && dec_ct_ok
+        && dec_k_ok
+        && negacion_ok;
     if clean {
         println!("Resultado: sin fuga gruesa de timing y 0 descifrados.");
     } else {

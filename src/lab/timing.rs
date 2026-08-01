@@ -549,6 +549,97 @@ pub fn dudect_derive_subkey_dos_maestras(samples: usize) -> DudectReport {
     DudectReport::from_classes("dudect/derive-subkey-dos-maestras", &a, &b)
 }
 
+/// Sonda 3 del §8 de `docs/DISENO_NEGACION.md`: **abrir el señuelo y abrir el
+/// volumen oculto tienen que costar lo mismo**.
+///
+/// Si el oculto tardara distinto, el reloj sería el campo que todo el formato
+/// existe para no tener: bastaría cronometrar a quien abre para saber cuál de
+/// los dos volúmenes tiene. Es la razón por la que [`crate::negacion`] prueba
+/// SIEMPRE las dos regiones aunque la primera acierte.
+///
+/// El perfil es de laboratorio a propósito: con el coste real de `Perfil::V1`
+/// (256 MiB) cada muestra tardaría cientos de milisegundos y el Argon2id común
+/// a las dos clases ahogaría la diferencia que se busca medir. Con el coste
+/// bajo, lo que domina es justo lo que se quiere comparar.
+#[cfg(feature = "negacion")]
+pub fn dudect_negacion_senuelo_vs_oculto(samples: usize) -> DudectReport {
+    use crate::negacion::{abrir, crear, Perfil};
+
+    let perfil = Perfil::de_laboratorio(
+        "medicion",
+        crate::kdf::KdfParams { mem_kib: 64, iterations: 1, parallelism: 1 },
+    );
+    let contenedor = crear(
+        4096,
+        b"lo que se entrega",
+        "clave-del-senuelo",
+        Some((b"lo que no".as_slice(), "clave-del-oculto")),
+        perfil,
+    )
+    .expect("el contenedor de la medición se crea");
+
+    let (a, b) = sample_two_classes_interleaved(
+        samples,
+        || {
+            std::hint::black_box(abrir(
+                std::hint::black_box(&contenedor),
+                std::hint::black_box("clave-del-senuelo"),
+                Some(perfil),
+            ))
+            .ok();
+        },
+        || {
+            std::hint::black_box(abrir(
+                std::hint::black_box(&contenedor),
+                std::hint::black_box("clave-del-oculto"),
+                Some(perfil),
+            ))
+            .ok();
+        },
+    );
+    DudectReport::from_classes("dudect/negacion-senuelo-vs-oculto", &a, &b)
+}
+
+/// La otra mitad de la sonda 3: **acertar y fallar cuestan lo mismo**, con un
+/// perfil dado.
+///
+/// Esta propiedad es más débil que la de arriba y conviene no exagerarla: el
+/// adversario ya ve si la contraseña abrió o no, porque recibe el contenido. Se
+/// mide igualmente porque una diferencia grande aquí delataría que el camino de
+/// fallo corta antes, y de ahí a filtrar CUÁL región falló hay un paso.
+#[cfg(feature = "negacion")]
+pub fn dudect_negacion_acierto_vs_fallo(samples: usize) -> DudectReport {
+    use crate::negacion::{abrir, crear, Perfil};
+
+    let perfil = Perfil::de_laboratorio(
+        "medicion",
+        crate::kdf::KdfParams { mem_kib: 64, iterations: 1, parallelism: 1 },
+    );
+    let contenedor = crear(4096, b"lo que se entrega", "buena", None, perfil)
+        .expect("el contenedor de la medición se crea");
+
+    let (a, b) = sample_two_classes_interleaved(
+        samples,
+        || {
+            std::hint::black_box(abrir(
+                std::hint::black_box(&contenedor),
+                std::hint::black_box("buena"),
+                Some(perfil),
+            ))
+            .ok();
+        },
+        || {
+            std::hint::black_box(abrir(
+                std::hint::black_box(&contenedor),
+                std::hint::black_box("malaa"),
+                Some(perfil),
+            ))
+            .ok();
+        },
+    );
+    DudectReport::from_classes("dudect/negacion-acierto-vs-fallo", &a, &b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

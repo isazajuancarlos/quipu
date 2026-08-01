@@ -6,6 +6,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Contenedor con negación (feature `negacion`, no-default).** Un archivo con dos
+  contraseñas: una abre el señuelo que se entrega bajo coacción, otra el volumen
+  verdadero. Ningún campo dice si el segundo existe, el tamaño total lo declara
+  quien lo crea, y el resto se rellena con azar del CSPRNG exista o no el oculto.
+  Implementa `docs/DISENO_NEGACION.md`, con la salida (a) del §5: **los parámetros
+  del KDF NO viajan en el contenedor**, lo que además quita del mapa una entrada
+  controlada por el adversario —hoy el camino normal toma el coste de Argon2id de
+  la cabecera que aporta quien entrega el archivo—.
+
+  El límite va en el README en negrita porque quien lo use puede depender de
+  entenderlo: **protege contra la PRUEBA, no contra la SOSPECHA**, y quien guarde
+  versiones sucesivas del mismo contenedor pierde la negación.
+
+- **`lab::distinguidor::posicion_mas_delatora`**, la sonda posicional. Nació de un
+  caso rojo que falló: `entrenar_y_evaluar` **no vio un mágico `QUIP` de 4 bytes**
+  estampado a mano en un contenedor de 1024 (53 % de acierto), porque sus doce
+  rasgos son agregados de todo el blob y un campo corto queda diluido. La pregunta
+  del frente de la sospecha es posicional —«¿hay algún byte que siempre valga lo
+  mismo?»— y ahora hay con qué contestarla, con el umbral derivado de la cola de
+  Poisson y corregido por mirar `largo × 256` casillas a la vez.
+
 ### Fixed
 - **Dos objetivos de fuzz llevaban desde el 2026-07-27 en verde sin tocar el parser
   que decían fuzzear.** Se descubrió al ir a encadenar el corpus (#131.1): antes de

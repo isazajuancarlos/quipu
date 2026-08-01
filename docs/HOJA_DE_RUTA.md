@@ -3,7 +3,7 @@
 
 # Hoja de ruta
 
-Estado al **2026-07-27**, tras el recorte a un solo binding. Todo lo que sigue
+Estado al **2026-07-31**, tras el recorte a un solo binding. Todo lo que sigue
 está medido contra el repositorio, los índices de paquetes y la producción; nada
 citado de memoria.
 
@@ -144,18 +144,49 @@ cambió. Cubrir la sospecha exige un contenedor indistinguible de aleatorio, y h
 **28 de los 68 bytes de cabecera gritan «Quipu»** (mágico, versión, banderas,
 `codebook_id`, huella del alfabeto y los tres enteros del KDF). Eso obliga a
 cifrar la cabecera, y cifrarla obliga a sacar del contenedor los parámetros del
-KDF, porque hacen falta para derivar la clave que la abriría. **Esa es la decisión
-que bloquea el código**, y está planteada con recomendación en el §5 del diseño.
+KDF, porque hacen falta para derivar la clave que la abriría.
+
+**HECHO el 2026-07-31**, tras la decisión de la salida (a) —los parámetros del
+KDF salen del contenedor—. Vive en `src/negacion.rs` tras la feature `negacion`,
+no-default y fuera de las ruedas de Python en esta versión.
+
+Las cuatro sondas del §8 están medidas y cada una trae su caso rojo: el
+contenedor no se distingue de azar, ninguna posición de byte es predecible, uno
+con oculto no se distingue de uno sin él, y abrir el señuelo cuesta lo mismo que
+abrir el oculto (`t = 0,73` frente a un umbral de 10).
+
+Un aviso que se ganó a pulso y está en el §10.4 del diseño: **la sonda que el §8
+daba por hecha no existía**. El banco agregado no veía un mágico de 4 bytes en
+1024 —53 % de acierto— y habría aprobado un contenedor que gritaba «Quipu». Hubo
+que construir la sonda posicional. Un caso rojo que falla no siempre dice que el
+sistema esté roto; a veces dice que el medidor no mide lo que creías.
 
 ### 8. El laboratorio no manda sobre nada
 
 El red-team adaptativo mide, y lo que mide no alimenta ningún parámetro del
 producto. Inteligencia sin mando.
 
-### 9. La calidad del señuelo de honey no se mide
+### 9. La calidad del señuelo de honey — MEDIDO el 2026-07-31, y el mínimo no existe
 
-Honey vale lo que valga su señuelo **menos** convincente, y hoy eso no tiene
-número. Mientras no lo tenga, el modo no debe extenderse a más superficies.
+Este punto pedía el número del señuelo **menos** convincente. Ese número **no
+puede existir** para el honey de hoy, y no por falta de escribirlo: «el peor
+señuelo» solo se puede medir cuando el espacio de secretos tiene ESTRUCTURA que
+un señuelo pueda violar —una frase fuera del diccionario, un día 32, un formato
+que no cierra—. `honey` modela el secreto como L tokens **uniformes**, así que
+todo señuelo es un elemento válido del espacio y el peor es tan convincente como
+el mejor. Medido: la plausibilidad mínima de 500 señuelos es 0, y la de un
+secreto humano también. Una métrica que no puede dispararse nunca es un generador
+de ceros con otro nombre.
+
+Lo que sí se mide ahora, y es la primera vez que se mide sobre la **librería** y
+no sobre una simulación de sus salidas: 500 señuelos reales de
+`encrypt_pin`/`decrypt_pin` con frases equivocadas, y la cola contra el espacio
+uniforme que honey declara proteger. En `feat/peor-senuelo`, pendiente de
+integrar.
+
+La consecuencia de diseño sigue en pie: **mientras el secreto se modele como
+tokens uniformes, el modo no debe extenderse a más superficies** — no porque
+falte el número, sino porque no hay estructura que un señuelo pueda respetar.
 
 ## Decisiones tomadas, para no reabrirlas
 

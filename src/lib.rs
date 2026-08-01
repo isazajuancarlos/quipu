@@ -30,6 +30,12 @@ pub use quipu_nucleo::{codec, ecc, prelayers};
 #[cfg(feature = "honey")]
 pub mod honey;
 pub mod kdf;
+/// Contenedor con negación (feature `negacion`). Un archivo con señuelo y
+/// volumen oculto, sin ningún campo que revele si el segundo existe. Protege
+/// contra la PRUEBA, no contra la SOSPECHA: leer el encabezado del módulo antes
+/// de usarlo.
+#[cfg(feature = "negacion")]
+pub mod negacion;
 pub mod netlimit;
 /// OPRF **sin verificación** (sin prueba DLEQ). Prefiere `voprf` (verificable):
 /// con él el cliente detecta un servidor deshonesto. Se mantiene por
