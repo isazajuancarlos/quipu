@@ -39,11 +39,26 @@ reed-solomon = "0.2"
 # un símbolo ilegible, nunca filtrar la clave.
 qrcode = { version = "0.14", default-features = false, optional = true }
 
+# --- Suma de verificación de la BIP-39, OPCIONAL ---
+# La BIP-39 define su suma de verificación como los primeros ENT/32 bits de
+# SHA-256 sobre la entropía. No hay alternativa: cambiarla sería inventar otro
+# formato, y el formato ES el producto — lo que vale de la BIP-39 es que la
+# decodifique cualquiera sin tener Quipu.
+#
+# Va OPCIONAL y detrás de `palabras` justamente para que la promesa de la
+# portada siga siendo cierta al pie de la letra: la compilación por defecto de
+# este crate no lleva ni una función criptográfica.
+sha2 = { version = "0.11", default-features = false, optional = true }
+
 [features]
 # El símbolo hecho, para quien no quiera renderizarlo por su cuenta. NO-default:
 # el núcleo no debe cargar con una dependencia de dibujo que la mayoría de los
 # consumidores ya tienen resuelta en su frontend (ver docs/HOJA_DE_RUTA.md §6).
 qr = ["dep:qrcode"]
+# El marco de PALABRAS de la capa tecleable (BIP-39). NO-default por dos
+# razones: arrastra `sha2`, y embebe una tabla de 2 048 palabras que la mayoría
+# de los consumidores del núcleo no va a usar nunca.
+palabras = ["dep:sha2"]
 
 [dev-dependencies]
 # Decoder de QR, SOLO para pruebas: el usuario decodifica con su teléfono y esto
@@ -51,4 +66,9 @@ qr = ["dep:qrcode"]
 # `assert` sobre nuestro propio encoder — un encoder roto de forma consistente
 # pasaría esa prueba y fallaría en el primer papel real.
 rqrr = { version = "0.10", default-features = false }
+# Implementación AJENA de la BIP-39, SOLO para pruebas. Mismo papel que `rqrr`
+# con el QR y por la misma razón: una prueba de ida y vuelta contra nuestro
+# propio codificador la pasaría igual un codificador roto de forma consistente.
+# Lo que hay que demostrar es que OTRO lo lee, que es lo que promete el marco.
+bip39 = { version = "2.2", default-features = false }
 proptest = "1"

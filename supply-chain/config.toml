@@ -33,6 +33,10 @@ criteria = "safe-to-run"
 version = "0.5.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.arrayvec]]
+version = "0.7.8"
+criteria = "safe-to-run"
+
 [[exemptions.ascii]]
 version = "1.1.0"
 criteria = "safe-to-deploy"
@@ -45,12 +49,20 @@ criteria = "safe-to-deploy"
 version = "1.8.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.bip39]]
+version = "2.2.2"
+criteria = "safe-to-run"
+
 [[exemptions.bit-set]]
 version = "0.8.0"
 criteria = "safe-to-run"
 
 [[exemptions.bit-vec]]
 version = "0.8.0"
+criteria = "safe-to-run"
+
+[[exemptions.bitcoin_hashes]]
+version = "0.14.101"
 criteria = "safe-to-run"
 
 [[exemptions.bitflags]]
@@ -256,6 +268,10 @@ criteria = "safe-to-deploy"
 [[exemptions.heck]]
 version = "0.5.0"
 criteria = "safe-to-deploy"
+
+[[exemptions.hex-conservative]]
+version = "0.2.2"
+criteria = "safe-to-run"
 
 [[exemptions.hkdf]]
 version = "0.13.0"

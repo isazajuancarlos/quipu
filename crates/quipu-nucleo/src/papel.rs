@@ -922,6 +922,324 @@ pub mod tecleable {
     }
 }
 
+/// El tercer marco de la capa tecleable: **palabras**, según la BIP-39.
+///
+/// # Qué resuelve, y qué NO resuelven los otros dos
+///
+/// [`tecleable::Marco::Desnudo`] es Base32 puro: lo lee cualquier herramienta,
+/// pero **no tiene suma de verificación**. Un carácter mal transcrito devuelve
+/// otro secreto EN SILENCIO, que en una clave es el peor fallo posible.
+/// [`tecleable::Marco::Protegido`] cierra ese hueco con Reed-Solomon, y al
+/// hacerlo pierde lo único que hacía valiosa la capa: deja de leerse sin Quipu.
+///
+/// Este marco es el que tiene las dos cosas a la vez, y por una razón que no es
+/// nuestra: la BIP-39 es un estándar con implementaciones en todos los
+/// lenguajes, así que **detecta el error de transcripción Y la decodifica
+/// cualquiera en 2050 sin que Quipu exista**. Una lista de palabras propia
+/// habría recreado exactamente el problema de los glifos que este proyecto ya
+/// eliminó una vez.
+///
+/// Y añade lo que ningún marco de caracteres da: **se dicta por teléfono**. Son
+/// 24 palabras frente a 52 caracteres de Base32, sin parejas confundibles.
+///
+/// # Lo que este marco NO puede hacer
+///
+/// La BIP-39 admite **exactamente** 16, 20, 24, 28 o 32 bytes. No es una
+/// limitación que se pueda relajar: el número de palabras sale de la aritmética
+/// del formato. Con cualquier otro tamaño esto **falla ruidosamente**
+/// ([`PalabrasError::TamanoNoAdmitido`]) en vez de rellenar hasta un tamaño
+/// válido, porque un relleno silencioso devolvería más bytes de los que se
+/// guardaron y nadie lo notaría hasta necesitar la clave.
+///
+/// La suma de verificación es de **detección, no de corrección**: son ENT/32
+/// bits (8 para una clave de 32 bytes). Dice que hay un error, no cuál.
+///
+/// # Advertencia de lectura
+///
+/// Estas palabras se parecen a la frase semilla de una cartera de Bitcoin
+/// porque **son el mismo formato**. No lo son: aquí codifican el secreto que se
+/// le entregue. [`palabras::instruccion`] lo dice, y se imprime al lado.
+#[cfg(feature = "palabras")]
+pub mod palabras {
+    use sha2::{Digest, Sha256};
+
+    /// La lista oficial en inglés de la BIP-39, **verbatim**.
+    ///
+    /// Se guarda como el archivo original y no como una tabla de Rust generada
+    /// a propósito: así cualquiera puede comprobar su SHA-256 contra el de la
+    /// fuente canónica sin fiarse de nuestra transcripción. Lo hace la prueba
+    /// `la_lista_es_la_canonica`, con [`SHA256_CANONICO`].
+    pub const LISTA_CRUDA: &str = include_str!("bip39_english.txt");
+
+    /// SHA-256 de la lista canónica en inglés
+    /// (`bips/bip-0039/english.txt`). Si esto no cuadra, la lista se corrompió
+    /// y todo lo que se escriba con ella será ilegible para el resto del mundo.
+    pub const SHA256_CANONICO: &str =
+        "2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda";
+
+    /// Cuántas palabras tiene la lista. Es 2^11, y por eso cada palabra lleva
+    /// 11 bits exactos.
+    pub const PALABRAS_EN_LA_LISTA: usize = 2048;
+
+    /// Los tamaños de secreto que la BIP-39 admite, en bytes.
+    pub const TAMANOS: &[usize] = &[16, 20, 24, 28, 32];
+
+    /// Cuántos caracteres bastan para identificar una palabra sin ambigüedad.
+    /// Lo garantiza la propia BIP-39, no nosotros; la prueba
+    /// `cuatro_letras_bastan` lo comprueba sobre la lista real.
+    pub const PREFIJO_SUFICIENTE: usize = 4;
+
+    /// La lista partida en palabras. `\n` y `\r\n` valen igual.
+    fn lista() -> &'static [&'static str] {
+        use std::sync::LazyLock;
+        static L: LazyLock<Vec<&'static str>> =
+            LazyLock::new(|| LISTA_CRUDA.lines().map(str::trim).filter(|l| !l.is_empty()).collect());
+        &L
+    }
+
+    /// Errores del marco de palabras.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum PalabrasError {
+        /// El secreto no mide lo que la BIP-39 admite. **No se rellena**: eso
+        /// devolvería al leer más bytes de los que se guardaron.
+        TamanoNoAdmitido {
+            /// Los bytes que se pasaron.
+            bytes: usize,
+            /// Los que se admiten.
+            admitidos: &'static [usize],
+        },
+        /// El número de palabras no corresponde a ningún tamaño válido.
+        CuentaNoAdmitida {
+            /// Las que se leyeron.
+            palabras: usize,
+        },
+        /// Una palabra que no está en la lista y no es prefijo de ninguna.
+        PalabraDesconocida {
+            /// Tal como se escribió.
+            palabra: String,
+            /// Su posición, empezando en 1, para poder señalarla en el papel.
+            posicion: usize,
+        },
+        /// Encaja con una sola palabra, pero con menos de
+        /// [`PREFIJO_SUFICIENTE`] letras. Se rechaza porque la unicidad con
+        /// menos de cuatro letras es una casualidad de esta lista, no algo que
+        /// la BIP-39 garantice.
+        PalabraDemasiadoCorta {
+            /// Tal como se escribió.
+            palabra: String,
+            /// Su posición, empezando en 1.
+            posicion: usize,
+        },
+        /// Un fragmento que encaja con varias palabras: elegir sería adivinar.
+        PalabraAmbigua {
+            /// Tal como se escribió.
+            palabra: String,
+            /// Su posición, empezando en 1.
+            posicion: usize,
+            /// Con cuántas palabras de la lista encaja.
+            candidatas: usize,
+        },
+        /// La suma de verificación no cuadra: **hay un error de transcripción**.
+        ///
+        /// Este es el error que justifica el marco entero. Detecta, no corrige:
+        /// dice que algo está mal, no qué palabra.
+        SumaDeVerificacion,
+        /// No había ninguna palabra.
+        Vacio,
+    }
+
+    impl core::fmt::Display for PalabrasError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Self::TamanoNoAdmitido { bytes, admitidos } => write!(
+                    f,
+                    "un secreto de {bytes} bytes no cabe en la BIP-39: admite {admitidos:?} \
+                     y rellenar hasta uno de ellos devolvería bytes que nadie guardó"
+                ),
+                Self::CuentaNoAdmitida { palabras } => write!(
+                    f,
+                    "{palabras} palabra(s) no corresponden a ningún secreto válido: \
+                     son 12, 15, 18, 21 o 24 — cuente otra vez, es lo que más falla"
+                ),
+                Self::PalabraDesconocida { palabra, posicion } => write!(
+                    f,
+                    "la palabra {posicion}.ª («{palabra}») no está en la lista de la BIP-39"
+                ),
+                Self::PalabraDemasiadoCorta { palabra, posicion } => write!(
+                    f,
+                    "la palabra {posicion}.ª («{palabra}») tiene menos de \
+                     {PREFIJO_SUFICIENTE} letras: escríbala completa o hasta la cuarta"
+                ),
+                Self::PalabraAmbigua {
+                    palabra,
+                    posicion,
+                    candidatas,
+                } => write!(
+                    f,
+                    "la palabra {posicion}.ª («{palabra}») encaja con {candidatas} de la lista: \
+                     escriba al menos {PREFIJO_SUFICIENTE} letras"
+                ),
+                Self::SumaDeVerificacion => write!(
+                    f,
+                    "la suma de verificación no cuadra: alguna palabra está mal escrita \
+                     o en otro orden — el secreto NO se devuelve a medias"
+                ),
+                Self::Vacio => write!(f, "no había ninguna palabra"),
+            }
+        }
+    }
+
+    impl std::error::Error for PalabrasError {}
+
+    /// La frase que hay que IMPRIMIR AL LADO de las palabras.
+    ///
+    /// Sin ella el papel obliga a quien lo herede a adivinar qué son esas
+    /// veinticuatro palabras — y el parecido con una cartera de Bitcoin hace
+    /// que la suposición más probable sea la equivocada.
+    pub fn instruccion() -> &'static str {
+        "Lista de palabras BIP-39 (inglés). NO es una cartera de Bitcoin: \
+         codifica un secreto. Cualquier herramienta que convierta una frase \
+         BIP-39 en su ENTROPÍA devuelve el secreto tal cual. El orden importa; \
+         bastan las 4 primeras letras de cada palabra."
+    }
+
+    /// Escribe el secreto como frase BIP-39.
+    ///
+    /// Falla si el tamaño no es uno de [`TAMANOS`]. Ver el porqué en el
+    /// encabezado del módulo.
+    pub fn escribir(datos: &[u8]) -> Result<String, PalabrasError> {
+        if !TAMANOS.contains(&datos.len()) {
+            return Err(PalabrasError::TamanoNoAdmitido {
+                bytes: datos.len(),
+                admitidos: TAMANOS,
+            });
+        }
+        let bits_suma = datos.len() * 8 / 32;
+        let suma = Sha256::digest(datos);
+
+        // Entropía y suma, seguidas, leídas de 11 en 11 bits.
+        let total = datos.len() * 8 + bits_suma;
+        let bit = |i: usize| -> u32 {
+            let (fuente, i) = if i < datos.len() * 8 {
+                (datos[i / 8], i)
+            } else {
+                let j = i - datos.len() * 8;
+                (suma[j / 8], j)
+            };
+            ((fuente >> (7 - (i % 8))) & 1) as u32
+        };
+
+        let mut frase = String::new();
+        for p in 0..total / 11 {
+            let mut idx = 0u32;
+            for k in 0..11 {
+                idx = (idx << 1) | bit(p * 11 + k);
+            }
+            if p > 0 {
+                frase.push(' ');
+            }
+            frase.push_str(lista()[idx as usize]);
+        }
+        Ok(frase)
+    }
+
+    /// Lee lo que [`escribir`] produjo, tolerando cómo escribe la gente.
+    ///
+    /// Se aceptan mayúsculas, espacios de sobra, saltos de línea y **palabras
+    /// truncadas** a partir de [`PREFIJO_SUFICIENTE`] letras — que la BIP-39
+    /// garantiza inequívocas—. Lo que NO se tolera es una suma de verificación
+    /// que no cuadre: ahí se devuelve error y **ningún byte**.
+    pub fn leer(texto: &str) -> Result<Vec<u8>, PalabrasError> {
+        let crudas: Vec<&str> = texto.split_whitespace().collect();
+        if crudas.is_empty() {
+            return Err(PalabrasError::Vacio);
+        }
+        // 12, 15, 18, 21 o 24 palabras: las que salen de los tamaños válidos.
+        let bytes = match crudas.len() {
+            12 => 16,
+            15 => 20,
+            18 => 24,
+            21 => 28,
+            24 => 32,
+            n => return Err(PalabrasError::CuentaNoAdmitida { palabras: n }),
+        };
+
+        let mut indices = Vec::with_capacity(crudas.len());
+        for (i, cruda) in crudas.iter().enumerate() {
+            let limpia: String = cruda
+                .chars()
+                .filter(|c| c.is_ascii_alphabetic())
+                .map(|c| c.to_ascii_lowercase())
+                .collect();
+            indices.push(indice_de(&limpia, i + 1)?);
+        }
+
+        // Deshacer los grupos de 11 bits.
+        let bits_suma = bytes * 8 / 32;
+        let mut plano = Vec::with_capacity(bytes + 1);
+        let (mut acc, mut n) = (0u32, 0u32);
+        for idx in &indices {
+            acc = (acc << 11) | *idx;
+            n += 11;
+            while n >= 8 {
+                plano.push(((acc >> (n - 8)) & 0xff) as u8);
+                n -= 8;
+            }
+        }
+        // Los bits que sobran son la cola de la suma; van en el último byte.
+        if n > 0 {
+            plano.push(((acc << (8 - n)) & 0xff) as u8);
+        }
+
+        let entropia = plano[..bytes].to_vec();
+        let esperada = Sha256::digest(&entropia)[0];
+        let mascara = 0xffu8 << (8 - bits_suma);
+        if plano[bytes] & mascara != esperada & mascara {
+            return Err(PalabrasError::SumaDeVerificacion);
+        }
+        Ok(entropia)
+    }
+
+    /// Una palabra escrita a mano → su índice. Exacta primero; si no, prefijo
+    /// inequívoco. Nunca se elige entre varias.
+    fn indice_de(limpia: &str, posicion: usize) -> Result<u32, PalabrasError> {
+        if limpia.is_empty() {
+            return Err(PalabrasError::PalabraDesconocida {
+                palabra: String::new(),
+                posicion,
+            });
+        }
+        if let Some(i) = lista().iter().position(|w| *w == limpia) {
+            return Ok(i as u32);
+        }
+        let candidatas: Vec<usize> = lista()
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| w.starts_with(limpia))
+            .map(|(i, _)| i)
+            .collect();
+        match candidatas.len() {
+            0 => Err(PalabrasError::PalabraDesconocida {
+                palabra: limpia.to_string(),
+                posicion,
+            }),
+            1 if limpia.len() >= PREFIJO_SUFICIENTE => Ok(candidatas[0] as u32),
+            // Encaja con UNA sola, pero con menos de cuatro letras. Aceptarlo
+            // sería fiarse de que la lista no cambie nunca; y decir «ambigua»
+            // sería mentir sobre lo que se midió — encaja con una, no con dos.
+            1 => Err(PalabrasError::PalabraDemasiadoCorta {
+                palabra: limpia.to_string(),
+                posicion,
+            }),
+            n => Err(PalabrasError::PalabraAmbigua {
+                palabra: limpia.to_string(),
+                posicion,
+                candidatas: n,
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 mod pruebas_tecleable {
     use super::tecleable::*;
@@ -1082,5 +1400,187 @@ mod pruebas_tecleable {
         assert_ne!(a, b);
         assert!(a.contains("Cualquier decodificador"));
         assert!(b.contains("NO"));
+    }
+}
+
+#[cfg(all(test, feature = "palabras"))]
+mod pruebas_palabras {
+    use super::palabras::*;
+
+    /// LA PRUEBA QUE SOSTIENE LA PROMESA. Si la lista no es byte a byte la
+    /// canónica, todo lo que este marco escriba será ilegible para el resto del
+    /// mundo — y eso no se nota escribiendo y leyendo con nosotros mismos.
+    #[test]
+    fn la_lista_es_la_canonica() {
+        use sha2::{Digest, Sha256};
+        let h = Sha256::digest(LISTA_CRUDA.as_bytes());
+        let hex: String = h.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            hex,
+            SHA256_CANONICO,
+            "la lista de palabras NO es la oficial de la BIP-39"
+        );
+        assert_eq!(LISTA_CRUDA.lines().filter(|l| !l.trim().is_empty()).count(), PALABRAS_EN_LA_LISTA);
+    }
+
+    /// Los vectores OFICIALES de la BIP-39. Norma externa, no nosotros mismos.
+    fn vectores() -> Vec<(Vec<u8>, String)> {
+        include_str!("../tests/vectores_bip39.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .map(|l| {
+                let (hex, frase) = l.split_once('\t').expect("formato <hex>TAB<frase>");
+                let bytes = (0..hex.len())
+                    .step_by(2)
+                    .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                    .collect();
+                (bytes, frase.to_string())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn los_vectores_oficiales_cuadran_en_los_dos_sentidos() {
+        let v = vectores();
+        assert!(v.len() >= 24, "se esperaban los 24 vectores oficiales, hay {}", v.len());
+        for (entropia, frase) in v {
+            assert_eq!(escribir(&entropia).unwrap(), frase, "al escribir {entropia:02x?}");
+            assert_eq!(leer(&frase).unwrap(), entropia, "al leer «{frase}»");
+        }
+    }
+
+    #[test]
+    fn los_cinco_tamanos_van_y_vuelven() {
+        for &n in TAMANOS {
+            let d: Vec<u8> = (0..n).map(|i| (i * 37 + 11) as u8).collect();
+            let frase = escribir(&d).unwrap();
+            // (entropía + suma) / 11 bits por palabra: 12, 15, 18, 21 y 24.
+            assert_eq!(frase.split_whitespace().count(), (n * 8 + n * 8 / 32) / 11);
+            assert_eq!(leer(&frase).unwrap(), d, "ida y vuelta de {n} bytes");
+        }
+    }
+
+    /// Un tamaño fuera de la norma FALLA. No se rellena hasta uno válido: al
+    /// leer devolvería bytes que nadie guardó, y con una clave eso no se nota.
+    #[test]
+    fn un_tamano_ajeno_falla_ruidosamente() {
+        for n in [0usize, 1, 15, 17, 31, 33, 64] {
+            let d = vec![0u8; n];
+            assert!(
+                matches!(escribir(&d), Err(PalabrasError::TamanoNoAdmitido { .. })),
+                "{n} bytes tenía que fallar y no falló"
+            );
+        }
+    }
+
+    /// EL CASO ROJO DEL MARCO ENTERO: una palabra cambiada tiene que DETECTARSE.
+    /// Es lo único que `Marco::Desnudo` no puede hacer, y la razón de existir de
+    /// este módulo. Si esto pasara en silencio, el marco no valdría nada.
+    #[test]
+    fn una_palabra_cambiada_se_detecta() {
+        let d: Vec<u8> = (0..32).map(|i| (i * 7 + 1) as u8).collect();
+        let frase = escribir(&d).unwrap();
+        let mut ps: Vec<&str> = frase.split_whitespace().collect();
+
+        // Se recorre TODA la frase: un detector que solo mire el final es un
+        // detector que no mira.
+        let mut detectados = 0;
+        let mut colados = 0;
+        for i in 0..ps.len() {
+            let original = ps[i];
+            // Otra palabra cualquiera de la lista, distinta de la que estaba.
+            let suplente = if original == "abandon" { "ability" } else { "abandon" };
+            ps[i] = suplente;
+            match leer(&ps.join(" ")) {
+                Err(PalabrasError::SumaDeVerificacion) => detectados += 1,
+                Ok(otro) => {
+                    assert_ne!(otro, d, "devolvió el secreto correcto con una palabra cambiada");
+                    colados += 1;
+                }
+                Err(e) => panic!("error inesperado en la posición {i}: {e}"),
+            }
+            ps[i] = original;
+        }
+        // La suma es de 8 bits, así que ~1 de cada 256 cambios se cuela. Con 24
+        // posiciones lo esperable es 0. Se declara el límite en vez de fingir
+        // que detecta siempre: es DETECCIÓN, no corrección.
+        assert!(
+            detectados >= ps.len() - 1,
+            "de {} cambios solo se detectaron {detectados} ({colados} colados)",
+            ps.len()
+        );
+    }
+
+    #[test]
+    fn el_orden_cambiado_tambien_se_detecta() {
+        let d: Vec<u8> = (0..32).map(|i| (i * 13 + 5) as u8).collect();
+        let frase = escribir(&d).unwrap();
+        let mut ps: Vec<&str> = frase.split_whitespace().collect();
+        ps.swap(3, 17);
+        assert_eq!(leer(&ps.join(" ")), Err(PalabrasError::SumaDeVerificacion));
+    }
+
+    /// La BIP-39 garantiza que cuatro letras identifican la palabra. No se cita
+    /// de memoria: se comprueba sobre la lista real.
+    #[test]
+    fn cuatro_letras_bastan() {
+        let l: Vec<&str> = LISTA_CRUDA.lines().map(str::trim).filter(|w| !w.is_empty()).collect();
+        let mut prefijos = std::collections::HashSet::new();
+        for w in &l {
+            let p: String = w.chars().take(PREFIJO_SUFICIENTE).collect();
+            assert!(prefijos.insert(p.clone()), "el prefijo «{p}» se repite");
+        }
+        assert_eq!(prefijos.len(), PALABRAS_EN_LA_LISTA);
+    }
+
+    #[test]
+    fn se_admite_lo_que_la_gente_escribe() {
+        let d: Vec<u8> = (0..32).map(|i| (i * 29 + 3) as u8).collect();
+        let frase = escribir(&d).unwrap();
+
+        // Mayúsculas, espacios de sobra y saltos de línea.
+        let sucia = frase.to_uppercase().replace(' ', "\n   ");
+        assert_eq!(leer(&sucia).unwrap(), d, "mayúsculas y espacios");
+
+        // Truncada a cuatro letras, que es lo que la norma promete.
+        let corta: Vec<String> = frase
+            .split_whitespace()
+            .map(|w| w.chars().take(PREFIJO_SUFICIENTE).collect())
+            .collect();
+        assert_eq!(leer(&corta.join(" ")).unwrap(), d, "truncada a cuatro letras");
+    }
+
+    #[test]
+    fn no_se_adivina_lo_ambiguo_ni_lo_corto() {
+        let d = vec![0u8; 32];
+        let frase = escribir(&d).unwrap();
+        let mut ps: Vec<String> = frase.split_whitespace().map(String::from).collect();
+
+        // «ab» encaja con muchas: ambigua.
+        ps[0] = "ab".into();
+        assert!(matches!(leer(&ps.join(" ")), Err(PalabrasError::PalabraAmbigua { posicion: 1, .. })));
+
+        // Una que no existe en absoluto.
+        ps[0] = "quipu".into();
+        assert!(matches!(leer(&ps.join(" ")), Err(PalabrasError::PalabraDesconocida { posicion: 1, .. })));
+    }
+
+    #[test]
+    fn un_recuento_raro_se_rechaza() {
+        for n in [1usize, 11, 13, 23, 25] {
+            let frase = vec!["abandon"; n].join(" ");
+            assert!(
+                matches!(leer(&frase), Err(PalabrasError::CuentaNoAdmitida { .. })),
+                "{n} palabras tenían que rechazarse"
+            );
+        }
+        assert_eq!(leer("   "), Err(PalabrasError::Vacio));
+    }
+
+    #[test]
+    fn la_instruccion_avisa_de_lo_que_no_es() {
+        let i = instruccion();
+        assert!(i.contains("BIP-39"));
+        assert!(i.contains("NO es una cartera"), "tiene que desmentir el parecido");
     }
 }
