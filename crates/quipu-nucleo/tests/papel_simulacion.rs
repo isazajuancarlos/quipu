@@ -109,14 +109,19 @@ fn el_desorden_no_rompe_el_ciclo() {
 // EL TECHO DE PÉRDIDA — el banco que caza la promesa falsa
 // ===========================================================================
 
-/// LO QUE LA LIBRERÍA PROMETE TIENE QUE SER LO QUE AGUANTA, en los dos sentidos.
+/// LO QUE LA LIBRERÍA PROMETE TIENE QUE AGUANTARLO EN EL CASO DESFAVORABLE.
 ///
-/// Hasta el techo declarado, recupera. Pasado el techo, falla. Probar solo el
-/// primer sentido deja pasar una promesa inflada —que es como
-/// `simbolos_perdidos_tolerados` llegó a anunciar 50 cuando el techo era 5—; y
-/// probar solo el segundo dejaría pasar una promesa cobarde, que también miente.
+/// `simbolos_perdidos_tolerados` es una COTA INFERIOR: «se pueden perder al
+/// menos tantos». No es un techo exacto, y exigirle que lo sea era exigirle algo
+/// que nunca prometió — medido, con 67 símbolos promete 5 y el formato aguanta
+/// 6. Prometer de menos es seguro; prometer de MÁS es lo que se lleva la hoja.
+///
+/// Este banco cubre esa dirección: la peligrosa. La otra —que la cota no sea
+/// vacua— la cubre `la_cota_de_perdida_no_es_vacua_y_no_promete_de_mas` en el
+/// módulo. Y esta descripción decía «en los dos sentidos» cuando el código solo
+/// comprobaba uno.
 #[test]
-fn el_techo_de_perdida_es_exacto() {
+fn la_cota_de_perdida_se_cumple_en_el_caso_desfavorable() {
     let mut az = Az::nuevo(0x5445_4348_4F31_3131);
     let mut casos = 0usize;
     let mut con_margen = 0usize;
@@ -136,9 +141,14 @@ fn el_techo_de_perdida_es_exacto() {
         }
         con_margen += 1;
 
-        // Hasta el techo: tiene que recuperar. Se quitan los ÚLTIMOS, que es el
-        // caso desfavorable para el bloque de cabecera de `ecc`.
-        let quedan = &trozos[..total - techo];
+        // Hasta la cota: tiene que recuperar. Se quitan los PRIMEROS, que es el
+        // caso desfavorable de verdad — son los que llevan el bloque de cabecera
+        // de `ecc`, que corrige solo 5 bytes.
+        //
+        // El comentario decía lo contrario y el código hacía `[..total - techo]`,
+        // que quita los últimos y CONSERVA la cabecera: el caso favorable
+        // descrito como si fuera el duro. Lo halló una auditoría independiente.
+        let quedan = &trozos[techo..];
         assert_eq!(
             reensamblar(quedan).as_ref(),
             Ok(&d),
@@ -339,6 +349,43 @@ fn la_paridad_excesiva_se_rechaza_en_vez_de_recortarse() {
     assert!(empaquetar(b"un secreto cualquiera", 100, ecc::PARIDAD_MAXIMA).is_ok());
 }
 
+/// LA MISMA REGLA EN LAS DOS PUERTAS.
+///
+/// `empaquetar` rechazaba la paridad excesiva y `tecleable::escribir` la
+/// recortaba en silencio — mismo parámetro, misma capa, dos comportamientos.
+/// Quien imprime un papel tiene que enterarse de que no lleva la protección que
+/// pidió, entre por donde entre.
+#[test]
+fn las_dos_puertas_rechazan_la_paridad_excesiva_igual() {
+    for excesiva in [ecc::PARIDAD_MAXIMA + 1, 173, 200, 255] {
+        assert!(
+            matches!(
+                empaquetar(b"secreto", 100, excesiva),
+                Err(PapelError::ParidadExcesiva { .. })
+            ),
+            "empaquetar aceptó paridad {excesiva}"
+        );
+        assert!(
+            matches!(
+                tecleable::escribir(b"secreto", tecleable::Marco::Protegido { paridad: excesiva }),
+                Err(tecleable::TecleableError::ParidadExcesiva { .. })
+            ),
+            "escribir aceptó paridad {excesiva}"
+        );
+    }
+    // El gemelo: en el borde de abajo las dos aceptan, o estarían rechazando lo
+    // legítimo. Y el marco desnudo no puede fallar nunca.
+    assert!(empaquetar(b"secreto", 100, ecc::PARIDAD_MAXIMA).is_ok());
+    assert!(
+        tecleable::escribir(
+            b"secreto",
+            tecleable::Marco::Protegido { paridad: ecc::PARIDAD_MAXIMA }
+        )
+        .is_ok()
+    );
+    assert!(tecleable::escribir(b"secreto", tecleable::Marco::Desnudo).is_ok());
+}
+
 #[test]
 fn una_capacidad_imposible_falla_en_vez_de_colgarse() {
     for capacidad in 0..=papel::CABECERA {
@@ -364,7 +411,7 @@ fn ciento_veinte_secretos_pasan_por_los_dos_marcos_de_caracteres() {
         let n = 1 + az.hasta(64);
         let d = az.bytes(n);
 
-        let desnudo = tecleable::escribir(&d, tecleable::Marco::Desnudo);
+        let desnudo = tecleable::escribir(&d, tecleable::Marco::Desnudo).unwrap();
         assert_eq!(
             tecleable::leer(&desnudo, tecleable::Marco::Desnudo).unwrap(),
             d,
@@ -373,7 +420,7 @@ fn ciento_veinte_secretos_pasan_por_los_dos_marcos_de_caracteres() {
 
         let paridad = (4 + az.hasta(60)) as u8;
         let marco = tecleable::Marco::Protegido { paridad };
-        let protegido = tecleable::escribir(&d, marco);
+        let protegido = tecleable::escribir(&d, marco).unwrap();
         assert_eq!(
             tecleable::leer(&protegido, marco).unwrap(),
             d,
@@ -395,7 +442,7 @@ fn el_protegido_aguanta_el_error_de_tecleo_y_el_desnudo_no() {
     for _ in 0..CICLOS {
         let d = az.bytes(32);
         let marco = tecleable::Marco::Protegido { paridad: 40 };
-        let texto = tecleable::escribir(&d, marco);
+        let texto = tecleable::escribir(&d, marco).unwrap();
         let utiles: Vec<char> = texto.chars().filter(|c| c.is_alphanumeric()).collect();
         if utiles.len() < 4 {
             continue;
@@ -427,7 +474,7 @@ fn el_protegido_aguanta_el_error_de_tecleo_y_el_desnudo_no() {
         }
 
         // El desnudo con el mismo daño: NO tiene con qué detectarlo.
-        let crudo = tecleable::escribir(&d, tecleable::Marco::Desnudo);
+        let crudo = tecleable::escribir(&d, tecleable::Marco::Desnudo).unwrap();
         let utiles_c: Vec<char> = crudo.chars().filter(|c| c.is_alphanumeric()).collect();
         let p2 = az.hasta(utiles_c.len());
         let roto: String = crudo
@@ -512,9 +559,17 @@ fn bajo_concurrencia_el_ciclo_cierra() {
         match rx.recv_timeout(PLAZO) {
             Ok(Ok(n)) => total += n,
             Ok(Err(e)) => panic!("{e}"),
-            Err(_) => panic!(
-                "PLAZO AGOTADO ({PLAZO:?}): un hilo no contestó. Sin plazo, un \
-                 interbloqueo se vería como una compilación lenta."
+            // Las DOS causas, distinguidas: un hilo que entra en pánico suelta
+            // su `tx` al desenrollar y el canal queda `Disconnected` al
+            // instante. Decir «PLAZO AGOTADO (180s)» de eso manda a depurar un
+            // interbloqueo que no existe.
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!(
+                "PLAZO AGOTADO ({PLAZO:?}): un hilo no contestó a tiempo. Sin \
+                 plazo, un interbloqueo se vería como una compilación lenta."
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!(
+                "un hilo MURIÓ sin contestar (canal desconectado). No es un plazo \
+                 agotado: mira el pánico del hilo más arriba en la salida."
             ),
         }
     }

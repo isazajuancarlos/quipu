@@ -184,13 +184,27 @@ caracteres **más la frase que dice qué hacer con ellos**, que la da
 | | ¿lo lee cualquiera sin Quipu? | ¿detecta el error de tecleo? | ¿se dicta por teléfono? |
 |---|---|---|---|
 | `Desnudo` (Base32) | **sí** | **no** | mal: 52 caracteres |
-| `Protegido` (Base32+RS) | **no** | sí, y además corrige | mal |
+| `Protegido` (Base32+RS) | **no** | corrige hasta su cota; pasada, **puede devolver otro secreto** | mal |
 | `palabras` (BIP-39) | **sí** | **sí** (detecta, no corrige) | **sí**: 24 palabras |
 
 Lo grave era la casilla del medio: `Desnudo` devuelve **otro secreto en
 silencio** si se transcribe mal un carácter, y con una clave eso no se nota
 hasta que hace falta. `Protegido` lo tapa, pero al precio de necesitar esta
 librería — o sea, deshaciendo la única razón por la que la capa existe.
+
+**Y esa casilla decía de más hasta el 2026-08-01**, cosa que corrigió la revisión
+independiente con un número: la fila de `Protegido` ponía «sí, y además corrige».
+Reed-Solomon **miscorrige**. Medido sobre 5 000 hojas con daño por encima de su
+capacidad: 1 318 se recuperaron bien, 3 425 dieron error y **257 devolvieron
+bytes equivocados como si fueran buenos** — el 7 % de las que no se recuperaron.
+Es una propiedad del código, no un fallo de esta implementación, pero era
+exactamente la casilla que este mismo documento califica de «lo grave» cuando la
+tiene `Desnudo`. Solo el marco de palabras detecta sin ambigüedad, y solo hasta
+sus ENT/32 bits de suma.
+
+Para `papel::reensamblar` el riesgo se cierra por otro lado y conviene decirlo:
+la carga es *ciphertext*, así que una miscorrección la caza el AEAD de arriba. La
+capa tecleable **no tiene esa red**: lo que sale de ella es el secreto.
 
 **HECHO** en `quipu_nucleo::papel::palabras`, detrás de la feature `palabras`.
 Se ata a los **24 vectores oficiales de la norma** en los dos sentidos y a una
