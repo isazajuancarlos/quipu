@@ -9,10 +9,27 @@ Núcleo agnóstico de [Quipu](https://github.com/isazajuancarlos/quipu): todo lo
 que **no** es criptografía.
 
 - `codec` — codificación base-N reversible sobre enteros grandes.
-- `ecc` — corrección de errores Reed-Solomon del canal visual.
-- `prelayers` — capas previas de transformación.
-- `render` / `glyphfont` / `glyphopt` / `glyphscan` — canal visual de glifos:
-  generación, tipografía, optimización y lectura desde imagen.
+- `container` — el formato del contenedor: cabecera, campos y validación.
+- `dictionary` — los alfabetos de la codificación.
+- `ecc` — corrección de errores Reed-Solomon.
+- `papel` — el portador de papel: trocear la carga, la simbología estándar y
+  las tres formas de escribirla para teclear.
+- `prelayers` — capas previas de transformación (incluido el relleno Padmé).
+
+Esta lista anunciaba hasta el 2026-08-01 cuatro módulos de canal visual
+—`render`, `glyphfont`, `glyphopt`, `glyphscan`— que **no existen desde los PR
+#93 y #99**, y se callaba tres que sí. Queda escrito porque es el defecto que la
+directiva 24 persigue: la documentación pública sobrevive al código que
+describe, y quien la lee no tiene forma de saberlo.
+
+## Features
+
+Ninguna es *default*.
+
+| Feature | Qué añade | Qué arrastra |
+|---|---|---|
+| `qr` | el símbolo de papel ya renderizado | `qrcode` (cero dependencias transitivas) |
+| `palabras` | el marco BIP-39 de la capa tecleable | `sha2` |
 
 ## Por qué es un crate aparte
 
@@ -35,8 +52,16 @@ vez.**
 
 Ninguna primitiva criptográfica: ni AEAD, ni KDF, ni firma, ni intercambio de
 claves, ni generación de aleatoriedad. Si un módulo de este crate necesitara
-importar `chacha20poly1305`, `argon2`, `sha2`, `ml-kem` o `ed25519`, estaría en
-el crate equivocado.
+importar `chacha20poly1305`, `argon2`, `ml-kem` o `ed25519`, estaría en el crate
+equivocado.
+
+**La única excepción, y va acotada al pie de la letra:** la feature `palabras`
+—no-default— arrastra `sha2`, porque la BIP-39 define su suma de verificación
+como los primeros bits de SHA-256 sobre la entropía. No es criptografía: no hay
+clave, no hay secreto y no hay nada que proteger — es una suma de verificación
+que el formato exige, y cambiarla sería inventar otro formato. **La compilación
+por defecto de este crate sigue sin llevar ni una función criptográfica**, y eso
+se comprueba con `cargo tree -p quipu-nucleo -e normal`, no leyendo esta frase.
 
 ## Advertencia
 
