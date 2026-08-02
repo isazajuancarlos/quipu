@@ -130,6 +130,18 @@ impl KdfParams {
     }
 }
 
+/// Normaliza la passphrase EXACTAMENTE como lo hace [`derive_master_key`].
+///
+/// Es la única definición de «la misma contraseña» que existe en Quipu, y está
+/// expuesta al crate para que nadie la reimplemente: quien tenga que decidir si
+/// dos frases son la misma —`negacion::crear` lo hace antes de gastar un
+/// Argon2id— tiene que usar el mismo criterio que la derivación. Comparar bytes
+/// crudos donde el KDF compara tras NFKC abre un hueco entre lo que la
+/// comprobación dice y lo que la clave hace.
+pub(crate) fn normalizar(passphrase: &str) -> String {
+    passphrase.nfkc().collect()
+}
+
 /// Deriva la clave maestra desde la passphrase (normalizada NFKC), el salt,
 /// un pepper opcional y el coste Argon2id.
 pub fn derive_master_key(
@@ -139,7 +151,7 @@ pub fn derive_master_key(
     params: &KdfParams,
 ) -> [u8; KEY_LEN] {
     // NFKC: la "misma" contraseña deriva siempre la misma clave.
-    let mut normalized: String = passphrase.nfkc().collect();
+    let mut normalized: String = normalizar(passphrase);
     // El pepper se concatena al material de contraseña.
     //
     // AMBIGÜEDAD DE CODIFICACIÓN CONOCIDA, sin explotación hallada y anotada
