@@ -438,8 +438,12 @@ def probar_promocion_sin_red_no_aprueba() -> None:
     deja re-subir. Tiene que salir SIN COMPROBAR, que no es un aprobado.
     """
     orig_rama, orig_json = verificar._rama_actual, verificar.leer_json
+    orig_estado = verificar.leer_json_estado
     verificar._rama_actual = lambda: "testing"
     verificar.leer_json = lambda _url: None          # la red no contesta
+    # También el índice de crates.io: si no se apaga, la comprobación de los
+    # hermanos saldría a la red DE VERDAD desde el banco.
+    verificar.leer_json_estado = lambda _url: ("sin-respuesta", None)
     try:
         inf = verificar.Informe()
         verificar.verificar_promocion(inf, "estable")
@@ -450,6 +454,105 @@ def probar_promocion_sin_red_no_aprueba() -> None:
         comprobar(salida_de(inf) != 0, "y un SIN COMPROBAR nunca sale 0")
     finally:
         verificar._rama_actual, verificar.leer_json = orig_rama, orig_json
+        verificar.leer_json_estado = orig_estado
+
+
+# ---------------------------------------------------------------------------
+# La versión de un crate HERMANO no puede ir por detrás de crates.io
+# ---------------------------------------------------------------------------
+#
+# El caso real que lo motivó: `estable` y crates.io en `quipu-nucleo` 0.1.1,
+# `testing` en 0.1.0. Las cuatro pruebas de abajo son las cuatro respuestas
+# posibles, y la que de verdad importa es la SEGUNDA: si «igual a la publicada»
+# saliera roja, la regla estaría mal y obligaría a subir los cinco crates en
+# cada release.
+
+def _indice_con(*versiones: str):
+    """Un crates.io de mentira que sirve estas versiones para cualquier crate."""
+    return lambda _url: (
+        "ok",
+        {"versions": [{"num": v, "yanked": False} for v in versiones]},
+    )
+
+
+def _informe_de_miembros(indice, miembros=(("quipu-nucleo", "0.1.0", "crates/quipu-nucleo"),)):
+    orig_estado = verificar.leer_json_estado
+    orig_miembros = verificar._miembros_publicables
+    verificar.leer_json_estado = indice
+    verificar._miembros_publicables = lambda: list(miembros)
+    try:
+        inf = verificar.Informe()
+        verificar.verificar_versiones_de_miembros(inf)
+        return inf
+    finally:
+        verificar.leer_json_estado = orig_estado
+        verificar._miembros_publicables = orig_miembros
+
+
+def probar_hermano_atrasado_suspende() -> None:
+    """0.1.0 en el árbol contra 0.1.1 publicada: eso no se puede promover."""
+    inf = _informe_de_miembros(_indice_con("0.1.1", "0.1.0"))
+    comprobar(
+        any(e == "fallo" for e, _, _ in inf.lineas),
+        "un hermano por detrás del índice tiene que SUSPENDER",
+    )
+    comprobar(salida_de(inf) == 1, "y el informe sale 1")
+
+
+def probar_hermano_igual_a_la_publicada_aprueba() -> None:
+    """La operación NORMAL: un release que no toca este crate.
+
+    Si esto saliera rojo, la regla estaría mal por bien argumentada que
+    estuviera: obligaría a bumpear los cinco crates en cada release aunque
+    ninguno haya cambiado (directiva 21).
+    """
+    inf = _informe_de_miembros(
+        _indice_con("0.1.1"), miembros=(("quipu-nucleo", "0.1.1", "crates/quipu-nucleo"),)
+    )
+    comprobar(
+        all(e == "ok" for e, _, _ in inf.lineas),
+        "un hermano IGUAL a la versión publicada es normal, no un fallo",
+    )
+    comprobar(salida_de(inf) == 0, "y el informe sale 0")
+
+
+def probar_hermano_sin_publicar_no_es_un_fallo() -> None:
+    """Un 404 del índice SÍ es un dato: el crate aún no existe ahí."""
+    inf = _informe_de_miembros(
+        lambda _url: ("ausente", None),
+        miembros=(("padme-frame", "0.1.0", "crates/padme-frame"),),
+    )
+    comprobar(
+        all(e == "ok" for e, _, _ in inf.lineas),
+        "un crate que todavía no está publicado no tiene nada que superar",
+    )
+
+
+def probar_indice_caido_no_aprueba_a_los_hermanos() -> None:
+    """«No pude mirar» nunca es «lo miré y está bien»."""
+    inf = _informe_de_miembros(lambda _url: ("sin-respuesta", None))
+    comprobar(
+        all(e == "omitido" for e, _, _ in inf.lineas),
+        "sin respuesta del índice, la versión del hermano queda SIN COMPROBAR",
+    )
+    comprobar(salida_de(inf) == 2, "y un SIN COMPROBAR sale 2, no 0")
+
+
+def probar_workspace_vacio_no_aprueba() -> None:
+    """Cero miembros no es «todos correctos»: es que no se leyó nada."""
+    inf = _informe_de_miembros(_indice_con("0.1.1"), miembros=())
+    comprobar(salida_de(inf) != 0, "un workspace sin miembros NO puede salir 0")
+
+
+def probar_semver_ordena_el_prelanzamiento_antes() -> None:
+    comprobar(
+        verificar._semver("0.2.0-rc.1") < verificar._semver("0.2.0"),
+        "un prelanzamiento ordena ANTES que su versión final",
+    )
+    comprobar(
+        verificar._semver("0.10.0") > verificar._semver("0.9.1"),
+        "0.10.0 es mayor que 0.9.1 (comparación numérica, no de texto)",
+    )
 
 
 if __name__ == "__main__":
