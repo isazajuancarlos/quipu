@@ -79,7 +79,15 @@ pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optiona
 # canal visual. Se separó para que `quipu` y su hermana `quipu-cnsa` compartan
 # UNA sola implementación de todo lo que no es criptografía — un fallo se
 # arregla una vez. Ver el doc del crate y la tarea #92.
-quipu-nucleo = { version = "0.1.0", path = "crates/quipu-nucleo" }
+#
+# El requisito dice 0.1.2 y no 0.1.0 porque tiene que nombrar la versión que de
+# verdad trae lo que este crate compila: `src/lab/papel.rs` usa
+# `ecc::PARIDAD_MAXIMA`, que NO existe en la 0.1.1 ni en la 0.1.0 publicadas.
+# Con `version = "0.1.0"`, cargo podía resolverlo a cualquiera de esas dos desde
+# crates.io y `quipu --features lab` no compilaría — en el árbol nunca se nota,
+# porque el `path` gana y siempre apunta a lo de aquí. Un requisito laxo no es
+# «tolerante»: es una afirmación falsa sobre lo que hace falta.
+quipu-nucleo = { version = "0.1.2", path = "crates/quipu-nucleo" }
 chacha20poly1305 = "0.11"
 # Arrastra `rand_core` 0.6 al arbol, y NO se puede evitar: `hash_password_into`
 # —lo unico que Quipu llama— exige la feature `alloc`, que exige `password-hash`,

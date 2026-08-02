@@ -16,6 +16,13 @@ documentation = "https://docs.rs/quipu-cnsa"
 # Formato, contenedor, codec, padding Padmé y ECC: COMPARTIDOS con `quipu`. Es la
 # razón de existir de ese crate — un fallo de formato se arregla una vez, no
 # dos. Ver crates/quipu-nucleo.
+#
+# Se queda en 0.1.0 A PROPÓSITO, aunque el crate del árbol vaya por 0.1.2 y el
+# de `quipu` diga 0.1.2: este perfil no usa nada de lo que se añadió después
+# —ni `ecc::PARIDAD_MAXIMA` ni el módulo `papel`—, comprobado por grep sobre
+# `src/`. El requisito nombra lo que de verdad hace falta, ni más ni menos.
+# Subirlo «por coherencia» con el hermano sería declarar una dependencia que no
+# existe, que es el mismo error que tener uno laxo, del otro lado.
 quipu-nucleo = { version = "0.1.0", path = "../quipu-nucleo" }
 
 # --- Lo que CAMBIA respecto de `quipu`: las primitivas ---
