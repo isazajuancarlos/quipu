@@ -1,6 +1,19 @@
 [package]
 name = "quipu-nucleo"
-version = "0.1.0"
+# 0.1.2 y no 0.2.0: el cambio respecto a la 0.1.1 publicada es ESTRICTAMENTE
+# ADITIVO, comprobado ítem a ítem sobre la superficie pública —lo único que
+# aparece es `ecc::PARIDAD_MAXIMA` y el módulo `papel`; no se quitó ni se
+# cambió de firma nada—. En 0.x el minor hace de major para cargo, así que
+# subirlo a 0.2.0 declararía una ruptura que no ocurrió y obligaría a mover los
+# requisitos de `quipu` y `quipu-cnsa` para nada.
+#
+# La extracción de Padmé a `padme-frame` tampoco rompe: `prelayers` conserva los
+# mismos nombres y firmas, y el FORMATO sale byte a byte idéntico —medido en
+# `crates/padme-frame/tests/paridad_con_la_implementacion_original.rs` sobre
+# 200 000 longitudes contra una copia literal del código de la 0.1.1—. Esa
+# prueba existe porque la del envoltorio solo hace ida y vuelta consigo misma, y
+# eso pasaría igual si el algoritmo hubiera cambiado.
+version = "0.1.2"
 edition = "2024"
 description = "Núcleo agnóstico de primitivas de Quipu: formato del contenedor, codec base-N, Reed-Solomon y relleno Padmé. No contiene criptografía."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]

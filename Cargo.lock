@@ -1011,7 +1011,7 @@ dependencies = [
 
 [[package]]
 name = "quipu-nucleo"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "bip39",
  "num-bigint",
