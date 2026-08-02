@@ -7,9 +7,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Security
-- **`#![forbid(unsafe_code)]` en los CINCO crates, no en uno.** Estaba solo en
-  `quipu-cnsa`; `quipu`, `quipu-nucleo`, `quipu-voprf` y el servidor OPRF tenían
-  cero `unsafe` **hoy** y nada que lo impidiera **mañana**.
+- **`#![forbid(unsafe_code)]` en los SEIS paquetes del workspace, no en uno.**
+  Estaba solo en `quipu-cnsa`; `quipu`, `quipu-nucleo`, `quipu-voprf`,
+  `padme-frame` y el servidor OPRF tenían cero `unsafe` **hoy** y nada que lo
+  impidiera **mañana**.
+
+  Esta entrada decía «los CINCO crates» y **contaba de menos**, que es el mismo
+  error que venía a corregir: el workspace tiene seis miembros, y el sexto
+  —`quipu-oprf-server`— llevaba el atributo solo en `main.rs`. Su **lib**, que
+  es todo el código que corre en el VPS, no estaba cubierta: un `[[bin]]` es una
+  unidad de compilación aparte y no hereda nada de la lib. Cerrado el 2026-08-02
+  poniéndolo en `src/lib.rs` y en `src/bin/custodia-seed.rs`.
 
   Es la diferencia entre una propiedad medida y una garantizada, y el `CLAUDE.md`
   la difuminaba sin querer: «la única aparición en el árbol es un
@@ -134,6 +142,49 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Poisson y corregido por mirar `largo × 256` casillas a la vez.
 
 ### Fixed
+- **`quipu-nucleo` sube a 0.1.2, y el requisito que lo nombraba MENTÍA.** El
+  árbol se había quedado en 0.1.0 mientras `estable` y crates.io iban por 0.1.1
+  — una regresión que ningún check veía, porque «coherencia de versiones»
+  compara dentro de una rama y la promoción solo miraba el paquete raíz contra
+  PyPI. Es el fallo que vive ENTRE dos árboles: cada uno coherente, la relación
+  no.
+
+  **0.1.2 y no 0.2.0**: comparada la superficie pública ítem a ítem contra la
+  0.1.1, la diferencia entera es `ecc::PARIDAD_MAXIMA` y el módulo `papel`. Cero
+  removals, cero cambios de firma. En 0.x el minor hace de major para cargo, así
+  que 0.2.0 declararía una ruptura que no ocurrió.
+
+  Lo que apareció al arreglarlo era peor que la regresión: `Cargo.toml` pedía
+  `quipu-nucleo = { version = "0.1.0" }` mientras `src/lab/papel.rs` usa
+  `ecc::PARIDAD_MAXIMA`, **que no existe en ninguna de las dos versiones
+  publicadas**. Desde el árbol no se nota jamás, porque el `path` gana y siempre
+  resuelve a lo local; desde crates.io, `quipu --features lab` no compilaba. Un
+  requisito laxo no es tolerante: es una afirmación falsa sobre lo que hace
+  falta. `quipu-cnsa` se deja en `0.1.0` a propósito — no usa nada de lo nuevo, y
+  subirlo «por coherencia» sería el mismo error del otro lado.
+
+  Y la extracción de Padmé no cambió el formato, que era lo único que había que
+  demostrar: `crates/padme-frame/tests/paridad_con_la_implementacion_original.rs`
+  compara contra una copia literal del código de la 0.1.1 sobre 200 000
+  longitudes y 4 000 bloques, byte a byte. Existe porque la prueba del envoltorio
+  solo hace ida y vuelta **consigo misma**, y eso saldría verde igual si el
+  algoritmo hubiera cambiado.
+
+- **La cadena de publicación tenía un eslabón sin maquinaria.** `quipu-nucleo`
+  depende de `padme-frame` por `path` + `version` y `padme-frame` no está en
+  crates.io, así que `cargo publish -p quipu-nucleo` habría fallado el día del
+  release — el mismo fallo de `quipu-voprf`, que estuvo roto desde `a1c9056` sin
+  que nadie lo notara. `release.yml` ni siquiera reconocía un tag suyo. Añadidos
+  el disparador `padme-v*` y el job `crate-padme`; el orden completo es
+  `padme-frame → quipu-nucleo → quipu-voprf → quipu`.
+
+  De paso, el gate de `wheels` y `sdist` pasa a ser **positivo**. Era una lista
+  de negaciones (`!voprf-v && !django-v`), y una lista de negaciones falla por lo
+  que no enumera: un tag `nucleo-v*` construía las tres ruedas —ubuntu, macOS y
+  Windows— y el `sdist` para después no publicarlos, porque el job `pypi` sí
+  exigía `refs/tags/v`. Añadir `!padme-v` habría arreglado el caso dejando la
+  regla igual de rota para el siguiente crate.
+
 - **Dos objetivos de fuzz llevaban desde el 2026-07-27 en verde sin tocar el parser
   que decían fuzzear.** Se descubrió al ir a encadenar el corpus (#131.1): antes de
   encadenar nada se midió lo que había, y lo que había era nada.
