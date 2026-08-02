@@ -222,9 +222,11 @@ impl core::fmt::Display for NegacionError {
             ),
             Self::MismaContrasena => write!(
                 f,
-                "el señuelo y el volumen oculto llevan la misma contraseña: entregarla \
-                 bajo coacción entregaría el volumen verdadero, que es justo lo que este \
-                 formato existe para evitar"
+                "el señuelo y el volumen oculto llevan la misma contraseña —comparadas \
+                 como las compara el KDF, o sea tras normalizar NFKC, así que pueden \
+                 diferir byte a byte y seguir siendo la misma—: entregarla bajo coacción \
+                 entregaría el volumen verdadero, que es justo lo que este formato existe \
+                 para evitar"
             ),
             Self::SenueloVacio => write!(
                 f,
@@ -421,7 +423,10 @@ fn claro_de_region(datos: &[u8], largo_claro: usize, volumen: Volumen) -> Result
 /// ahí está el porqué, con los números.
 ///
 /// **El señuelo y el oculto NO pueden compartir contraseña**, y se rechaza con
-/// [`NegacionError::MismaContrasena`].
+/// [`NegacionError::MismaContrasena`]. «Compartir» significa lo que significa
+/// para el KDF —igualdad tras NFKC—, no igualdad byte a byte: dos cadenas
+/// distintas en bytes pero equivalentes en NFKC derivan la misma maestra y por
+/// tanto abren las dos regiones, que es el fallo que la regla evita.
 ///
 /// Hasta el 2026-08-01 esto se aceptaba en silencio, con la nota de que «no
 /// tiene sentido hacerlo». Aceptar en silencio lo que no tiene sentido es la
@@ -449,10 +454,25 @@ pub fn crear(
     // La contraseña compartida se rechaza ANTES de gastar un Argon2id. La
     // comparación va en tiempo constante por costumbre, no porque aquí haya un
     // secreto que proteger: las dos las trae el mismo llamante.
-    if let Some((_, clave_oculta)) = oculto
-        && antihacker::ct_eq(clave_senuelo.as_bytes(), clave_oculta.as_bytes())
-    {
-        return Err(NegacionError::MismaContrasena);
+    //
+    // SE COMPARA LO QUE COMPARA EL KDF, no los bytes crudos. `derive_master_key`
+    // normaliza NFKC antes de derivar, así que dos cadenas distintas byte a byte
+    // pero equivalentes en NFKC —una «á» precompuesta contra «a» más el acento
+    // combinante, una ligadura, un dígito de compatibilidad— derivan LA MISMA
+    // maestra. Comparando bytes, la guarda las dejaba pasar y el contenedor
+    // nacía con las dos regiones bajo la misma clave; y como `intentar` da
+    // prioridad al oculto cuando las dos abren, entregar el «señuelo» bajo
+    // coacción devolvía el volumen verdadero. O sea, justo lo que esta guarda
+    // existe para impedir, por el hueco entre lo que comprueba y lo que deriva.
+    if let Some((_, clave_oculta)) = oculto {
+        let mut a = kdf::normalizar(clave_senuelo).into_bytes();
+        let mut b = kdf::normalizar(clave_oculta).into_bytes();
+        let iguales = antihacker::ct_eq(&a, &b);
+        antihacker::wipe(&mut a);
+        antihacker::wipe(&mut b);
+        if iguales {
+            return Err(NegacionError::MismaContrasena);
+        }
     }
 
     let (r_senuelo, r_oculto) = tramos(tamano_total);
@@ -1069,6 +1089,72 @@ mod tests {
 
         // Ni siquiera prefijos: son cadenas distintas y las dos valen.
         assert!(crear(S, b"s", "clave", Some((b"o".as_slice(), "clave2")), barato()).is_ok());
+    }
+
+    /// «La misma contraseña» es la que el KDF trata como la misma, no la que
+    /// tiene los mismos bytes.
+    ///
+    /// Esta prueba EXISTE PARA PONERSE ROJA si alguien devuelve la guarda a
+    /// comparar `as_bytes()`: las tres parejas de abajo difieren byte a byte y
+    /// las tres derivan la misma maestra, así que con la comparación cruda el
+    /// contenedor nacía con las dos regiones bajo la misma clave y `abrir`
+    /// devolvía el OCULTO al entregar el «señuelo» bajo coacción.
+    #[test]
+    fn equivalentes_en_nfkc_son_la_misma_contrasena() {
+        // (precompuesta, descompuesta) — la pareja clásica de acentos.
+        let parejas: [(&str, &str); 3] = [
+            ("caf\u{e9}", "cafe\u{301}"),      // café: é  vs  e + ◌́
+            ("\u{fb01}n", "fin"),              // ligadura ﬁ  vs  f + i
+            ("clave\u{2075}", "clave5"),       // superíndice ⁵  vs  5
+        ];
+
+        for (a, b) in parejas {
+            // La premisa, medida y no supuesta: son cadenas DISTINTAS…
+            assert_ne!(a.as_bytes(), b.as_bytes(), "la pareja {a:?}/{b:?} ya era igual en bytes");
+
+            // …y aun así el KDF deriva de las dos LA MISMA maestra. Si esto
+            // dejara de ser cierto, la guarda de abajo sobraría y esta prueba
+            // estaría midiendo otra cosa.
+            let salt = [7u8; kdf::SALT_LEN];
+            assert_eq!(
+                kdf::derive_master_key(a, &salt, b"", &barato().params),
+                kdf::derive_master_key(b, &salt, b"", &barato().params),
+                "la pareja {a:?}/{b:?} no es NFKC-equivalente para el KDF"
+            );
+
+            // Luego `crear` tiene que rechazarlas, en los dos órdenes.
+            //
+            // Con `matches!` y no `unwrap_err()`: cuando esto se rompe, el valor
+            // que hay es un contenedor de 4 KiB, y `unwrap_err` lo vuelca entero
+            // en el panic. El mensaje corto se lee; cuatro mil bytes, no.
+            for (x, y) in [(a, b), (b, a)] {
+                let r = crear(S, b"senuelo", x, Some((b"oculto".as_slice(), y)), barato());
+                assert!(
+                    matches!(r, Err(NegacionError::MismaContrasena)),
+                    "no rechazó {x:?} contra {y:?}: {}",
+                    match r {
+                        Ok(c) => format!("creó un contenedor de {} B", c.len()),
+                        Err(e) => format!("falló con otro error: {e}"),
+                    }
+                );
+            }
+        }
+
+        // EL GEMELO, que es lo que decide si la regla discrimina o solo aprieta
+        // (directiva 21): dos frases que SÍ difieren tras NFKC se aceptan, y
+        // cada una abre lo suyo. «café» y «cafe» se parecen a la vista y son
+        // contraseñas distintas para el KDF; rechazarlas sería el falso
+        // positivo que esta regla no puede permitirse.
+        let c = crear(
+            S,
+            b"senuelo",
+            "caf\u{e9}",
+            Some((b"oculto".as_slice(), "cafe")),
+            barato(),
+        )
+        .unwrap();
+        assert_eq!(abrir(&c, "caf\u{e9}", Some(barato())).unwrap().volumen, Volumen::Senuelo);
+        assert_eq!(abrir(&c, "cafe", Some(barato())).unwrap().volumen, Volumen::Oculto);
     }
 
     /// UN BYTE AÑADIDO NO PUEDE DESTRUIR EL OCULTO EN SILENCIO.

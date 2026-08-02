@@ -7,6 +7,29 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Security
+- **`negacion::crear` comparaba las dos contraseñas por BYTES, y el KDF las
+  compara tras NFKC.** En ese hueco cabía justo el fallo que la guarda existía
+  para impedir: `caf\u{e9}` y `cafe\u{301}` son cadenas distintas byte a byte,
+  pasaban la comprobación de «no pueden compartir contraseña», y
+  `derive_master_key` derivaba de las dos LA MISMA maestra. El contenedor nacía
+  con las dos regiones bajo la misma clave y, como `intentar` da prioridad al
+  oculto cuando ambas abren, entregar el «señuelo» bajo coacción devolvía el
+  volumen verdadero.
+
+  No es alcanzable por un atacante —hace falta que el propio usuario elija dos
+  frases visualmente idénticas—, y por eso no salió como hallazgo de la revisión
+  de seguridad sino como observación. Se arregla igual, porque una guarda que no
+  significa lo que dice es una salvaguarda falsa.
+
+  El arreglo va en la REGLA y no en el caso (directiva 23): la noción de «la
+  misma contraseña» se define **una vez**, en `kdf::normalizar`, y la usan tanto
+  la derivación como la comparación. Comparar con un criterio y derivar con otro
+  era la causa; añadir un caso especial para los acentos habría sido el síntoma.
+
+  Prueba que discrimina: tres parejas NFKC-equivalentes —acento combinante,
+  ligadura `ﬁ`, superíndice `⁵`— con la premisa medida (bytes distintos, maestra
+  idéntica) y el gemelo obligado, `café` contra `cafe`, que SÍ difieren tras
+  NFKC y tienen que seguir aceptándose abriendo cada una lo suyo.
 - **`#![forbid(unsafe_code)]` en los SEIS paquetes del workspace, no en uno.**
   Estaba solo en `quipu-cnsa`; `quipu`, `quipu-nucleo`, `quipu-voprf`,
   `padme-frame` y el servidor OPRF tenían cero `unsafe` **hoy** y nada que lo
@@ -18,6 +41,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   es todo el código que corre en el VPS, no estaba cubierta: un `[[bin]]` es una
   unidad de compilación aparte y no hereda nada de la lib. Cerrado el 2026-08-02
   poniéndolo en `src/lib.rs` y en `src/bin/custodia-seed.rs`.
+
+  **Y la garantía no llegaba a quien la compra.** `git diff origin/estable HEAD
+  -- crates/quipu-voprf/` devolvía UN cambio, y era exactamente esa línea: el
+  atributo existía en el árbol y no en la 0.2.2 del índice, que es lo que
+  descarga quien hace `cargo add quipu-voprf`. crates.io no deja re-subir una
+  versión, así que sin bumpear se quedaba aquí para siempre. **`quipu-voprf` sube
+  a 0.2.3** — parche, porque un atributo de lint no cambia ninguna firma.
+
+  Importa justo en ese crate y no en otro: es el Apache-2.0, el que enlazan
+  clientes ajenos del servicio OPRF. Y es la misma lección por tercera vez en un
+  día — «los seis paquetes llevan `forbid`» era cierto en el árbol y falso en el
+  índice, igual que «los CINCO crates» era cierto de los cinco que contaba.
 
   Es la diferencia entre una propiedad medida y una garantizada, y el `CLAUDE.md`
   la difuminaba sin querer: «la única aparición en el árbol es un
@@ -31,6 +66,35 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mecanismo que sobra engaña sobre por qué está.
 
 ### Added
+- **Simulación de enlazabilidad (N9): la afirmación es de POBLACIÓN y no tenía
+  prueba de población.** Los dos cambios que cierran N9 —la escalera canónica
+  del KDF y el `codebook_id` en cero— llegaron con pruebas unitarias buenas que
+  no pueden sostener lo que prometen: `la_escalera_colapsa_la_huella_de_
+  configuracion` cuenta las huellas de `KdfParams::canonicos()`, o sea **el
+  catálogo de la API, no lo que `encode` acaba escribiendo**. Y «todo el que use
+  `EQUILIBRADO` se ve igual» es una frase sobre un conjunto: no se verifica con
+  un elemento.
+
+  `tests/enlazabilidad_simulacion.rs` escribe **126 contenedores de 13 autores**
+  —cada uno con su frase, su pepper, su peldaño y **pidiendo un `codebook_id`
+  propio y no nulo**— en 13 hilos con `recv_timeout`, y mide sobre el blob los
+  15 bytes de cabecera que son a la vez visibles y estables: `flags`,
+  `codebook_id` y los doce del KDF. Salt y nonce quedan FUERA a propósito — son
+  frescos por operación, y meterlos daría 126 huellas únicas y un verde falso.
+
+  Exige tres cosas: como mucho 3 huellas para 13 autores, ninguna huella con un
+  solo autor detrás, y `codebook_id` en cero pese a que todos pidieron el suyo.
+
+  Con dos rojos que la validan, porque un banco que no discrimina es un
+  generador de ceros: reintroducir `codebook_id: opts.codebook_id` da «13
+  huellas distintas para 13 autores», y sustituir el Associated Data por una
+  constante rompe el camino de error que comprueba que el metadato está
+  AUTENTICADO — que no agrupe sirve de poco si se puede reescribir en tránsito.
+
+  Coste medido: 90 s en debug, 7,9 s en release (~11× de Argon2id). Es la prueba
+  más lenta del árbol y **la población no se recorta**: con tres personas el
+  aserto se cumpliría por aritmética y no por el mecanismo.
+
 - **`papel::tecleable` — la capa que un humano copia sin ninguna máquina, con el
   marco Reed-Solomon OPCIONAL.** Es la condición que hace válida la única razón
   por la que esa capa existe: `Marco::Desnudo` es `Base32(secreto)` según la RFC
@@ -142,6 +206,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Poisson y corregido por mirar `largo × 256` casillas a la vez.
 
 ### Fixed
+- **`quipu` sube a 0.11.0: catorce archivos llevaban meses bajo un número ya
+  publicado.** Lo encontró el guardián de deriva nada más existir —`git diff
+  v0.10.0 HEAD -- src Cargo.toml` da 14 archivos— y es la instancia más grande
+  del fallo que se repitió cuatro veces en un día: `aleatorio`, `antihacker`,
+  `api`, `kdf`, `negacion`, `lab/papel` y el resto del trabajo de la rama no
+  habrían llegado nunca a crates.io, porque una versión no se re-sube.
+
+  **0.11.0 y no 0.10.1, y el motivo no es el tamaño.** La superficie pública
+  contra `v0.10.0` es estrictamente aditiva: ni un ítem retirado, ni una firma
+  cambiada. Por esa vara sola tocaba parche. Lo que lo mueve es un cambio de
+  COMPORTAMIENTO que el compilador no ve: `Options.codebook_id` pasó a
+  ignorarse, y era público y ajustable desde la 0.10.0. Quien lo estuviera
+  poniendo sigue compilando y obtiene otra cosa.
+
+  Con consecuencia medible, no teórica: `guaca` y `tunjo` piden
+  `quipu = "0.10"`. Con 0.10.1 se habrían llevado ese cambio solos en el
+  siguiente `cargo update`; con 0.11.0 no se mueven hasta que alguien edite el
+  requisito. Un cambio de comportamiento se hereda decidiéndolo.
+
 - **`quipu-nucleo` sube a 0.1.2, y el requisito que lo nombraba MENTÍA.** El
   árbol se había quedado en 0.1.0 mientras `estable` y crates.io iban por 0.1.1
   — una regresión que ningún check veía, porque «coherencia de versiones»
@@ -177,6 +260,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   que nadie lo notara. `release.yml` ni siquiera reconocía un tag suyo. Añadidos
   el disparador `padme-v*` y el job `crate-padme`; el orden completo es
   `padme-frame → quipu-nucleo → quipu-voprf → quipu`.
+
+  Y `quipu-cnsa` estaba en el mismo hueco sin que nadie lo hubiera notado: no
+  lleva `publish = false` —o sea que ES publicable, con 62 pruebas en verde y
+  los dos perfiles terminados— y no tenía ni tag ni job. Un crate acabado sin
+  ninguna forma de salir. Lo delató el guardián de deriva al NEGARSE a aprobarlo
+  por no tener prefijo declarado, en vez de callarse: añadidos `cnsa-v*` y
+  `crate-cnsa`.
 
   De paso, el gate de `wheels` y `sdist` pasa a ser **positivo**. Era una lista
   de negaciones (`!voprf-v && !django-v`), y una lista de negaciones falla por lo
