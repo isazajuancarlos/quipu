@@ -155,15 +155,36 @@ def bajar(url: str, destino: Path) -> bool:
         return False
 
 
-def leer_json(url: str):
-    """Los índices exigen User-Agent; sin él, crates.io responde 403 y un 403
-    NO significa «no publicado» (nos costó una conclusión equivocada)."""
+def leer_json_estado(url: str) -> tuple[str, object]:
+    """("ok", datos) · ("ausente", None) si el índice responde 404 ·
+    ("sin-respuesta", None) para todo lo demás.
+
+    Los índices exigen User-Agent; sin él, crates.io responde 403 y un 403 NO
+    significa «no publicado» (nos costó una conclusión equivocada).
+
+    Los tres estados existen porque colapsarlos a dos vuelve a producir esa
+    misma conclusión con otro disfraz: «no pude mirar» y «miré y no está» se
+    parecen en el código —los dos son un `None`— y son opuestos en lo que
+    autorizan. Un 404 del índice es un dato: el crate no está publicado. Un
+    timeout no es ningún dato.
+    """
     pet = urllib.request.Request(url, headers={"User-Agent": AGENTE})
     try:
         with urllib.request.urlopen(pet, timeout=60) as r:
-            return json.load(r)
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError):
-        return None
+            return "ok", json.load(r)
+    except urllib.error.HTTPError as e:
+        return ("ausente", None) if e.code == 404 else ("sin-respuesta", None)
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return "sin-respuesta", None
+
+
+def leer_json(url: str):
+    """Los datos, o `None` si no se pudieron leer POR EL MOTIVO QUE SEA.
+
+    Quien necesite distinguir «no está» de «no pude mirar» tiene que usar
+    [`leer_json_estado`]: aquí los dos casos son el mismo `None`.
+    """
+    return leer_json_estado(url)[1]
 
 
 # --------------------------------------------------------------------------
@@ -894,6 +915,112 @@ def _rama_actual() -> str | None:
     return salida.strip() if cod == 0 else None
 
 
+# --------------------------------------------------------------------------
+# Los crates HERMANOS: su versión NO puede ir por detrás de crates.io.
+# --------------------------------------------------------------------------
+#
+# El fallo que esto caza vive ENTRE dos árboles, y por eso ningún check de rama
+# lo veía. Medido el 2026-08-02: `estable` llevaba `quipu-nucleo` 0.1.1 —y
+# crates.io también— mientras `testing` seguía en 0.1.0. Dentro de `testing` ese
+# 0.1.0 es perfectamente coherente consigo mismo, así que «coherencia de
+# versiones» lo aprobaba; y esta misma función solo contrastaba contra PyPI la
+# versión del paquete RAÍZ, así que la promoción también lo aprobaba. Dos
+# guardianes en verde y una promoción que no se puede publicar.
+#
+# LA REGLA, escrita en una frase para poder auditarla: se rechaza que la versión
+# del árbol sea MENOR que la mayor publicada. Nada más.
+#
+# Lo que NO se rechaza, y es deliberado (directiva 21: se rechaza lo imposible,
+# nunca lo inusual): que sean IGUALES. Un release que toca `quipu` y no toca
+# `quipu-nucleo` deja el hermano en su número publicado y no lo republica —es la
+# operación normal, no un error—. Exigir «estrictamente mayor» convertiría cada
+# release en un bump obligatorio de los cinco crates, que es justo el cliente
+# legítimo contra el que hay que probar toda regla antes de escribirla.
+
+def _miembros_publicables() -> list[tuple[str, str, str]]:
+    """(nombre, versión, ruta) de cada miembro del workspace que SÍ se publica.
+
+    Se LEEN de `[workspace] members`, no se enumeran aquí: una lista escrita a
+    mano es una lista que diverge el día que nazca el sexto crate — y este
+    archivo ya documenta esa lección tres veces.
+    """
+    raiz = _leer_toml(RAIZ / "Cargo.toml")
+    salida: list[tuple[str, str, str]] = []
+    for rel in raiz.get("workspace", {}).get("members", []):
+        if rel == ".":
+            continue  # el paquete raíz lo cubre `_version_de_referencia`
+        pkg = _leer_toml(RAIZ / rel / "Cargo.toml").get("package", {})
+        if pkg.get("publish") is False:
+            continue
+        salida.append((pkg["name"], pkg["version"], rel))
+    return salida
+
+
+def _semver(v: str) -> tuple[int, int, int, int]:
+    """(mayor, menor, parche, 1 si es final / 0 si es prelanzamiento).
+
+    El último componente ordena `0.2.0-rc.1` ANTES que `0.2.0`, que es lo que
+    dice semver. No se comparan dos prelanzamientos entre sí: aquí no hace falta
+    y adivinarlo sería inventar orden donde no lo hay.
+    """
+    nucleo, _, pre = v.partition("-")
+    partes = (nucleo.split(".") + ["0", "0"])[:3]
+    return (*(int(p) for p in partes), 0 if pre else 1)  # type: ignore[return-value]
+
+
+def verificar_versiones_de_miembros(inf: Informe) -> None:
+    """Ningún crate hermano puede llevar una versión ya superada en crates.io."""
+    try:
+        miembros = _miembros_publicables()
+    except Exception as e:
+        inf.omitido("versiones de los crates hermanos", f"no se pudo leer el workspace: {e}")
+        return
+    if not miembros:
+        inf.omitido(
+            "versiones de los crates hermanos",
+            "el workspace no declaró ninguno: eso NO es un aprobado",
+        )
+        return
+
+    for nombre, version, rel in miembros:
+        estado, datos = leer_json_estado(
+            f"https://crates.io/api/v1/crates/{nombre}/versions"
+        )
+        if estado == "ausente":
+            inf.ok(f"{nombre} {version}", "todavía no está en crates.io: nada que superar")
+            continue
+        if estado != "ok":
+            inf.omitido(
+                f"versión de {nombre}",
+                "crates.io no respondió: sin ese dato no se puede promover",
+            )
+            continue
+        nums = [
+            v["num"] for v in (datos or {}).get("versions", []) if not v.get("yanked")
+        ]
+        if not nums:
+            inf.ok(f"{nombre} {version}", "sin versiones vivas en crates.io")
+            continue
+        try:
+            mayor = max(nums, key=_semver)
+            atrasada = _semver(version) < _semver(mayor)
+        except (ValueError, TypeError) as e:
+            inf.omitido(f"versión de {nombre}", f"no se pudo comparar: {e}")
+            continue
+        if atrasada:
+            inf.fallo(
+                f"{nombre} {version} va POR DETRÁS de crates.io ({mayor})",
+                f"{rel}/Cargo.toml quedó en un número ya publicado — súbelo por "
+                f"encima de {mayor} o esta promoción no se puede publicar",
+            )
+        else:
+            inf.ok(
+                f"{nombre} {version}",
+                "no va por detrás de crates.io"
+                + ("" if version != mayor else f" (igual a la publicada {mayor}: no se republica)"),
+            )
+
+
 def verificar_promocion(inf: Informe, destino: str) -> None:
     """Comprueba que esta rama puede promoverse a `destino`. No fusiona."""
     if destino not in _DESTINOS:
@@ -954,6 +1081,12 @@ def verificar_promocion(inf: Informe, destino: str) -> None:
         inf.fallo("rama empujada", f"{salida.strip()} commit(s) sin empujar")
     else:
         inf.ok("rama empujada", f"origin/{rama} está al día")
+
+    # --- ningún hermano puede ir por detrás del índice ----------------------
+    #
+    # En las DOS promociones, no solo al ir a `estable`: la regresión se
+    # introduce al entrar en `testing` y cuanto antes se vea, más barata sale.
+    verificar_versiones_de_miembros(inf)
 
     # --- la versión no puede estar ya publicada -----------------------------
     #
