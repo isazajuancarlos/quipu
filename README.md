@@ -350,7 +350,8 @@ encima que declaran con qué criptografía se comprometen.
 
 | Crate | Qué es |
 |---|---|
-| [`crates/quipu-nucleo`](crates/quipu-nucleo) | Todo lo que **no** es criptografía: formato del contenedor, codec base-N, Reed-Solomon, relleno Padmé. **Cero primitivas.** |
+| [`crates/padme-frame`](crates/padme-frame) | El relleno **Padmé** con su marco de longitud, en un crate aparte y **`MIT OR Apache-2.0`**: `no_std`, cero dependencias, y utilizable sin arrastrar la AGPL de todo lo demás. Es la única pieza de aquí que sirve fuera de Quipu, y por eso es la única con licencia permisiva. |
+| [`crates/quipu-nucleo`](crates/quipu-nucleo) | Todo lo que **no** es criptografía: formato del contenedor, codec base-N, Reed-Solomon, carga útil del portador de papel. **Cero primitivas.** El relleno Padmé se le reexporta desde `padme-frame` — `prelayers::pad`/`unpad` siguen donde estaban y con la misma firma. |
 | `quipu` (este crate) | El perfil por defecto: **XChaCha20-Poly1305**, HKDF-SHA-256, nonce extendido de 192 bits. |
 | [`crates/quipu-cnsa`](crates/quipu-cnsa) | El perfil alineado con **CNSA 2.0**: AES-256-GCM, HKDF-SHA-384, nonce de 96 bits. **NO validado FIPS 140-3.** | **Y su canal de destinatario abandona el híbrido: es ML-KEM-1024 PURO, sin socio clásico.** Más fuerte frente a lo cuántico que `quipu` y más débil frente a un fallo clásico de retículos — quien elige este perfil por mandato normativo está aceptando además ese cambio de postura, y conviene saberlo aquí, que es donde se elige.
 
@@ -423,7 +424,8 @@ que un cliente del servicio OPRF enlaza dentro de su propio servidor es permisiv
 | Componente | Licencia |
 |---|---|
 | `quipu` (núcleo) y sus bindings | `AGPL-3.0-or-later` (ver `LICENSE`) |
-| `crates/quipu-nucleo` (formato y canal visual) | `AGPL-3.0-or-later` / comercial |
+| `crates/quipu-nucleo` (formato, codec y portador de papel) | `AGPL-3.0-or-later` / comercial |
+| `crates/padme-frame` (relleno Padmé, `no_std`) | **`MIT OR Apache-2.0`** |
 | `crates/quipu-cnsa` (perfil CNSA 2.0) | `AGPL-3.0-or-later` / comercial |
 | `crates/quipu-voprf` → [`quipu-voprf`](https://pypi.org/project/quipu-voprf/) | **`Apache-2.0`** |
 | `integrations/django` → [`quipu-oprf-django`](https://pypi.org/project/quipu-oprf-django/) | **`Apache-2.0`** |

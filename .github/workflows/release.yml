@@ -17,7 +17,7 @@ name: release-wheels
 # `refs/tags/v`, así que cada tag dispara solo lo suyo.
 on:
   push:
-    tags: ["v*", "voprf-v*", "nucleo-v*", "django-v*"]
+    tags: ["v*", "voprf-v*", "nucleo-v*", "django-v*", "padme-v*"]
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,18 @@ permissions:
 jobs:
   wheels:
     name: wheels-${{ matrix.os }}
-    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/django-v') }}
+    # GATE POSITIVO: solo el tag de `quipu` construye la rueda de `quipu`.
+    #
+    # Antes esto era una lista de negaciones (`!voprf-v && !django-v`), y una
+    # lista de negaciones falla por lo que NO enumera: un tag `nucleo-v*` no
+    # está en ella, así que construía las tres ruedas —ubuntu, macOS y
+    # Windows— para después no publicarlas, porque el job `pypi` sí exige
+    # `refs/tags/v`. Minutos pagados por un artefacto que se tira.
+    #
+    # Añadir `!padme-v` habría arreglado EL CASO y dejado la regla igual de
+    # rota para el sexto crate (directiva 23). La regla correcta es la que ya
+    # usaba `pypi`, y ahora la usan los tres.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/nucleo-v') && !startsWith(github.ref, 'refs/tags/django-v') && !startsWith(github.ref, 'refs/tags/padme-v') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -84,7 +95,8 @@ jobs:
 
   sdist:
     name: sdist
-    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/django-v') }}
+    # Mismo gate positivo que `wheels`: ver el porqué allí.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/nucleo-v') && !startsWith(github.ref, 'refs/tags/django-v') && !startsWith(github.ref, 'refs/tags/padme-v') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -337,6 +349,34 @@ jobs:
         id: auth
       - name: cargo publish -p quipu-voprf
         run: cargo publish -p quipu-voprf
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  # `padme-frame` va PRIMERO en la cadena: `quipu-nucleo` depende de él por
+  # `path` + `version`, así que crates.io rechaza `quipu-nucleo` mientras
+  # `padme-frame` no esté en el índice. El orden completo es
+  #   padme-frame -> quipu-nucleo -> quipu-voprf -> quipu
+  # y es el mismo fallo que ya costó una publicación con `quipu-voprf`: un
+  # `path` que en el árbol resuelve solo y en el índice no existe.
+  #
+  # Este job NUNCA se ha ejecutado: el crate nació el 2026-08-01 y sigue sin
+  # publicar. El primer `padme-v*` que se empuje es también su estreno.
+  crate-padme:
+    name: publish padme-frame to crates.io
+    if: startsWith(github.ref, 'refs/tags/padme-v')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Autenticar contra crates.io por OIDC (token efímero)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: cargo publish -p padme-frame
+        run: cargo publish -p padme-frame
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
