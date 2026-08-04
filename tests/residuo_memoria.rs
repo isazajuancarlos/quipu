@@ -125,6 +125,15 @@ fn des_hex(s: &str) -> Vec<u8> {
 /// suelto necesariamente, pero sí es lo bastante rara.
 const FRASE_CANARIO: &str = "canario-de-residuo-Xq7v2Lm9Pk4Rt8Wz3Nb6Hd1Fg5Js0Ay";
 
+/// Tamaño del canario de CALIBRACIÓN, en bytes.
+///
+/// Grande a propósito: la pregunta que responde es si el escáner ve memoria
+/// LIBERADA, y con un bloque pequeño la respuesta la decidiría el primer
+/// `println!` que reutilice el hueco. 64 KiB no lo reutiliza nadie por accidente
+/// —el asignador lo sirve por `mmap` o de un `bin` que ninguna cadena corta
+/// toca—, así que un cero aquí acusa al MEDIDOR y no a la suerte.
+const CALIBRE: usize = 64 * 1024;
+
 // AQUÍ VIVÍA `SAL_FIJA`, y su desaparición es el arreglo, no una limpieza.
 //
 // Decía: «salt fijo para que padre e hijo deriven exactamente la misma clave
@@ -640,6 +649,76 @@ fn cuerpo_del_hijo() {
     // fuera del bloque de abajo para sobrevivir a propósito.
     let mut fuga: Option<Vec<u8>> = None;
 
+    // CALIBRACIÓN DEL MEDIDOR: ¿ve la memoria LIBERADA, o solo la viva?
+    //
+    // Todos los controles de este archivo mantienen su fuga VIVA en `fuga`, y
+    // eso demuestra menos de lo que parece: que el escáner encuentra una aguja
+    // viva no dice que encontraría una LIBERADA Y SIN BORRAR, que es justo la
+    // forma del fallo que las pruebas dicen vigilar. La distinción no era
+    // académica — el 2026-08-03 un banco de mutación quitó dos `wipe` de
+    // `negacion` y las pruebas siguieron verdes.
+    //
+    // Estos dos escenarios son el instrumento midiéndose a sí mismo, y van en
+    // PAREJA a propósito: si `liberado-sin-pisar` da >0 y `liberado-y-pisado` da
+    // 0, el medidor SÍ ve lo liberado y lo que lo tapa es la reutilización del
+    // asignador. Si los dos dieran 0, el problema sería el medidor y ninguna
+    // prueba de este archivo significaría lo que dice.
+    //
+    // El canario se aloja GRANDE (64 KiB) por lo mismo: un bloque pequeño lo
+    // reutiliza cualquier `println!`, y entonces el cero mediría la suerte del
+    // asignador y no la sensibilidad del escáner.
+    if escenario.starts_with("liberado") {
+        #[inline(never)]
+        fn plantar_en_el_monton() {
+            let mut v: Vec<u8> = Vec::with_capacity(CALIBRE);
+            while v.len() < CALIBRE {
+                v.extend_from_slice(&aguja());
+            }
+            std::hint::black_box(&v);
+            // Se SUELTA sin borrar: exactamente lo que hace un `wipe` que falta.
+            drop(v);
+        }
+        plantar_en_el_monton();
+
+        // EL ARNÉS SE LIMPIA SU PROPIA PILA, y esto no es adorno: sin ello
+        // `liberado-y-pisado` daba 1 en vez de 0. Esa copia no estaba en el
+        // montón —el relleno lo había pisado entero, de 2048 a 1— sino en la
+        // PILA de este mismo arnés: `aguja()` devuelve `[u8; 32]` por valor y
+        // cada vuelta del bucle deja una copia al moverla.
+        //
+        // O sea que el instrumento se estaba contando a sí mismo, que es el
+        // defecto que la cabecera de este archivo describe y que ya produjo
+        // ceros falsos cuatro veces. Se quita con la herramienta de la propia
+        // librería, en un marco MÁS SUPERFICIAL que el que plantó el canario
+        // para que quede dentro de su alcance.
+        quipu::antihacker::limpiar_pila();
+
+        if escenario == "liberado-y-pisado" {
+            // El caso de contraste: se fuerza al asignador a reutilizar ESE
+            // hueco. Aquí el cero es el resultado CORRECTO.
+            //
+            // EL RELLENO PIDE EXACTAMENTE `CALIBRE`, y costó un rojo aprenderlo:
+            // con `CALIBRE * 4` la prueba fallaba viendo las 2048 copias
+            // intactas. Un bloque de 256 KiB pasa del umbral de `mmap` de glibc
+            // y el asignador lo sirve en una región NUEVA, sin tocar el hueco
+            // liberado. Para reutilizar hay que pedir del mismo tamaño, que es
+            // lo que devuelve el bin donde acaba de caer.
+            for _ in 0..4 {
+                let mut relleno: Vec<u8> = Vec::with_capacity(CALIBRE);
+                relleno.resize(CALIBRE, 0x5a);
+                std::hint::black_box(&relleno);
+                drop(relleno);
+            }
+        }
+
+        println!("LISTO");
+        std::io::stdout().flush().ok();
+        let mut s = String::new();
+        std::io::stdin().read_line(&mut s).ok();
+        std::hint::black_box(&fuga);
+        return;
+    }
+
     // Escenario de la PILA: comprueba el limpiador en aislamiento. Es la
     // salvaguarda nueva, y una salvaguarda sin una prueba que la vea fallar es
     // una creencia.
@@ -1021,6 +1100,50 @@ fn cuerpo_del_hijo() {
 /// EL INSTRUMENTO DISCRIMINA. Sin esto, un 0 en la prueba de abajo sería
 /// indistinguible de un medidor averiado — que es exactamente cómo dos objetivos
 /// de fuzz de este mismo repositorio estuvieron meses en verde sin fuzzear nada.
+/// CALIBRACIÓN, primera mitad: el medidor tiene que ver un bloque **liberado y
+/// sin pisar**.
+///
+/// Es el control que le faltaba a este archivo, y su ausencia no era teórica: el
+/// 2026-08-03 un banco de mutación quitó `wipe(&mut maestra)` de
+/// `negacion::abrir` y `wipe(&mut claro)` de `negacion::crear` —los dos
+/// borrados que esas pruebas dicen vigilar— y las pruebas siguieron VERDES. Los
+/// controles que había mantienen su fuga VIVA, así que demostraban que el
+/// escáner encuentra una aguja viva y nada más.
+///
+/// Un `wipe` que falta no deja el secreto vivo: lo deja LIBERADO y legible. Si
+/// esta prueba diera cero, ninguna medición de residuo de este archivo
+/// significaría lo que dice, y habría que arreglar el medidor antes que nada.
+#[test]
+fn el_medidor_ve_un_bloque_liberado_y_sin_pisar() {
+    let n = medir_aguja("liberado-sin-pisar", &aguja());
+    assert!(
+        n > 0,
+        "el medidor NO ve un bloque de {CALIBRE} B liberado sin borrar: entonces \
+         no puede ver el residuo que deja un `wipe` que falta, y los ceros de \
+         este archivo miden la reutilización del asignador y no el borrado"
+    );
+}
+
+/// CALIBRACIÓN, segunda mitad: y tiene que DEJAR de verlo cuando el hueco se
+/// reutiliza.
+///
+/// Sin esta, la de arriba podría pasar por la razón equivocada —un escáner que
+/// «encuentra» la aguja en cualquier sitio también la encontraría aquí—. Las dos
+/// juntas acotan el instrumento: ve lo liberado, y lo pisado deja de verlo.
+///
+/// Y explica el límite de las pruebas de `negacion`: entre la operación y el
+/// escaneo, el hijo aloja lo bastante como para caer en este segundo caso.
+#[test]
+fn el_medidor_liberado_deja_de_verse_cuando_el_asignador_lo_pisa() {
+    let n = medir_aguja("liberado-y-pisado", &aguja());
+    assert_eq!(
+        n, 0,
+        "el medidor dice ver {n} copias de un bloque que se reescribió entero: \
+         o el escáner encuentra la aguja donde no está, o el relleno no cayó \
+         donde tenía que caer — en los dos casos el instrumento miente"
+    );
+}
+
 #[cfg(feature = "escrow")]
 #[test]
 fn el_medidor_de_residuo_ve_una_fuga_deliberada() {
@@ -1302,21 +1425,46 @@ fn el_medidor_ve_una_fuga_deliberada_tambien_en_negacion() {
 /// equivalente: `derive_master_key` devuelve un `[u8; 32]` PELADO, sin
 /// `Zeroizing`, así que quitar el borrado no lo suple ningún `Drop`.
 ///
-/// LA CAUSA, y por eso el control no lo cazaba: el escáner mira memoria
-/// ESCRIBIBLE del hijo cuando ya volvió de la operación. Lo que `crear` y `abrir`
-/// dejan atrás está LIBERADO, y entre la operación y el escaneo el propio hijo
-/// aloja de sobra —`abrir`, el `wipe` del llamante, la línea de anuncio— como
-/// para que el asignador reutilice y pise esos bloques. El control, en cambio,
-/// mantiene su fuga VIVA en `fuga`, que nada reutiliza: demuestra que el escáner
-/// encuentra una aguja viva, **no** que encontraría una liberada y sin borrar.
-/// Comprobado que no lo introdujo la línea de anuncio: sin ella, igual de ciego.
+/// LA CAUSA, y ya no es una hipótesis: la fijó la pareja de calibración
+/// `el_medidor_ve_un_bloque_liberado_y_sin_pisar` /
+/// `el_medidor_liberado_deja_de_verse_cuando_el_asignador_lo_pisa`, escrita
+/// justo para responder esto. Lo que dicen las dos juntas:
+///
+///   · **el medidor SÍ ve memoria liberada y sin borrar** — 2048 copias de un
+///     bloque de 64 KiB soltado sin `wipe`. O sea que el instrumento NO está
+///     roto, que era la otra explicación posible y la peor;
+///   · **y deja de verla en cuanto el asignador reutiliza el hueco** — el mismo
+///     bloque, con cuatro peticiones del MISMO tamaño por medio: cero.
+///
+/// Entonces lo que ciega a las pruebas de negación es la REUTILIZACIÓN: entre la
+/// operación y el escaneo, el hijo aloja de sobra —`abrir`, el `wipe` del
+/// llamante, la línea de anuncio— y los buffers de la librería son pequeños (una
+/// clave de 32 B, un claro de ~70 B), así que cualquier cadena corta cae encima.
+/// El control que había mantiene su fuga VIVA en `fuga`, que nada reutiliza:
+/// demuestra que el escáner encuentra una aguja viva, **no** que encontraría una
+/// liberada. Comprobado que no lo introdujo la línea de anuncio: sin ella, igual
+/// de ciego.
+///
+/// Y NO LES PASA A TODOS, que era la pregunta que quedaba abierta: el mismo
+/// banco de mutación sobre el camino de CONTRASEÑA —suprimido
+/// `antihacker::wipe(&mut padded)` en `api::decode`— pone ROJA a
+/// `el_cifrado_no_deja_el_texto_en_claro_en_memoria` con 1 copia. Ese camino
+/// discrimina. La diferencia es cuánto aloja el hijo ENTRE la operación y el
+/// escaneo: en el de contraseña, casi nada; en el de negación, un `crear`, un
+/// `abrir`, dos `wipe` del llamante y la línea de anuncio.
+///
+/// CONSECUENCIA QUE HAY QUE ASUMIR: para secretos PEQUEÑOS, escanear después de
+/// la operación no puede separar «la librería lo borró» de «el asignador lo
+/// pisó». No es un defecto de estas dos pruebas: es el techo de la técnica, y
+/// sube por sí solo con el tamaño de la aguja (por eso el calibre son 64 KiB).
+/// Medirlo de verdad exigiría otra cosa —un asignador instrumentado que no
+/// reutilice, o mirar DURANTE la operación—, y eso no es este archivo.
 ///
 /// NO SE BORRAN NI SE DEBILITAN estas pruebas: la aguja ya es la correcta desde
 /// hoy —antes se derivaba con una sal que la librería nunca usa— y siguen
-/// cubriendo el caso de un residuo VIVO. Lo que no se puede decir es que
-/// certifiquen el borrado. Para eso hace falta un control de la clase que falta:
-/// una fuga LIBERADA y sin pisar. Queda como tarea; escribirlo aquí es más
-/// barato que volver a deducirlo.
+/// cubriendo el caso de un residuo VIVO, que es el que un volcado encuentra
+/// mientras el proceso corre. Lo que no se puede decir es que certifiquen el
+/// borrado.
 ///
 /// LO QUE ESTE MÓDULO NO PUEDE PERMITIRSE: que el claro del volumen oculto
 /// sobreviva a la operación que lo escribió y lo leyó.
