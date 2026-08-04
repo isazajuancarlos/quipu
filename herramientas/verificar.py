@@ -577,6 +577,28 @@ def _nombres_de_dependencias() -> set[str]:
 _SEP_VERSION = re.compile(r'[\s="@:^~<>\-]+$')
 _TOKEN_FINAL = re.compile(r'([A-Za-z][A-Za-z0-9_-]*)$')
 
+# Marcas que convierten la versión en una REFERENCIA HISTÓRICA, no en una
+# declaración: «público desde la 0.10.0» dice cuándo pasó algo, no qué versión
+# es esta. Un archivo así NO hay que actualizarlo al subir de versión — hacerlo
+# falsearía la historia.
+#
+# Es el tercer punto ciego del barrido, y el mismo error que los dos anteriores
+# con otro disfraz: marcaba `docs/SPEC.md` por la frase «has been public and
+# settable through `Options` since 0.10.0». La salvaguarda tenía razón en que
+# ahí había un «0.10.0» y se equivocaba en lo que significaba.
+#
+# LA LISTA ES CORTA A PROPÓSITO. Solo entran marcas INEQUÍVOCAS. Se dejaron
+# fuera «in» y «en» —«el fallo en 0.10.0» es histórico, pero «la versión en
+# 0.10.0» no— porque para una salvaguarda la duda se resuelve señalando
+# (directiva 21): un falso positivo cuesta una mirada, un falso negativo deja la
+# versión atrás en silencio.
+_MARCA_HISTORICA = re.compile(
+    r"(?:since|desde(?:\s+la)?|a\s+partir\s+de(?:\s+la)?|hasta(?:\s+la)?|until|"
+    r"introducid[oa]\s+en(?:\s+la)?|añadid[oa]\s+en(?:\s+la)?|added\s+in|"
+    r"removed\s+in|retirad[oa]\s+en(?:\s+la)?|deprecated\s+in)\s+v?$",
+    re.IGNORECASE,
+)
+
 
 def _version_a_espaldas(texto: str, v: str, deps: set[str]) -> bool:
     """¿`texto` nombra `v` COMO VERSIÓN DE QUIPU (no de una dependencia)?
@@ -601,6 +623,8 @@ def _version_a_espaldas(texto: str, v: str, deps: set[str]) -> bool:
     patron = re.compile(r"(?<![\d.])" + re.escape(v) + r"(?![\d.])")
     for m in patron.finditer(texto):
         izquierda = texto[max(0, m.start() - 40):m.start()]
+        if _MARCA_HISTORICA.search(izquierda):
+            continue  # «desde la 0.10.0»: dice cuándo, no cuál. No se actualiza.
         cola = _SEP_VERSION.sub("", izquierda)
         mtok = _TOKEN_FINAL.search(cola)
         nombre = mtok.group(1).lower() if mtok else ""
@@ -1021,6 +1045,104 @@ def verificar_versiones_de_miembros(inf: Informe) -> None:
             )
 
 
+# --------------------------------------------------------------------------
+# Deriva desde el tag: cambios que NO llegarán al índice.
+# --------------------------------------------------------------------------
+#
+# `verificar_versiones_de_miembros` caza que el árbol vaya por DEBAJO de
+# crates.io. No caza el caso simétrico y más silencioso: que vaya IGUAL y el
+# CONTENIDO haya cambiado.
+#
+# Pasó con `quipu-voprf` el 2026-08-02. El árbol y la 0.2.2 publicada diferían
+# en exactamente una línea —el `#![forbid(unsafe_code)]`—, y como crates.io no
+# deja re-subir una versión, ese endurecimiento no habría llegado JAMÁS a quien
+# hace `cargo add`. Nada estaba roto: el número coincidía, las pruebas pasaban y
+# el guardián nuevo lo aprobaba con razón. Simplemente el trabajo se quedaba en
+# el disco.
+#
+# LA REGLA: si existe el tag de la versión que declara el árbol y hay cambios
+# entre ese tag y HEAD dentro del crate, el número tiene que subir.
+#
+# POR QUÉ SOLO AL PROMOVER, y no en cada verificación: durante el desarrollo esa
+# diferencia es el estado NORMAL —se trabaja sobre la versión publicada hasta
+# que toca subirla—, así que una alarma continua sería falsa todos los días y a
+# la tercera nadie la miraría (directiva 23). En la promoción a `estable`, en
+# cambio, es exactamente la pregunta que hay que contestar.
+
+# Prefijo de tag por crate. TIENE QUE CONCORDAR con `on.push.tags` de
+# `.github/workflows/release.yml`; si no, esto mira un tag que nadie empuja.
+_PREFIJO_DE_TAG = {
+    "quipu": "v",
+    "quipu-voprf": "voprf-v",
+    "quipu-nucleo": "nucleo-v",
+    "padme-frame": "padme-v",
+    "quipu-cnsa": "cnsa-v",
+}
+
+
+def verificar_deriva_desde_el_tag(inf: Informe) -> None:
+    """Ningún crate puede llevar cambios sin publicar bajo un número ya usado."""
+    if not hay("git"):
+        inf.omitido("deriva desde el tag", "git no está instalado")
+        return
+    try:
+        miembros = _miembros_publicables()
+    except Exception as e:
+        inf.omitido("deriva desde el tag", f"no se pudo leer el workspace: {e}")
+        return
+
+    # El paquete raíz no sale de `members`, y es el que más importa.
+    #
+    # Sus rutas van ACOTADAS a lo que `cargo publish -p quipu` empaqueta. Con un
+    # `.` el diff cazaría cualquier cambio del repositorio —un README de otro
+    # crate, un workflow— y diría que `quipu` tiene trabajo sin publicar cuando
+    # no lo tiene. Una alarma así es peor que ninguna.
+    try:
+        miembros = [("quipu", _version_de_referencia(), None)] + miembros
+    except Exception as e:
+        inf.omitido("deriva desde el tag", f"no se pudo leer la versión raíz: {e}")
+        return
+
+    for nombre, version, rel in miembros:
+        prefijo = _PREFIJO_DE_TAG.get(nombre)
+        if prefijo is None:
+            # Un crate publicable sin prefijo declarado NO se aprueba en
+            # silencio: o se le da tag, o se dice que no se puede mirar.
+            inf.omitido(
+                f"deriva de {nombre}",
+                "no tiene prefijo de tag en `_PREFIJO_DE_TAG` — si es publicable, "
+                "necesita uno en release.yml y aquí",
+            )
+            continue
+
+        tag = f"{prefijo}{version}"
+        cod, _ = correr(["git", "rev-parse", "-q", "--verify", f"{tag}^{{}}"], cwd=RAIZ, timeout=30)
+        if cod != 0:
+            inf.ok(
+                f"{nombre} {version}",
+                f"el tag {tag} no existe aún: es una versión sin cortar, nada que comparar",
+            )
+            continue
+
+        rutas = ["src", "Cargo.toml"] if rel is None else [rel]
+        cod, salida = correr(
+            ["git", "diff", "--name-only", tag, "HEAD", "--", *rutas], cwd=RAIZ, timeout=60
+        )
+        if cod != 0:
+            inf.omitido(f"deriva de {nombre}", f"git diff contra {tag} no respondió")
+            continue
+        cambios = [l for l in salida.strip().splitlines() if l.strip()]
+        if cambios:
+            muestra = ", ".join(cambios[:3]) + (" …" if len(cambios) > 3 else "")
+            inf.fallo(
+                f"{nombre} {version} cambió desde el tag {tag}",
+                f"{len(cambios)} archivo(s) distintos ({muestra}) bajo un número YA "
+                f"publicado: sube la versión o esos cambios no llegarán al índice",
+            )
+        else:
+            inf.ok(f"{nombre} {version}", f"idéntico al tag {tag}: nada sin publicar")
+
+
 def verificar_promocion(inf: Informe, destino: str) -> None:
     """Comprueba que esta rama puede promoverse a `destino`. No fusiona."""
     if destino not in _DESTINOS:
@@ -1087,6 +1209,13 @@ def verificar_promocion(inf: Informe, destino: str) -> None:
     # En las DOS promociones, no solo al ir a `estable`: la regresión se
     # introduce al entrar en `testing` y cuanto antes se vea, más barata sale.
     verificar_versiones_de_miembros(inf)
+
+    # --- ni llevar cambios sin publicar bajo un número ya usado -------------
+    #
+    # Solo al ir a `estable`, y el porqué está en el encabezado de la función:
+    # durante el desarrollo esa deriva es el estado normal.
+    if destino == "estable":
+        verificar_deriva_desde_el_tag(inf)
 
     # --- la versión no puede estar ya publicada -----------------------------
     #

@@ -544,6 +544,59 @@ def probar_workspace_vacio_no_aprueba() -> None:
     comprobar(salida_de(inf) != 0, "un workspace sin miembros NO puede salir 0")
 
 
+def probar_la_referencia_historica_no_es_una_sede_de_version() -> None:
+    """«desde la 0.10.0» dice CUÁNDO pasó algo, no qué versión es esta.
+
+    El caso real: `docs/SPEC.md` decía «has been public and settable through
+    `Options` since 0.10.0» y el barrido lo marcaba como archivo con la versión
+    sin vigilar. Actualizar esa frase al subir de versión sería FALSEAR la
+    historia — el campo no se volvió público en la 0.11.0.
+
+    Lo que de verdad se prueba aquí no es que deje de marcarlo: es que **siga
+    marcando todo lo demás**. Una exención que se pasa de ancha convierte la
+    salvaguarda en un aprobado.
+    """
+    deps = {"aes", "poly1305"}
+    v = "0.10.0"
+    historicas = [
+        "It has been public and settable through `Options` since 0.10.0, so",
+        "público y ajustable desde la 0.10.0",
+        "el campo existe a partir de la 0.10.0",
+        "added in 0.10.0",
+        "deprecated in 0.10.0",
+        "se retiró hasta la 0.10.0",
+    ]
+    for t in historicas:
+        comprobar(
+            not verificar._version_a_espaldas(t, v, deps),
+            f"referencia histórica marcada como sede de versión: {t!r}",
+        )
+
+    declaraciones = [
+        "Quipu is `v0.10.0`. It composes only vetted primitives",
+        'version = "0.10.0"',
+        "La versión actual es 0.10.0 y sale de Cargo.toml",
+        "quipu 0.10.0",
+        # Sin ninguna marca alrededor: la duda se resuelve SEÑALANDO.
+        "0.10.0",
+    ]
+    for t in declaraciones:
+        comprobar(
+            verificar._version_a_espaldas(t, v, deps),
+            f"declaración de versión que el barrido DEJÓ pasar: {t!r}",
+        )
+
+    # Y la discriminación que ya existía no puede haberse roto por el camino.
+    comprobar(
+        not verificar._version_a_espaldas("aes 0.10.0", v, deps),
+        "la versión de una dependencia volvió a contarse como de Quipu",
+    )
+    comprobar(
+        verificar._version_a_espaldas("since 0.10.0 y además quipu 0.10.0", v, deps),
+        "un archivo con una histórica Y una declaración tiene que marcarse igual",
+    )
+
+
 def probar_semver_ordena_el_prelanzamiento_antes() -> None:
     comprobar(
         verificar._semver("0.2.0-rc.1") < verificar._semver("0.2.0"),
