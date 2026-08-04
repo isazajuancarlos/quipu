@@ -608,5 +608,197 @@ def probar_semver_ordena_el_prelanzamiento_antes() -> None:
     )
 
 
+def probar_semver_es_uno_solo_y_no_se_inventa_un_orden() -> None:
+    """El contrato ÚNICO de `_semver`, que antes estaba escrito dos veces.
+
+    Esta prueba existe por un choque concreto: `verificar_versiones_no_retroceden`
+    y `verificar_versiones_de_miembros` nacieron en ramas distintas con un
+    `_semver` cada una —una devolvía tuplas de longitud variable o `None`, la
+    otra tuplas de cuatro que reventaban—. Al fusionar, la segunda definición
+    habría tapado a la primera EN SILENCIO, y `(0,1,1) < (0,1,1,1)` es `True`:
+    la misma versión leída como «va por detrás». Fija el contrato para que un
+    tercer guardián no vuelva a traer el suyo.
+    """
+    # ORDENA lo que se puede ordenar.
+    comprobar(verificar._semver("0.1.1") > verificar._semver("0.1.0"), "0.1.1 > 0.1.0")
+    comprobar(verificar._semver("0.10.0") > verificar._semver("0.9.9"), "0.10.0 > 0.9.9")
+    comprobar(
+        verificar._semver("0.1") == verificar._semver("0.1.0"),
+        "«0.1» se rellena a 0.1.0, que es como lo trata cargo",
+    )
+    comprobar(
+        verificar._semver("1.0.0+deadbeef") == verificar._semver("1.0.0"),
+        "el metadato de construcción NO cuenta para la precedencia (lo dice semver)",
+    )
+    # La longitud es SIEMPRE 4: es justo lo que el choque rompía.
+    for v in ("0.1", "0.1.0", "0.2.0-rc.1", "1.0.0+x"):
+        comprobar(len(verificar._semver(v)) == 4, f"«{v}» produce una tupla de 4")
+
+    # SE NIEGA en vez de adivinar, y `None` no es un aprobado.
+    for v in ("", "dev", "0.1.x", "1.2.3.4", "0.1.-1"):
+        comprobar(verificar._semver(v) is None, f"«{v}» no se ordena, devuelve None")
+
+
+def probar_ninguna_version_retrocede() -> None:
+    """Promover una rama con un crate MÁS VIEJO que el destino despublica un release.
+
+    El caso real: el 2026-08-01 `testing` llevaba `quipu-nucleo 0.1.0` y `estable`
+    ya publicaba la 0.1.1. Las dos ramas eran internamente coherentes —los cuatro
+    sitios de la versión de `quipu` concordaban en las dos—, así que el check de
+    coherencia salía VERDE en ambas. El fallo solo existe al compararlas.
+
+    EL LECTOR VA SUSTITUIDO A PROPÓSITO. Atar la prueba a las ramas de verdad la
+    dejaría sin caso rojo en cuanto la fusión aterrice: seguiría en verde y ya no
+    comprobaría nada, que es la forma exacta en que muere una salvaguarda.
+    """
+    original = verificar._versiones_de_los_crates
+    original_al_dia = verificar._copia_de_origin_al_dia
+    arboles: dict[str, dict[str, str] | None] = {}
+    verificar._versiones_de_los_crates = lambda ref: arboles.get(ref)
+    # La frescura de origin/ se prueba aparte; aquí estorbaría pidiendo red.
+    verificar._copia_de_origin_al_dia = lambda ref: (True, "sustituido en la prueba")
+    try:
+        # ROJO: el origen lleva un crate más viejo que el destino.
+        arboles.clear()
+        arboles["origen"] = {"quipu": "0.10.0", "quipu-nucleo": "0.1.0"}
+        arboles["destino"] = {"quipu": "0.10.0", "quipu-nucleo": "0.1.1"}
+        inf = verificar.Informe()
+        verificar.verificar_versiones_no_retroceden(inf, "origen", "destino")
+        comprobar(salida_de(inf) == 1, "una versión que retrocede DEBE suspender")
+
+        # VERDE: iguales. Es lo normal entre release y release; si esto fallara,
+        # el guardián bloquearía toda promoción y habría que desactivarlo.
+        arboles["origen"] = {"quipu": "0.10.0", "quipu-nucleo": "0.1.1"}
+        inf = verificar.Informe()
+        verificar.verificar_versiones_no_retroceden(inf, "origen", "destino")
+        comprobar(salida_de(inf) == 0, "versiones iguales SÍ se pueden promover")
+
+        # VERDE: el origen va por delante. Es el caso de un release preparado.
+        arboles["origen"] = {"quipu": "0.11.0", "quipu-nucleo": "0.2.0"}
+        inf = verificar.Informe()
+        verificar.verificar_versiones_no_retroceden(inf, "origen", "destino")
+        comprobar(salida_de(inf) == 0, "subir de versión SÍ se puede promover")
+
+        # VERDE: un crate NUEVO en el origen no es un retroceso de nada. Es el
+        # caso de `padme-frame`, que nació después de `estable`.
+        arboles["origen"] = {"quipu": "0.10.0", "quipu-nucleo": "0.1.1", "padme-frame": "0.1.0"}
+        inf = verificar.Informe()
+        verificar.verificar_versiones_no_retroceden(inf, "origen", "destino")
+        comprobar(salida_de(inf) == 0, "un crate nuevo no cuenta como retroceso")
+
+        # ROJO: un prelanzamiento por debajo del final ya publicado.
+        #
+        # ESTE CASO CAMBIÓ AL UNIFICAR, y a mejor: con el `_semver` que devolvía
+        # `None` ante cualquier `-rc`, esto quedaba SIN COMPROBAR. El unificado
+        # SÍ lo ordena —`0.1.1-rc1` va antes que `0.1.1`—, así que lo que era una
+        # abstención pasa a ser el fallo que de verdad es: promover eso devolvería
+        # un release publicado a un candidato.
+        arboles["origen"] = {"quipu": "0.10.0", "quipu-nucleo": "0.1.1-rc1"}
+        inf = verificar.Informe()
+        verificar.verificar_versiones_no_retroceden(inf, "origen", "destino")
+        comprobar(salida_de(inf) == 1, "un prelanzamiento por debajo del final SUSPENDE")
+
+        # SIN COMPROBAR: lo que de verdad no se puede ordenar sigue sin ordenarse.
+        arboles["origen"] = {"quipu": "0.10.0", "quipu-nucleo": "no-es-una-version"}
+        inf = verificar.Informe()
+        verificar.verificar_versiones_no_retroceden(inf, "origen", "destino")
+        comprobar(salida_de(inf) == 2, "una versión no ordenable queda SIN COMPROBAR")
+
+        # SIN COMPROBAR: si una de las dos ramas no se puede leer, no hay
+        # comparación posible — y eso no es un aprobado.
+        arboles["origen"] = None
+        inf = verificar.Informe()
+        verificar.verificar_versiones_no_retroceden(inf, "origen", "destino")
+        comprobar(salida_de(inf) == 2, "sin una de las ramas, SIN COMPROBAR y no 0")
+    finally:
+        verificar._versiones_de_los_crates = original
+        verificar._copia_de_origin_al_dia = original_al_dia
+
+
+def probar_la_frescura_de_origin_se_mide_de_verdad() -> None:
+    """`_copia_de_origin_al_dia` DA el veredicto correcto en los cuatro casos.
+
+    ESTA PRUEBA NACIÓ DE UN BANCO DE MUTACIÓN, y de que el banco me pillara:
+    `probar_una_copia_vieja_de_origin_no_aprueba` comprueba que el LLAMANTE
+    reacciona a un veredicto negativo, pero lo consigue sustituyendo la función
+    — así que desactivar la función de verdad no ponía roja ni esa prueba ni
+    ninguna otra (0 de 5 la cazaban). Comprobar la reacción al veredicto no es
+    comprobar que el veredicto se produzca.
+
+    Aquí se sustituye `correr`, no la función bajo prueba: se mide la lógica
+    real sin salir a la red.
+    """
+    original = verificar.correr
+    respuestas: dict[tuple, tuple[int, str]] = {}
+    verificar.correr = lambda orden, cwd=None, timeout=0: respuestas.get(
+        tuple(orden), (1, "")
+    )
+    try:
+        SHA = "a" * 40
+        rev = ("git", "rev-parse", "origin/estable")
+        ls = ("git", "ls-remote", "--heads", "origin", "estable")
+
+        # AL DÍA: el sha local y el remoto coinciden.
+        respuestas.clear()
+        respuestas[rev] = (0, SHA + "\n")
+        respuestas[ls] = (0, f"{SHA}\trefs/heads/estable\n")
+        veredicto, _ = verificar._copia_de_origin_al_dia("origin/estable")
+        comprobar(veredicto is True, "shas iguales → la copia está al día")
+
+        # VIEJA: el remoto avanzó. Es el caso que da el verde inmerecido.
+        respuestas[ls] = (0, "b" * 40 + "\trefs/heads/estable\n")
+        veredicto, motivo = verificar._copia_de_origin_al_dia("origin/estable")
+        comprobar(veredicto is False, "shas distintos → la copia está VIEJA")
+        comprobar("fetch" in motivo, "y el motivo dice cómo arreglarlo")
+
+        # NO SE PUDO PREGUNTAR: ni True ni False, que son las dos afirmaciones.
+        respuestas[ls] = (1, "")
+        veredicto, _ = verificar._copia_de_origin_al_dia("origin/estable")
+        comprobar(veredicto is None, "el remoto mudo NO es «está al día»")
+
+        respuestas.clear()
+        respuestas[ls] = (0, f"{SHA}\trefs/heads/estable\n")  # falta el rev-parse
+        veredicto, _ = verificar._copia_de_origin_al_dia("origin/estable")
+        comprobar(veredicto is None, "sin la ref en el disco tampoco se afirma nada")
+
+        # Una ref LOCAL no tiene copia remota que contrastar: no hay nada que
+        # exigirle, y tratarla como «vieja» bloquearía las pruebas del banco.
+        veredicto, _ = verificar._copia_de_origin_al_dia("testing")
+        comprobar(veredicto is True, "una ref local no se compara con ningún remoto")
+    finally:
+        verificar.correr = original
+
+
+def probar_una_copia_vieja_de_origin_no_aprueba() -> None:
+    """Comparar contra un `origin/X` desactualizado sería un verde inmerecido.
+
+    `verificar.py` no hace `fetch` en ningún momento, así que la copia local de
+    `origin/estable` puede ser de hace días. Sin esta comprobación el guardián
+    diría «ninguna versión retrocede» tras mirar un árbol que ya no existe.
+
+    Comprueba la REACCIÓN del llamante; que el veredicto se produzca bien lo
+    comprueba `probar_la_frescura_de_origin_se_mide_de_verdad`. Hacen falta las
+    dos: esta sola dejaba la función de verdad sin una sola prueba encima.
+    """
+    original = verificar._copia_de_origin_al_dia
+    original_crates = verificar._versiones_de_los_crates
+    verificar._versiones_de_los_crates = lambda ref: {"quipu": "0.10.0"}
+    try:
+        for veredicto, motivo, etiqueta in (
+            (False, "tu copia está vieja", "una copia DESACTUALIZADA"),
+            (None, "el remoto no respondió", "no haber podido preguntar"),
+        ):
+            verificar._copia_de_origin_al_dia = lambda ref, v=veredicto, m=motivo: (v, m)
+            inf = verificar.Informe()
+            verificar.verificar_versiones_no_retroceden(inf, "rama", "origin/estable")
+            comprobar(
+                salida_de(inf) == 2,
+                f"{etiqueta} deja la comparación SIN COMPROBAR, no en verde",
+            )
+    finally:
+        verificar._copia_de_origin_al_dia = original
+        verificar._versiones_de_los_crates = original_crates
+
+
 if __name__ == "__main__":
     sys.exit(main())

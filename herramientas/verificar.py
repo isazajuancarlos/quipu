@@ -980,15 +980,49 @@ def _miembros_publicables() -> list[tuple[str, str, str]]:
     return salida
 
 
-def _semver(v: str) -> tuple[int, int, int, int]:
-    """(mayor, menor, parche, 1 si es final / 0 si es prelanzamiento).
+def _semver(v: str) -> tuple[int, int, int, int] | None:
+    """(mayor, menor, parche, 1 si es final / 0 si es prelanzamiento). `None` si
+    no se puede ordenar con certeza.
 
-    El último componente ordena `0.2.0-rc.1` ANTES que `0.2.0`, que es lo que
-    dice semver. No se comparan dos prelanzamientos entre sí: aquí no hace falta
-    y adivinarlo sería inventar orden donde no lo hay.
+    ESTA FUNCIÓN ESTUVO ESCRITA DOS VECES, y por eso está así de comentada.
+    Dos guardianes nacidos con un día de diferencia —`verificar_versiones_no_
+    retroceden` (1 ago) y `verificar_versiones_de_miembros` (2 ago)— trajeron
+    cada uno su `_semver` al mismo archivo, con contratos INCOMPATIBLES: una
+    devolvía una tupla de longitud variable o `None`, la otra una de cuatro
+    elementos que reventaba con `ValueError`. En Python la segunda definición
+    tapa a la primera SIN UN AVISO, así que al fusionar las dos ramas uno de los
+    dos guardianes habría pasado a llamar a una función que no era la suya:
+    `(0,1,1) < (0,1,1,1)` es `True`, o sea que la MISMA versión se habría leído
+    como «va por detrás» y habría suspendido una promoción legítima.
+
+    Unificadas el 2026-08-03 quedándose con lo mejor de cada una: el cuarto
+    elemento de la de 4 (ordena el prelanzamiento) y el `None` de la de 3 (no
+    inventar orden). Ese `None` es lo importante — **comparar mal es peor que no
+    comparar**, y el llamante lo convierte en SIN COMPROBAR, nunca en aprobado
+    (directiva 20).
+
+    Lo que SÍ ordena:
+      `0.1` → (0,1,0,1)          se rellena: cargo trata «0.1» como 0.1.0
+      `0.2.0` → (0,2,0,1)
+      `0.2.0-rc.1` → (0,2,0,0)   antes que `0.2.0`, que es lo que dice semver
+      `1.0.0+deadbeef` → (1,0,0,1)  el metadato de construcción NO cuenta para
+                                    la precedencia; lo dice la propia norma
+    Lo que devuelve `None` en vez de adivinar:
+      `0.1.x`, `dev`, ``          no es numérica
+      `1.2.3.4`                   cuatro componentes no son semver
+
+    LÍMITE DECLARADO: dos prelanzamientos del mismo núcleo salen IGUALES
+    —`0.2.0-rc.1` y `0.2.0-rc.2` son ambos (0,2,0,0)—. No hace falta resolverlo
+    en ninguno de los dos usos, y ordenar identificadores de prelanzamiento bien
+    (numéricos antes que alfanuméricos, campo a campo) es más norma de la que
+    aquí se necesita. Se dice en vez de fingir que se ordenan.
     """
-    nucleo, _, pre = v.partition("-")
-    partes = (nucleo.split(".") + ["0", "0"])[:3]
+    sin_build, _, _ = v.strip().partition("+")
+    nucleo, _, pre = sin_build.partition("-")
+    partes = nucleo.split(".")
+    if not (1 <= len(partes) <= 3) or not all(p.isdigit() for p in partes):
+        return None
+    partes = (partes + ["0", "0"])[:3]
     return (*(int(p) for p in partes), 0 if pre else 1)  # type: ignore[return-value]
 
 
@@ -1025,12 +1059,35 @@ def verificar_versiones_de_miembros(inf: Informe) -> None:
         if not nums:
             inf.ok(f"{nombre} {version}", "sin versiones vivas en crates.io")
             continue
-        try:
-            mayor = max(nums, key=_semver)
-            atrasada = _semver(version) < _semver(mayor)
-        except (ValueError, TypeError) as e:
-            inf.omitido(f"versión de {nombre}", f"no se pudo comparar: {e}")
+        propia = _semver(version)
+        if propia is None:
+            inf.omitido(
+                f"versión de {nombre}",
+                f"«{version}» no se puede ordenar, y no se inventa un orden para "
+                "ella: mírala a mano antes de promover",
+            )
             continue
+
+        # Las del índice que no se puedan ordenar se APARTAN y se DICEN. Dejarlas
+        # caer en silencio convertiría «no pude leer una» en «no había ninguna
+        # mayor», que es un aprobado por ausencia de datos.
+        ordenables = [(n, _semver(n)) for n in nums]
+        ilegibles = [n for n, s in ordenables if s is None]
+        comparables = [(n, s) for n, s in ordenables if s is not None]
+        if ilegibles:
+            inf.omitido(
+                f"versiones de {nombre} que no se pudieron ordenar",
+                ", ".join(sorted(ilegibles)) + " — quedan fuera de la comparación",
+            )
+        if not comparables:
+            inf.omitido(
+                f"versión de {nombre}",
+                "ninguna versión del índice se pudo ordenar: eso NO es un aprobado",
+            )
+            continue
+
+        mayor, s_mayor = max(comparables, key=lambda par: par[1])
+        atrasada = propia < s_mayor
         if atrasada:
             inf.fallo(
                 f"{nombre} {version} va POR DETRÁS de crates.io ({mayor})",
@@ -1043,6 +1100,170 @@ def verificar_versiones_de_miembros(inf: Informe) -> None:
                 "no va por detrás de crates.io"
                 + ("" if version != mayor else f" (igual a la publicada {mayor}: no se republica)"),
             )
+
+
+# --------------------------------------------------------------------------
+# Retroceso ENTRE RAMAS: el mismo fallo, medido sin salir a la red.
+# --------------------------------------------------------------------------
+#
+# `verificar_versiones_de_miembros` compara el ÁRBOL contra CRATES.IO.
+# Esto compara el ÁRBOL contra LA RAMA DESTINO. Parecen lo mismo y no lo son, y
+# por eso conviven en vez de que uno sustituya al otro:
+#
+#   · el de crates.io ve lo que de verdad está publicado —incluido lo que
+#     alguien subió a mano sin que ninguna rama lo refleje—, pero necesita red y
+#     se calla si el índice no responde;
+#   · este ve la relación entre las dos ramas sin preguntarle a nadie, así que
+#     no se pone rojo porque un índice esté caído, y caza el caso que al otro se
+#     le escapa: `estable` puede llevar una versión que todavía no llegó al
+#     índice (release en vuelo) y promover por encima la despublicaría igual.
+#
+# Cubren fallos distintos con la misma forma. Lo que NO puede haber es dos
+# maneras de ordenar versiones: eso era el choque, y se resolvió en `_semver`.
+#
+# EL CASO REAL: el 2026-08-01 `testing` llevaba cuatro días con
+# `quipu-nucleo 0.1.0` mientras `estable` ya publicaba la 0.1.1. Promover así
+# habría devuelto el crate a la versión anterior en silencio, y ningún check lo
+# veía — `verificar_versiones` mira los cuatro sitios de la versión de `quipu`,
+# que estaban perfectamente coherentes consigo mismos EN LAS DOS RAMAS. El fallo
+# no vive en un árbol: vive ENTRE DOS, y ningún examen de uno solo puede verlo
+# por minucioso que sea.
+
+
+def _toml_de_texto(texto: str) -> dict:
+    """El mismo TOML que `_leer_toml`, pero desde una cadena (viene de `git show`)."""
+    try:
+        import tomllib
+    except ModuleNotFoundError as e:  # Python < 3.11
+        raise SystemExit(
+            "verificar.py necesita Python 3.11+ (tomllib) para leer los "
+            "manifiestos."
+        ) from e
+    return tomllib.loads(texto)
+
+
+def _versiones_de_los_crates(ref: str) -> dict[str, str] | None:
+    """`{nombre: versión}` de los miembros del workspace TAL COMO ESTÁN en `ref`.
+
+    Lee del árbol de git, no del disco: la pregunta es qué versiones lleva esa
+    rama, y el disco solo sabe de la actual. La lista de miembros se toma también
+    del ref, porque un crate puede haber nacido o desaparecido entre las dos
+    ramas — `padme-frame` nació el 2026-08-01 y no existe en `estable`.
+
+    `None` cuando no se pudo leer el ref: es «no pude mirar», que el llamante
+    convierte en SIN COMPROBAR y jamás en aprobado.
+    """
+    cod, raiz = correr(["git", "show", f"{ref}:Cargo.toml"], cwd=RAIZ, timeout=60)
+    if cod != 0:
+        return None
+    try:
+        miembros = _toml_de_texto(raiz)["workspace"]["members"]
+    except Exception:
+        return None
+
+    versiones: dict[str, str] = {}
+    for m in miembros:
+        rel = "Cargo.toml" if m == "." else f"{m}/Cargo.toml"
+        cod, texto = correr(["git", "show", f"{ref}:{rel}"], cwd=RAIZ, timeout=60)
+        if cod != 0:
+            continue
+        try:
+            pkg = _toml_de_texto(texto)["package"]
+        except Exception:
+            continue
+        if "name" in pkg and "version" in pkg:
+            versiones[pkg["name"]] = pkg["version"]
+    return versiones
+
+
+def _copia_de_origin_al_dia(ref: str) -> tuple[bool | None, str]:
+    """¿`origin/<rama>` en el disco coincide con lo que el remoto tiene AHORA?
+
+    Existe porque este archivo no hace `fetch` en ningún momento, y comparar
+    contra una copia vieja de `origin/estable` daría un APROBADO EN SILENCIO —
+    justo la forma de fallo que el guardián viene a impedir. Una consulta barata
+    (`git ls-remote`, sin descargar objetos) convierte «mi copia está vieja» en
+    algo que se dice, en vez de en un verde inmerecido.
+
+    Devuelve `(None, motivo)` cuando no se pudo preguntar: no saber no es estar
+    al día.
+    """
+    if not ref.startswith("origin/"):
+        return True, "ref local: no hay copia remota que contrastar"
+    rama = ref[len("origin/"):]
+    cod, local = correr(["git", "rev-parse", ref], cwd=RAIZ, timeout=60)
+    if cod != 0:
+        return None, f"no existe {ref} en el disco: haz `git fetch origin {rama}`"
+    cod, remoto = correr(["git", "ls-remote", "--heads", "origin", rama], cwd=RAIZ, timeout=120)
+    if cod != 0 or not remoto.strip():
+        return None, f"el remoto no respondió por «{rama}»"
+    if remoto.split()[0].strip() != local.strip():
+        return False, (
+            f"tu {ref} está desactualizada respecto del remoto — "
+            f"`git fetch origin {rama}` antes de fiarte de esta comparación"
+        )
+    return True, f"{ref} coincide con el remoto"
+
+
+def verificar_versiones_no_retroceden(inf: Informe, origen: str, destino: str) -> None:
+    """Ningún crate del workspace puede llevar en `origen` una versión INFERIOR a
+    la que ya lleva `destino`.
+
+    Que sean IGUALES no suspende, y es deliberado (directiva 21): un release que
+    toca `quipu` y no toca `quipu-nucleo` deja al hermano en su número y no lo
+    republica. Es la operación normal contra la que hay que probar toda regla
+    antes de escribirla; exigir «estrictamente mayor» obligaría a bumpear los
+    cinco crates en cada release.
+    """
+    al_dia, motivo = _copia_de_origin_al_dia(destino)
+    if al_dia is not True:
+        inf.omitido(
+            f"ninguna versión retrocede de {origen} a {destino}",
+            motivo + " — comparar contra una copia vieja aprobaría sin mirar",
+        )
+        return
+
+    de_origen = _versiones_de_los_crates(origen)
+    de_destino = _versiones_de_los_crates(destino)
+    if de_origen is None or de_destino is None:
+        cual = origen if de_origen is None else destino
+        inf.omitido(
+            "ninguna versión retrocede",
+            f"no se pudo leer el workspace de «{cual}» — sin las dos ramas la "
+            "comparación no se puede hacer",
+        )
+        return
+
+    retrocesos, sin_comparar = [], []
+    for crate, vd in sorted(de_destino.items()):
+        vo = de_origen.get(crate)
+        if vo is None:
+            # Un crate que el origen ya no tiene es un borrado deliberado, no un
+            # retroceso de versión. Lo mira quien revise el PR.
+            continue
+        a, b = _semver(vo), _semver(vd)
+        if a is None or b is None:
+            sin_comparar.append(f"{crate} ({vo} vs {vd})")
+        elif a < b:
+            retrocesos.append(f"{crate}: {origen} lleva {vo} y {destino} ya tiene {vd}")
+
+    if retrocesos:
+        inf.fallo(
+            f"ninguna versión retrocede de {origen} a {destino}",
+            "; ".join(retrocesos) + " — promover así DESPUBLICA ese release: "
+            f"fusiona {destino} en {origen} antes de promover",
+        )
+    else:
+        inf.ok(
+            f"ninguna versión retrocede de {origen} a {destino}",
+            f"{len(de_destino)} crates comparados",
+        )
+
+    if sin_comparar:
+        inf.omitido(
+            "versiones que no se pudieron ordenar",
+            "; ".join(sin_comparar) + " — no se inventa un orden para ellas",
+        )
 
 
 # --------------------------------------------------------------------------
@@ -1204,11 +1425,16 @@ def verificar_promocion(inf: Informe, destino: str) -> None:
     else:
         inf.ok("rama empujada", f"origin/{rama} está al día")
 
-    # --- ningún hermano puede ir por detrás del índice ----------------------
+    # --- ningún hermano puede ir por detrás, ni del índice ni del destino ---
     #
     # En las DOS promociones, no solo al ir a `estable`: la regresión se
     # introduce al entrar en `testing` y cuanto antes se vea, más barata sale.
+    #
+    # Son DOS comprobaciones porque son dos preguntas: contra lo publicado (red,
+    # ve lo subido a mano) y contra la rama destino (sin red, ve el release en
+    # vuelo que aún no llegó al índice). Comparten `_semver` y nada más.
     verificar_versiones_de_miembros(inf)
+    verificar_versiones_no_retroceden(inf, rama, f"origin/{destino}")
 
     # --- ni llevar cambios sin publicar bajo un número ya usado -------------
     #
