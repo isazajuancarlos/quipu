@@ -5,19 +5,47 @@ SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 
 # Quipu y CNSA 2.0
 
-**Posición: entre `quipu` y `quipu-cnsa` están cubiertas CUATRO de las cinco
-funciones de CNSA 2.0. Falta una —la firma de software (SP 800-208)— y hay una
-salvedad que se explica abajo: lo asimétrico de `quipu` es HÍBRIDO. Nada de esto
+**Posición: `quipu-cnsa` implementa un algoritmo aprobado para CADA UNA de las
+cinco funciones de CNSA 2.0. Lo que falta no es un algoritmo: es LMS/XMSS, que
+la NSA prefiere —no exige— para una raíz de confianza en firmware. Nada de esto
 es cumplimiento: alineación de algoritmos no es validación FIPS 140-3.**
+
+> **ESTA CIFRA SUBIÓ DE CUATRO A CINCO EL 2026-08-02, y conviene saber por qué
+> antes de repetirla.** No se construyó nada nuevo ese día: lo que se corrigió
+> es que este documento contradecía al README del propio crate. Aquí ponía «para
+> firma de software: LMS o XMSS», y el README ya se había corregido a sí mismo
+> con el matiz exacto — **LMS y XMSS están aprobados EXCLUSIVAMENTE para firma de
+> software y firmware, que no es lo mismo que ser los únicos aprobados PARA
+> ella**. ML-DSA-87 está aprobado para cualquier uso de firma, incluido ese, y
+> `quipu-cnsa` lo tiene desde el 2026-07-31.
+>
+> **Estado de la evidencia, dicho como toca:** el matiz está confirmado en
+> fuentes secundarias coincidentes, y **NO en fuente primaria** — el FAQ de la
+> NSA (`media.defense.gov/.../CSI_CNSA_2.0_FAQ_.PDF`) responde **403** tanto por
+> navegador como por `curl`. No se puede llamar verificado. Antes de llevar esta
+> cifra a una ronda o a un pliego, conseguir el PDF por otra vía y leerlo.
+>
+> Dos detalles que salieron de la misma consulta y no estaban escritos: solo se
+> admite **LMS y XMSS de ÁRBOL ÚNICO** —HSS y XMSS^MT quedan fuera para NSS—, y
+> la propia NSA advierte que espera que las implementaciones validadas de ML-DSA
+> tarden, así que para una fecha de hardware puede no llegar a tiempo.
 
 Este documento existe para que la divergencia sea una posición defendible y no
 un hueco que alguien descubra en una evaluación.
 
-**Reverificado contra el repositorio el 31 de julio de 2026.** La versión
-anterior de este archivo decía que el perfil «no está construido», y desde el
-2026-07-21 la mitad simétrica SÍ lo está: `crates/quipu-cnsa` existe en el
-workspace. Un documento que le dice a un comprador lo que hay tiene que decir lo
-que hay.
+**Reverificado contra el repositorio el 2 de agosto de 2026, y la posición
+CAMBIÓ.** Hasta el 2026-07-31 este archivo decía que el perfil se quedaba
+simétrico y su tabla marcaba firma y establecimiento de clave como no
+construidos en la hermana. **Se construyeron esa misma noche** (commit `ff16187`, 23:41):
+`quipu-cnsa` tiene hoy ML-DSA-87 y ML-KEM-1024 **puros**, comprobado en
+`crates/quipu-cnsa/src/firma.rs` y `destinatario.rs` —longitudes 2592/4627 y
+1568/1568, las de nivel 5— con `ml-dsa` y `ml-kem` como dependencias DIRECTAS y
+no a través de `quipu`.
+
+Este archivo llevaba un día contradiciendo al código, y es la segunda vez que le
+pasa lo mismo: la versión anterior decía «el perfil no está construido» cuando
+la mitad simétrica ya existía. Un documento que le dice a un comprador lo que
+hay se mira **en la misma pasada** del cambio, no cuando alguien pregunta.
 
 ---
 
@@ -25,20 +53,33 @@ que hay.
 
 | Función | CNSA 2.0 exige | `quipu` | `quipu-cnsa` | ¿Cubierta? |
 |---|---|---|---|:--:|
-| Establecimiento de clave | ML-KEM-1024 | X25519 **+** ML-KEM-1024 (híbrido) | — | **sí, con salvedad** |
-| Firma | ML-DSA-87 | Ed25519 **+** ML-DSA-87 (híbrido) | — | **sí, con salvedad** |
+| Establecimiento de clave | ML-KEM-1024 | X25519 **+** ML-KEM-1024 (híbrido) | **ML-KEM-1024 puro** | **sí** |
+| Firma | ML-DSA-87 | Ed25519 **+** ML-DSA-87 (híbrido) | **ML-DSA-87 puro** | **sí** |
 | Cifrado simétrico | AES-256 | XChaCha20-Poly1305 | **AES-256-GCM** | **sí**, en la hermana |
 | Resumen | SHA-384 (preferido) o SHA-512 | SHA-256 | **SHA-384** | **sí**, en la hermana |
-| Firma de software/firmware | LMS o XMSS (SP 800-208) | SLH-DSA-SHA2-256s (feature `slh`) | — | **no** |
+| Firma de software/firmware | ML-DSA-87, o LMS/XMSS de árbol único (SP 800-208) | SLH-DSA-SHA2-256s (feature `slh`) | **ML-DSA-87 puro** | **sí, en algoritmo** |
 
 **LA SALVEDAD, y conviene decirla antes de que la pregunten:** lo asimétrico de
 `quipu` es HÍBRIDO. `pqhybrid` combina X25519 con ML-KEM-1024 y `pqsign` combina
 Ed25519 con ML-DSA-87 — comprobado en `src/pqhybrid.rs` y `src/pqsign.rs`, no
 citado de memoria. Los algoritmos que CNSA 2.0 nombra están ahí y con los
 parámetros de TOP SECRET, pero lo que se ejecuta lleva además la mitad clásica.
-Para un comprador que exija exactamente lo que dice la lista, un perfil CNSA
-necesitaría las variantes PURAS, que hoy no existen: reusar el código de `quipu`
-tal cual no da esa afirmación, y eso es trabajo nuevo, no cableado.
+
+**Para quien exija exactamente lo que dice la lista, sin asterisco, está la
+hermana:** `quipu-cnsa` implementa los dos PUROS desde el 2026-07-31. La
+salvedad, por tanto, ya no es un hueco del catálogo — es la diferencia entre los
+dos perfiles, y hay que saber leerla en la dirección correcta.
+
+**Y la dirección correcta es incómoda: el perfil puro es MÁS DÉBIL.** El híbrido
+exige romper DOS familias —curva y retículo— para caer; el puro no tiene socio
+clásico, así que si el retículo cae no queda nada. La asimetría que más pesa:
+una firma rota se explota el día que se rompe, pero **un secreto cifrado hoy se
+guarda y se descifra mañana**, así que contra «cosecha ahora, descifra después»
+el híbrido protege y el puro no.
+
+Dicho de una vez, que es como conviene decirlo en una evaluación: `quipu-cnsa`
+existe para quien tiene la OBLIGACIÓN normativa, no para quien puede elegir. Si
+se puede elegir, `quipu`.
 
 La coincidencia en la parte post-cuántica no es casual: ML-KEM-1024 y ML-DSA-87
 son los parámetros para TOP SECRET y se eligieron por eso. La divergencia
@@ -78,18 +119,27 @@ para todos.
 
 ## Qué hay construido, y por qué el resto no
 
-**Construido y en el workspace desde el 2026-07-21: `crates/quipu-cnsa`**, la
-mitad simétrica del perfil. AES-256-GCM, HKDF-SHA-384, huella de diccionario
-sobre SHA-384 y cabecera de 56 bytes; el formato, el codec, Padmé y el ECC los
-comparte con `quipu` a través de `quipu-nucleo`, así que un fallo de formato se
-arregla una vez. Argon2id se mantiene a propósito (ver abajo).
+**Construido y en el workspace: `crates/quipu-cnsa`**, hoy el perfil ENTERO y no
+solo su mitad simétrica.
 
-**NO está publicado.** Comprobado en el índice el 2026-07-31:
-`index.crates.io/qu/ip/quipu-cnsa` no devuelve nada. Publicar necesita visto
-bueno explícito, y antes hay que decidir si el perfil se queda como está.
+- Desde el **2026-07-21**, lo simétrico: AES-256-GCM, HKDF-SHA-384, huella de
+  diccionario sobre SHA-384 y cabecera de 56 bytes.
+- Desde el **2026-07-31**, lo asimétrico PURO: `firma` (ML-DSA-87) y
+  `destinatario` (ML-KEM-1024 sobre AES-256-GCM).
 
-Lo que sigue explica por qué el resto —lo asimétrico puro y la firma de
-software— no se ha construido, y sigue siendo válido.
+El formato, el codec, Padmé y el ECC los comparte con `quipu` a través de
+`quipu-nucleo`, así que un fallo de formato se arregla una vez. Argon2id se
+mantiene a propósito (ver abajo). **62 pruebas en verde** (`cargo test
+-p quipu-cnsa`, exit 0 el 2026-08-02).
+
+**NO está publicado**, y sigue sin estarlo: comprobado contra la API de
+crates.io el 2026-08-02. Lo que SÍ cambió ese día es que ya existe la
+maquinaria para publicarlo —tag `cnsa-v*` y job `crate-cnsa` en `release.yml`,
+que antes no existían: un crate terminado sin ninguna forma de salir—. Publicar
+necesita visto bueno explícito.
+
+Lo que sigue explica por qué **LMS/XMSS** —lo único que falta— no se ha
+construido, y sigue siendo válido.
 
 No es que sea difícil. Es que **alinear algoritmos no es cumplir**, y confundir
 las dos cosas sería vender algo que no está.
@@ -170,15 +220,40 @@ Estado al 2026-07-31, leído del crate y no de esta lista:
    no añadiría nada. Quien use `encrypt` saltándose la KDF sí debe garantizar
    nonces únicos, y por eso la API le exige pasar el nonce. No hay estado que
    llevar, que era el coste que este punto temía.
-5. Para firma de software: LMS o XMSS. SLH-DSA **no** sirve aquí; es FIPS-205 y
-   CNSA 2.0 pide SP 800-208 para ese uso concreto. — **PENDIENTE**, y es una
-   dependencia nueva con gestión de estado de clave (LMS y XMSS son *stateful*:
-   reusar un índice rompe la firma). El `slh` que hay no lo sustituye.
-6. **AÑADIDO EL 2026-07-31, y no estaba en esta lista:** ML-KEM-1024 y ML-DSA-87
+5. Para firma de software: **CUBIERTO POR ML-DSA-87**, que es lo que este punto
+   decía mal. Estaba escrito como «CNSA 2.0 pide SP 800-208 para ese uso
+   concreto», y es al revés de como suena: LMS y XMSS están aprobados
+   *exclusivamente* PARA ese uso —no pueden usarse en otro— y ML-DSA-87 está
+   aprobado para **todos** los usos de firma, ese incluido. El crate lo tiene.
+
+   Lo que sigue faltando, y es distinto: **LMS/XMSS de árbol único**, que la NSA
+   prefiere hoy para una raíz de confianza en firmware porque ya hay
+   implementaciones validadas. Solo hace falta si el comprador firma firmware y
+   lo pide por nombre; su coste no es criptográfico sino operativo — son
+   esquemas *con estado*, cada clave da un número finito de firmas y reutilizar
+   el índice es catastrófico, así que exige un contador persistente que
+   sobreviva a caídas y no se duplique en un restore.
+
+   SLH-DSA **sigue sin servir** para afirmar conformidad: es FIPS-205 y no está
+   en CNSA 2.0. `quipu` lo ofrece como refuerzo propio, no como conformidad.
+
+   *(Sin confirmar en fuente primaria, y hay que confirmarlo antes de venderlo:
+   si SP 800-208 obligara a generar las firmas en hardware, una librería de
+   software puro no podría implementarlo de forma conforme.)*
+6. **AÑADIDO Y HECHO EL MISMO DÍA, el 2026-07-31:** ML-KEM-1024 y ML-DSA-87
    **puros**. `quipu` los tiene en HÍBRIDO (X25519 y Ed25519 al lado), así que
    una hermana que quiera afirmar «los algoritmos de CNSA 2.0» sin asterisco
-   necesita las variantes puras, con su formato y sus pruebas. Es la parte cara
-   de crecer el perfil, y la lista anterior la daba por cableada.
+   necesita las variantes puras, con su formato y sus pruebas. Se dijo que era
+   la parte cara de crecer el perfil, y lo era: son `firma.rs` y
+   `destinatario.rs`, con dependencias directas a `ml-dsa` y `ml-kem` para no
+   arrastrar `quipu` entero —este perfil es HERMANO de aquel, no cliente suyo—.
+
+   Detalles que un evaluador sí pregunta: la clave pública COMPLETA se ata al
+   material firmado y al derivado, con la longitud explícita delante, para que
+   no se pueda mover el corte entre campos; la clave secreta del KEM se guarda
+   como semilla de 64 bytes y no expandida de 3168, envuelta en `Zeroizing`; y
+   el canal de destinatario tiene UN SOLO error, porque separar «encapsulación
+   mal formada» de «tag inválido» sería el oráculo que I4 prohíbe.
 
 **Lo que NO se hace:** cambiar Argon2id. CNSA 2.0 no se pronuncia sobre
 derivación desde contraseña, y sustituirlo por PBKDF2 para «parecer conforme»
@@ -188,7 +263,25 @@ sería debilitar el sistema por estética normativa.
 
 ## Cuándo revisar esta decisión
 
-Se construye el perfil cuando ocurra **cualquiera** de estas tres:
+> **NOTA DEL 2026-08-02, y se deja escrita en vez de limpiarla.** Los tres
+> disparadores de abajo gobernaban «se construye el perfil», y **el perfil se
+> construyó esa misma noche sin que ninguno de los tres conste como dado**. No es
+> que se decidiera saltárselos: es que la decisión no quedó registrada en
+> ninguna parte — el commit `ff16187` explica el CÓMO con mucho detalle y no
+> dice una palabra del POR QUÉ AHORA.
+>
+> Aquí no se rellena ese hueco con una razón plausible, que sería justo el error
+> que este documento existe para no cometer. Se deja señalado: **falta que Juan
+> diga si se dio un disparador o si la recomendación se revocó a propósito.**
+> Mientras tanto, lo que sigue vigente es el CÓDIGO, y la tabla de arriba ya lo
+> refleja.
+>
+> Lo que estos tres disparadores gobiernan a partir de ahora es lo ÚNICO que
+> sigue sin construirse: la firma de software (SP 800-208, LMS o XMSS), que es
+> la que trae una dependencia nueva y *stateful* — reusar un índice rompe la
+> firma— y por tanto la que de verdad conviene no construir sin comprador.
+
+Se construye lo que falte cuando ocurra **cualquiera** de estas tres:
 
 1. Un comprador identificable lo pide por escrito en un pliego o una evaluación.
 2. Aparece un pliego público colombiano que referencie CNSA 2.0 como requisito.
@@ -208,17 +301,34 @@ Se construye el perfil cuando ocurra **cualquiera** de estas tres:
    `hsm`—, no validar la librería.
 
 Mientras tanto, la respuesta a *«¿es compatible con CNSA 2.0?»* es este
-documento: los algoritmos asimétricos son los suyos —en híbrido—, la mitad
-simétrica está construida en `quipu-cnsa`, la firma de software falta, y ninguna
-de las dos cosas es validación FIPS 140-3.
+documento: `quipu-cnsa` implementa un algoritmo aprobado para cada una de las
+cinco funciones —ML-KEM-1024 y ML-DSA-87 **puros**, AES-256-GCM y SHA-384, y
+ML-DSA-87 también para la firma de software—, falta LMS/XMSS como opción
+preferida para raíz de confianza en firmware, y nada de eso es validación
+FIPS 140-3.
 
-**Y la recomendación, para que la decisión no se quede abierta por no estar
-escrita: el perfil se queda simétrico.** Crecerlo hoy cuesta dos rutas
-criptográficas puras nuevas más una dependencia *stateful* (LMS/XMSS), y ninguno
-de los tres disparadores de arriba se ha dado. En una ronda la frase defendible
-no es «cubre un renglón» sino la de la tabla: cuatro de las cinco funciones, con
-la salvedad del híbrido dicha por nosotros y no descubierta por ellos. Eso se
-sostiene mejor que un perfil puro a medio construir.
+**La recomendación anterior —«el perfil se queda simétrico»— está RETIRADA por
+los hechos**, no por un argumento mejor: el perfil creció esa misma noche. Se
+retira la frase y se deja el rastro, porque una recomendación que el código
+desmiente y sigue escrita es peor que ninguna — la lee alguien, la repite en una
+reunión, y la desmiente el `grep` del comprador.
+
+La frase defendible en una ronda ha MEJORADO dos veces, y conviene decirla
+entera: **las cinco funciones con un algoritmo aprobado cada una, y en la
+hermana sin asterisco** — los algoritmos puros que nombra la lista, no híbridos
+que «los contienen». Con las tres salvedades dichas por nosotros y no
+descubiertas por ellos:
+
+1. El perfil puro es **más débil** que el híbrido frente a «cosecha ahora,
+   descifra después».
+2. Falta **LMS/XMSS de árbol único**, que es lo que hoy prefiere la NSA para una
+   raíz de confianza en firmware.
+3. Lo del punto 5 está confirmado en fuentes secundarias y **no en primaria**:
+   el FAQ de la NSA da 403. Hasta leerlo, la cifra se dice con esa nota.
+
+Decir las tres cuesta menos que una sola pregunta incómoda a la que no se tenga
+respuesta. Y ninguna de ellas es la que decide la partida, que sigue siendo la
+validación y no el quinto renglón.
 
 Y sobre la validación, que es donde estaba la frase equivocada: **lo que se busca
 financiar es la auditoría independiente, no el certificado FIPS.** Financian
