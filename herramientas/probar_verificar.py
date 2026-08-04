@@ -715,6 +715,55 @@ def probar_ninguna_version_retrocede() -> None:
         verificar._copia_de_origin_al_dia = original_al_dia
 
 
+def probar_una_exencion_de_vet_desfasada_suspende() -> None:
+    """Subir un miembro y no mover su exención de `cargo-vet` tiene que suspender.
+
+    Es lo que pasó el 2026-08-03: `quipu-nucleo` fue a 0.1.2 y `quipu-voprf` a
+    0.2.3, `supply-chain/config.toml` se quedó en 0.1.0 y 0.2.2, y el check
+    `cargo-vet (supply chain)` salió rojo en el PR. Lo cazó el CI, o sea tarde y
+    con minutos gastados.
+
+    El lector va SUSTITUIDO para que el caso rojo no dependa del árbol de verdad:
+    atarlo al repositorio real lo dejaría sin rojo en cuanto se arregle.
+    """
+    original = verificar._miembros_publicables
+    original_toml = verificar._leer_toml
+    try:
+        verificar._miembros_publicables = lambda: [("quipu-nucleo", "0.1.2", "crates/quipu-nucleo")]
+
+        def toml_falso(ruta):
+            if ruta.name == "config.toml":
+                return {"exemptions": {"quipu-nucleo": [{"version": VERSION_EXENTA}]}}
+            return {"package": {"name": "quipu", "version": "9.9.9"}}
+
+        verificar._leer_toml = toml_falso
+
+        # ROJO: la exención apunta a una versión que ya no es la del árbol.
+        VERSION_EXENTA = "0.1.0"
+        inf = verificar.Informe()
+        verificar.verificar_exenciones_de_vet(inf)
+        comprobar(salida_de(inf) == 1, "una exención desfasada DEBE suspender")
+
+        # VERDE: concuerdan. Es la operación normal y no puede bloquear nada.
+        VERSION_EXENTA = "0.1.2"
+        inf = verificar.Informe()
+        verificar.verificar_exenciones_de_vet(inf)
+        comprobar(salida_de(inf) == 0, "una exención al día NO suspende")
+
+        # SIN COMPROBAR: un miembro sin exención no es un fallo — un crate
+        # auditado de verdad no la necesita, y exigirla premiaría lo peor.
+        verificar._leer_toml = lambda ruta: (
+            {"exemptions": {}} if ruta.name == "config.toml"
+            else {"package": {"name": "quipu", "version": "9.9.9"}}
+        )
+        inf = verificar.Informe()
+        verificar.verificar_exenciones_de_vet(inf)
+        comprobar(salida_de(inf) == 2, "sin exenciones queda SIN COMPROBAR, no en verde ni rojo")
+    finally:
+        verificar._miembros_publicables = original
+        verificar._leer_toml = original_toml
+
+
 def probar_la_frescura_de_origin_se_mide_de_verdad() -> None:
     """`_copia_de_origin_al_dia` DA el veredicto correcto en los cuatro casos.
 
