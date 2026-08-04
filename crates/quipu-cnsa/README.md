@@ -147,8 +147,10 @@ software*. Es más preciso decirlo así:
 - **SLH-DSA no está en CNSA 2.0.** Es FIPS-205 y `quipu` lo ofrece como refuerzo
   propio, no como conformidad.
 
-Consecuencia para este perfil: cuando añadamos firma, **ML-DSA-87 basta para
-estar alineados**. LMS/XMSS sería una opción adicional para quien firme firmware,
+Consecuencia para este perfil, y ya no es futura: la firma es `firma`
+(ML-DSA-87), está construida, y **basta para estar alineados también en este
+renglón** — que es el que `docs/CNSA.md` daba por descubierto hasta el
+2026-08-02. LMS/XMSS sería una opción adicional para quien firme firmware,
 con un coste operativo serio: son esquemas **con estado**, cada clave produce un
 número finito de firmas y reutilizar el estado es catastrófico. Eso exige
 gestionar un contador persistente que sobreviva a caídas y no se duplique en un
