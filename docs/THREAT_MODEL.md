@@ -513,6 +513,20 @@ the operation, a local physical side channel, or control of the binary/OS.
     nobody can **prove** a second volume exists, that plaintext sitting in a swap
     image **is** the proof. It does not weaken the guarantee — it voids it.
 
+    **And it is the weakest of the six, measured — say so before citing it.**
+    A mutation run on 2026-08-03 removed `wipe(&mut maestra)` from `abrir` and
+    `wipe(&mut claro)` from `crear`, and both `negacion` tests **stayed green**.
+    The mutants were verified to compile and are not equivalent (the master key
+    is a bare `[u8; 32]`, no `Zeroizing`, so no `Drop` covers for the missing
+    wipe). Cause: what those calls leave behind is *freed*, and between the
+    operation and the scan the child allocates enough for the allocator to reuse
+    and overwrite it. The control keeps its planted leak **alive**, so it proves
+    the scanner finds a live needle — not that it would find a freed, unwiped
+    one. The needle itself is correct as of that date (it used to be derived
+    with a salt the library never uses). What is missing is a control of the
+    other class: a leak that is freed and not overwritten. Until that exists,
+    these two tests cover live residue and **do not certify the wipe**.
+
     **Measuring changed the answer**, which is the whole point of measuring. The
     master-key measurement used to look for a key the process had never derived —
     the harness derived it with its own fixed salt while `encode` draws the salt

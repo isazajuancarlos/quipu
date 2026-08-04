@@ -125,10 +125,19 @@ fn des_hex(s: &str) -> Vec<u8> {
 /// suelto necesariamente, pero sí es lo bastante rara.
 const FRASE_CANARIO: &str = "canario-de-residuo-Xq7v2Lm9Pk4Rt8Wz3Nb6Hd1Fg5Js0Ay";
 
-/// Salt fijo para que padre e hijo deriven exactamente la misma clave maestra.
-/// En producción el salt es aleatorio; aquí se fija porque el padre tiene que
-/// saber QUÉ buscar, y no es una debilidad del código sino del canario.
-const SAL_FIJA: [u8; 16] = *b"sal-fija-de-test";
+// AQUÍ VIVÍA `SAL_FIJA`, y su desaparición es el arreglo, no una limpieza.
+//
+// Decía: «salt fijo para que padre e hijo deriven exactamente la misma clave
+// maestra; en producción el salt es aleatorio, aquí se fija porque el padre
+// tiene que saber QUÉ buscar». La primera mitad era verdad y la segunda era el
+// fallo: la librería NUNCA deriva con esa sal —ni `encode` ni `negacion::crear`,
+// que la toman del CSPRNG—, así que el padre buscaba una clave que el proceso
+// medido no había construido jamás. Cero copias, y el cero no significaba nada.
+//
+// El camino de contraseña se arregló leyendo la sal REAL de la cabecera
+// (`sobre_con_contrasena`). El de negación seguía con la sal fija hasta el
+// 2026-08-03: ahora el hijo anuncia su contenedor y el padre deriva de ahí
+// (`clave_maestra_del_oculto`), validando la clave contra el artefacto.
 
 /// El contenido del volumen OCULTO en el escenario de negación.
 ///
@@ -515,6 +524,29 @@ fn medir_aguja(escenario: &str, aguja: &[u8]) -> usize {
 
 /// Igual, pasándole al hijo variables de entorno adicionales.
 fn medir_aguja_con(escenario: &str, aguja: &[u8], entorno: &[(&str, &str)]) -> usize {
+    medir_con_aguja_tardia(escenario, entorno, |_| aguja.to_vec())
+}
+
+/// Para cuando la aguja NO SE PUEDE SABER antes de arrancar al hijo.
+///
+/// Existe por el fallo que este mismo archivo documenta dos veces: medir buscando
+/// una clave que el proceso **nunca derivó** da cero sin haber mirado nada. Pasó
+/// con el camino de contraseña —el arnés derivaba con una sal fija suya mientras
+/// `encode` la saca del CSPRNG— y seguía vivo en el de negación, donde
+/// `negacion::crear` también toma la sal del CSPRNG y ningún perfil la fija.
+///
+/// El control no lo cazaba, y esa es la parte que hay que entender: la fuga
+/// deliberada la planta el HIJO con esa misma sal inventada, así que el control
+/// pasaba y la medición de al lado seguía siendo vacua. **Un control que planta
+/// su propia aguja no valida la medición real.**
+///
+/// La solución es que el hijo ANUNCIE lo que hizo —una línea antes de `LISTO`— y
+/// el padre derive la aguja de ahí.
+fn medir_con_aguja_tardia(
+    escenario: &str,
+    entorno: &[(&str, &str)],
+    aguja_de: impl FnOnce(&str) -> Vec<u8>,
+) -> usize {
     let exe = std::env::current_exe().expect("el binario de prueba tiene ruta");
     let mut hijo = Command::new(exe)
         .envs(entorno.iter().copied())
@@ -529,17 +561,25 @@ fn medir_aguja_con(escenario: &str, aguja: &[u8], entorno: &[(&str, &str)]) -> u
 
     let mut salida = BufReader::new(hijo.stdout.take().expect("stdout tomado"));
     let mut linea = String::new();
+    // Lo que el hijo anuncie antes de `LISTO`: hoy, el contenedor que acaba de
+    // construir con su sal del CSPRNG.
+    let mut anuncio = String::new();
     loop {
         linea.clear();
         if salida.read_line(&mut linea).expect("el hijo escribe") == 0 {
             panic!("el hijo terminó sin avisar de que estaba listo");
         }
-        if linea.trim() == "LISTO" {
+        let l = linea.trim();
+        if l == "LISTO" {
             break;
+        }
+        if let Some(resto) = l.strip_prefix("ANUNCIO ") {
+            anuncio = resto.to_string();
         }
     }
 
-    let n = residuo(hijo.id(), aguja).expect("se puede leer la memoria del hijo");
+    let aguja = aguja_de(&anuncio);
+    let n = residuo(hijo.id(), &aguja).expect("se puede leer la memoria del hijo");
 
     // Soltarlo y esperarlo: un hijo huérfano colgaría el CI.
     if let Some(mut e) = hijo.stdin.take() {
@@ -726,6 +766,10 @@ fn cuerpo_del_hijo() {
         // que es el defecto que la cabecera de este archivo describe para el
         // escaneo del propio proceso. Medido: sin este `wipe` la prueba daba 1.
         quipu::antihacker::wipe(&mut oculto);
+        // EL PADRE NO PUEDE ADIVINAR LA SAL: `crear` la toma del CSPRNG y ningún
+        // perfil la fija. Sin esta línea el padre derivaba la clave maestra con
+        // una sal inventada y medía un cero que no significaba nada.
+        println!("ANUNCIO {}", hex(&c));
         let a = abrir(&c, FRASE_CANARIO, Some(perfil)).expect("abre el oculto");
         assert_eq!(a.datos, OCULTO_CANARIO);
         // `a.datos` es la copia que se le entrega al llamante: se borra a mano,
@@ -737,11 +781,18 @@ fn cuerpo_del_hijo() {
 
         // Fuga deliberada: si esto no se viera, los ceros de las pruebas no
         // probarían que no hay residuo — probarían que el escáner mira donde no es.
+        //
+        // Se deriva con LA SAL DEL CONTENEDOR, no con una fija del arnés. Antes
+        // era fija, y por eso el control pasaba mientras la medición de al lado
+        // buscaba una clave que la librería jamás había derivado: el control
+        // plantaba la aguja inventada que el padre esperaba, y los dos se daban
+        // la razón sin tocar el código medido.
         if escenario == "negacion-con-fuga" {
+            let sal: [u8; 16] = c[..16].try_into().expect("la sal va delante");
             let mut v = OCULTO_CANARIO.to_vec();
             v.extend_from_slice(&quipu::kdf::derive_master_key(
                 FRASE_CANARIO,
-                &SAL_FIJA,
+                &sal,
                 b"",
                 &params_baratos(),
             ));
@@ -1204,20 +1255,69 @@ fn honey_no_deja_la_contrasena_en_memoria() {
 /// no barre. Si una copia EN EL MONTÓN tampoco se viera, un cero significaría
 /// «el escáner mira donde no es», que es exactamente el cero falso que este
 /// proyecto ya produjo cuatro veces.
+/// La clave maestra que `negacion` deriva DE VERDAD, sacada de la sal que el hijo
+/// anunció, y **validada contra el artefacto** antes de usarla como aguja.
+///
+/// La validación no es ceremonia: es lo único que distingue «no hay residuo» de
+/// «busqué lo que no era». Se comprueba que esa sal y esa frase abren el volumen
+/// oculto y devuelven el canario — que es exactamente la derivación que hace
+/// `abrir` por dentro (`derive_master_key(clave_oculta, &salt, …)`).
+#[cfg(all(feature = "negacion", feature = "lab"))]
+fn clave_maestra_del_oculto(contenedor_hex: &str) -> Vec<u8> {
+    let contenedor = des_hex(contenedor_hex);
+    let sal: [u8; 16] = contenedor[..16].try_into().expect("la sal va delante");
+
+    let perfil = quipu::negacion::Perfil::de_laboratorio("residuo", params_baratos());
+    let a = quipu::negacion::abrir(&contenedor, FRASE_CANARIO, Some(perfil))
+        .expect("la sal anunciada y la frase abren el oculto");
+    assert_eq!(
+        a.datos, OCULTO_CANARIO,
+        "el contenedor anunciado no es el que midió el hijo: la aguja sería otra"
+    );
+
+    quipu::kdf::derive_master_key(FRASE_CANARIO, &sal, b"", &params_baratos()).to_vec()
+}
+
 #[cfg(all(feature = "negacion", feature = "lab"))]
 #[test]
 fn el_medidor_ve_una_fuga_deliberada_tambien_en_negacion() {
-    let clave = quipu::kdf::derive_master_key(FRASE_CANARIO, &SAL_FIJA, b"", &params_baratos());
     assert!(
         medir_aguja("negacion-con-fuga", OCULTO_CANARIO) > 0,
         "el medidor no ve una copia del CLARO DEL OCULTO dejada viva en el montón"
     );
     assert!(
-        medir_aguja("negacion-con-fuga", &clave) > 0,
+        medir_con_aguja_tardia("negacion-con-fuga", &[], clave_maestra_del_oculto) > 0,
         "el medidor no ve una copia de la CLAVE MAESTRA dejada viva en el montón"
     );
 }
 
+/// ⚠️ LÍMITE MEDIDO DE LAS DOS PRUEBAS DE NEGACIÓN (2026-08-03): **su cero no
+/// discrimina**, y hay que saberlo antes de citarlas.
+///
+/// Banco de mutación sobre la librería, en release, con las dos siguientes:
+///   · suprimido `antihacker::wipe(&mut maestra)` en `abrir` → **siguen verdes**;
+///   · suprimido `antihacker::wipe(&mut claro)` en `crear` —el CLARO DEL
+///     OCULTO, la aguja que más pesa— → **siguen verdes**.
+/// Se comprobó que el mutante entraba de verdad (`Compiling quipu`), y que no es
+/// equivalente: `derive_master_key` devuelve un `[u8; 32]` PELADO, sin
+/// `Zeroizing`, así que quitar el borrado no lo suple ningún `Drop`.
+///
+/// LA CAUSA, y por eso el control no lo cazaba: el escáner mira memoria
+/// ESCRIBIBLE del hijo cuando ya volvió de la operación. Lo que `crear` y `abrir`
+/// dejan atrás está LIBERADO, y entre la operación y el escaneo el propio hijo
+/// aloja de sobra —`abrir`, el `wipe` del llamante, la línea de anuncio— como
+/// para que el asignador reutilice y pise esos bloques. El control, en cambio,
+/// mantiene su fuga VIVA en `fuga`, que nada reutiliza: demuestra que el escáner
+/// encuentra una aguja viva, **no** que encontraría una liberada y sin borrar.
+/// Comprobado que no lo introdujo la línea de anuncio: sin ella, igual de ciego.
+///
+/// NO SE BORRAN NI SE DEBILITAN estas pruebas: la aguja ya es la correcta desde
+/// hoy —antes se derivaba con una sal que la librería nunca usa— y siguen
+/// cubriendo el caso de un residuo VIVO. Lo que no se puede decir es que
+/// certifiquen el borrado. Para eso hace falta un control de la clase que falta:
+/// una fuga LIBERADA y sin pisar. Queda como tarea; escribirlo aquí es más
+/// barato que volver a deducirlo.
+///
 /// LO QUE ESTE MÓDULO NO PUEDE PERMITIRSE: que el claro del volumen oculto
 /// sobreviva a la operación que lo escribió y lo leyó.
 ///
@@ -1238,8 +1338,7 @@ fn el_contenedor_con_negacion_no_deja_el_claro_del_oculto_en_memoria() {
 #[cfg(all(feature = "negacion", feature = "lab"))]
 #[test]
 fn el_contenedor_con_negacion_no_deja_la_clave_maestra_en_memoria() {
-    let clave = quipu::kdf::derive_master_key(FRASE_CANARIO, &SAL_FIJA, b"", &params_baratos());
-    let n = medir_aguja("negacion", &clave);
+    let n = medir_con_aguja_tardia("negacion", &[], clave_maestra_del_oculto);
     assert_eq!(n, 0, "quedan {n} copias de la clave maestra del volumen oculto");
 }
 
