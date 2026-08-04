@@ -715,6 +715,38 @@ def probar_ninguna_version_retrocede() -> None:
         verificar._copia_de_origin_al_dia = original_al_dia
 
 
+def probar_un_404_de_pypi_es_via_libre_y_no_una_abstencion() -> None:
+    """El endpoint por versión de PyPI da 404 cuando la versión NO existe, y ese
+    404 es la respuesta BUENA.
+
+    Aquí se usaba `leer_json`, que devuelve `None` para el 404 y para un fallo de
+    red por igual, así que el caso bueno caía en «PyPI no respondió». La
+    comprobación no podía aprobar NUNCA: la rama verde era código muerto, y la
+    puerta de `estable` terminaba en INCOMPLETA para cualquier versión sin
+    publicar — que es la única clase de versión que se promueve. Medido el
+    2026-08-03 con la 0.11.0.
+
+    Los tres estados, cada uno con su veredicto distinto.
+    """
+    original = verificar.leer_json_estado
+    original_ver = verificar._version_de_referencia
+    verificar._version_de_referencia = lambda: "0.11.0"
+    try:
+        casos = [
+            (("ausente", None), 0, "un 404 significa «no publicada»: VÍA LIBRE"),
+            (("ok", {"info": {"version": "0.11.0"}}), 1, "un 200 significa YA publicada: suspende"),
+            (("error", None), 2, "un fallo de red NO es un aprobado: SIN COMPROBAR"),
+        ]
+        for respuesta, esperado, glosa in casos:
+            verificar.leer_json_estado = lambda url, r=respuesta: r
+            inf = verificar.Informe()
+            verificar.verificar_version_no_publicada(inf)
+            comprobar(salida_de(inf) == esperado, glosa)
+    finally:
+        verificar.leer_json_estado = original
+        verificar._version_de_referencia = original_ver
+
+
 def probar_una_exencion_de_vet_desfasada_suspende() -> None:
     """Subir un miembro y no mover su exención de `cargo-vet` tiene que suspender.
 
