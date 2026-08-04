@@ -513,6 +513,27 @@ the operation, a local physical side channel, or control of the binary/OS.
     nobody can **prove** a second volume exists, that plaintext sitting in a swap
     image **is** the proof. It does not weaken the guarantee — it voids it.
 
+    **Read that list again for what is NOT in it.** On `negacion` the needles are
+    the hidden volume's plaintext and the master key — the **passphrase** is not
+    among them, while on the passphrase path, on streaming and on `honey` it is.
+    That omission had a cost, found on 2026-08-04 by reading and not by
+    measuring: the time-equalisation of the write path (`51aced8`) unified both
+    branches with a `c.to_string()` on the hidden volume's passphrase, and that
+    heap copy was the one secret in `crear` nobody wiped — while the master key,
+    the subkeys, the plaintext and even the NFKC copies of the shared-passphrase
+    guard all were. In this module that string is both the **proof** that a
+    second volume exists and the **key** that opens it, since the salt travels in
+    clear in the header.
+
+    It is closed by **removing the copy, not by wiping it**: the discard
+    passphrase is now materialised outside the `match`, so both branches lend a
+    `&str` and the duplicate never exists — which also equalises the last
+    asymmetry left, since the CSPRNG draw and the hex formatting used to run only
+    when there was no hidden volume. No test was added for it, and that is
+    deliberate: by the paragraph right below, the meter cannot tell a wiped small
+    needle from one the allocator overwrote, so a green here would pass for the
+    wrong reason.
+
     **And it is the weakest of the six, measured — say so before citing it.**
     A mutation run on 2026-08-03 removed `wipe(&mut maestra)` from `abrir` and
     `wipe(&mut claro)` from `crear`, and both `negacion` tests **stayed green**.
