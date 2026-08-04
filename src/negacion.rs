@@ -538,21 +538,40 @@ pub fn crear(
     // (ese es N2/S7, fuera de alcance y ya vería el claro): es la telemetría de
     // tiempos y RSS que un agente de monitorización, una máquina corporativa o
     // una línea de tiempo forense recogen de rutina SIN ver jamás el contenido.
+    // La contraseña de descarte se materializa SIEMPRE, haya o no oculto, y por
+    // dos razones que apuntan al mismo sitio.
+    //
+    // La primera es que la alternativa —construirla solo en la rama sin oculto—
+    // obliga a que las dos ramas devuelvan el MISMO tipo, y eso costaba un
+    // `c.to_string()` sobre la contraseña del volumen oculto: una copia en el
+    // montón que la librería crea y NO borra, mientras la maestra, las
+    // subclaves, el claro y hasta las copias NFKC de la guarda de aquí arriba sí
+    // se limpian. Es el residuo que este módulo entero existe para no dejar —la
+    // frase del oculto es a la vez la PRUEBA de que hay segundo volumen y la
+    // LLAVE que lo abre, porque el salt viaja en claro en la cabecera— y encima
+    // contradecía el comentario de veinte líneas más arriba, que promete que
+    // todo lo sensible se borra. Materializando el descarte fuera del `match`,
+    // las dos ramas prestan un `&str` y la copia no llega a existir: no hay que
+    // borrar lo que no se duplicó.
+    //
+    // La segunda es que la asimetría de tiempos que este bloque vino a cerrar
+    // seguía teniendo un resto — el CSPRNG y el formateo hexadecimal solo
+    // corrían cuando NO había oculto. Es despreciable al lado de un Argon2id,
+    // pero es del mismo tipo del delator de 2× que se cerró aquí, y sale gratis.
+    //
+    // 32 bytes del CSPRNG en hexadecimal. No es un secreto: no se usa para nada
+    // y su claro nunca se escribe.
+    let mut relleno = [0u8; 32];
+    aleatorio::llenar(&mut relleno).map_err(|e| NegacionError::SinEntropia(e.to_string()))?;
+    let descarte: String = relleno.iter().map(|b| format!("{b:02x}")).collect();
+
     let (datos_reales, clave_real, hay_oculto) = match oculto {
-        Some((d, c)) => (d, c.to_string(), true),
-        None => {
-            // Contraseña de descarte: 32 bytes del CSPRNG en hexadecimal. No se
-            // usa para nada y su claro nunca se escribe.
-            let mut relleno = [0u8; 32];
-            aleatorio::llenar(&mut relleno)
-                .map_err(|e| NegacionError::SinEntropia(e.to_string()))?;
-            let frase: String = relleno.iter().map(|b| format!("{b:02x}")).collect();
-            (b"".as_slice(), frase, false)
-        }
+        Some((d, c)) => (d, c, true),
+        None => (b"".as_slice(), descarte.as_str(), false),
     };
     {
         let datos = datos_reales;
-        let clave_oculta: &str = &clave_real;
+        let clave_oculta: &str = clave_real;
         let mut maestra = kdf::derive_master_key(clave_oculta, &salt, b"", &perfil.params);
         let (mut clave, nonce) = claves_de_region(&maestra, INFO_OCULTO);
         antihacker::wipe(&mut maestra);
