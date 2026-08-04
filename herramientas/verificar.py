@@ -1505,26 +1505,52 @@ def verificar_promocion(inf: Informe, destino: str) -> None:
     # rechaza, pero el resto del flujo ya arrancó. Y PyPI NO deja re-subir, así
     # que equivocarse cuesta un yank — pasó con la 0.9.0.
     if destino == "estable":
-        try:
-            v = _version_de_referencia()
-        except Exception as e:
-            inf.omitido("versión no publicada aún", f"no se pudo leer Cargo.toml: {e}")
-            return
-        meta = leer_json(f"https://pypi.org/pypi/quipu-crypto/{v}/json")
-        if meta is None:
-            # Un fallo de red NO es un aprobado. Que se note.
-            inf.omitido(
-                f"la versión {v} no está publicada aún",
-                "PyPI no respondió: sin ese dato no se puede promover con seguridad",
-            )
-        elif meta.get("info"):
-            inf.fallo(
-                f"la versión {v} YA está en PyPI",
-                "sube la versión antes de promover, o el release publicará algo "
-                "distinto con el mismo número (PyPI no deja re-subir)",
-            )
-        else:
-            inf.ok(f"la versión {v} no está publicada", "el tag será nuevo")
+        verificar_version_no_publicada(inf)
+
+
+def verificar_version_no_publicada(inf: Informe) -> None:
+    """La versión del árbol no puede existir ya en PyPI.
+
+    Va en función propia y no dentro de `verificar_promocion` PARA PODER
+    PROBARLA: mientras estuvo embebida, su rama verde nunca se ejecutó y nadie
+    lo notó.
+    """
+    try:
+        v = _version_de_referencia()
+    except Exception as e:
+        inf.omitido("versión no publicada aún", f"no se pudo leer Cargo.toml: {e}")
+        return
+    # EL ENDPOINT ES POR VERSIÓN, así que una versión que no existe devuelve
+    # **404** — y ese 404 es la respuesta BUENA, la que dice «adelante».
+    #
+    # Aquí se usaba `leer_json`, que devuelve `None` tanto para el 404 como
+    # para un fallo de red, y el 404 caía en la rama de «PyPI no respondió».
+    # Consecuencia: la comprobación NUNCA podía aprobar. Con la 0.11.0 sin
+    # publicar salía «? SIN COMPROBAR» y la puerta entera acababa en
+    # INCOMPLETA, o sea que bloqueaba toda promoción de una versión nueva —
+    # justo la única clase de promoción que existe. La rama `ok` era código
+    # muerto y nadie lo había ejecutado jamás.
+    #
+    # Es el error que este archivo ya tiene documentado dos veces: colapsar
+    # «no pude mirar» con un veredicto. `leer_json_estado` existe para
+    # separar los tres estados y este sitio se había quedado sin migrar.
+    # Comprobado a mano el 2026-08-03: `curl` a ese endpoint da 200 para
+    # 0.10.0 y 404 para 0.11.0.
+    estado, meta = leer_json_estado(f"https://pypi.org/pypi/quipu-crypto/{v}/json")
+    if estado == "ausente":
+        inf.ok(f"la versión {v} no está publicada", "el tag será nuevo")
+    elif estado == "ok" and isinstance(meta, dict) and meta.get("info"):
+        inf.fallo(
+            f"la versión {v} YA está en PyPI",
+            "sube la versión antes de promover, o el release publicará algo "
+            "distinto con el mismo número (PyPI no deja re-subir)",
+        )
+    else:
+        # Un fallo de red NO es un aprobado. Que se note.
+        inf.omitido(
+            f"la versión {v} no está publicada aún",
+            "PyPI no respondió: sin ese dato no se puede promover con seguridad",
+        )
 
 
 def abrir_pr_de_promocion(destino: str) -> int:
