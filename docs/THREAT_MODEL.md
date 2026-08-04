@@ -518,14 +518,32 @@ the operation, a local physical side channel, or control of the binary/OS.
     `wipe(&mut claro)` from `crear`, and both `negacion` tests **stayed green**.
     The mutants were verified to compile and are not equivalent (the master key
     is a bare `[u8; 32]`, no `Zeroizing`, so no `Drop` covers for the missing
-    wipe). Cause: what those calls leave behind is *freed*, and between the
-    operation and the scan the child allocates enough for the allocator to reuse
-    and overwrite it. The control keeps its planted leak **alive**, so it proves
-    the scanner finds a live needle — not that it would find a freed, unwiped
-    one. The needle itself is correct as of that date (it used to be derived
-    with a salt the library never uses). What is missing is a control of the
-    other class: a leak that is freed and not overwritten. Until that exists,
-    these two tests cover live residue and **do not certify the wipe**.
+    wipe).
+
+    A calibration pair added the same day settles *why*, and the answer is not
+    "the meter is broken": a 64 KiB block dropped without wiping is found with
+    **2048 hits**, and the same block after four same-sized allocations is found
+    **zero** times. So the scanner does see freed, unwiped memory — what blinds
+    the `negacion` tests is **allocator reuse**. The library's buffers there are
+    small (a 32-byte key, a ~70-byte plaintext) and anything the child allocates
+    between the operation and the scan lands on top of them. The existing
+    controls keep their planted leak *alive*, which nothing reuses, so they prove
+    the scanner finds a live needle and no more.
+
+    This is **not** general to the six paths. The same mutation run against the
+    passphrase path — removing `wipe(&mut padded)` from `api::decode` — turns
+    `el_cifrado_no_deja_el_texto_en_claro_en_memoria` **red**. That path
+    discriminates. The difference is how much the child allocates between the
+    operation and the scan: almost nothing there, a `crear` plus an `abrir` plus
+    two caller wipes here.
+
+    The consequence is a ceiling of the technique, not a bug in these tests:
+    **for small secrets, scanning after the fact cannot separate "the library
+    wiped it" from "the allocator overwrote it".** It improves with needle size,
+    which is why the calibration uses 64 KiB. Doing better would need an
+    instrumented allocator that never reuses, or observation *during* the
+    operation. Until then these tests cover **live** residue — what a dump finds
+    while the process runs — and do **not** certify the wipe.
 
     **Measuring changed the answer**, which is the whole point of measuring. The
     master-key measurement used to look for a key the process had never derived —
