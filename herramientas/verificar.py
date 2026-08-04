@@ -961,6 +961,61 @@ def _rama_actual() -> str | None:
 # release en un bump obligatorio de los cinco crates, que es justo el cliente
 # legítimo contra el que hay que probar toda regla antes de escribirla.
 
+def verificar_exenciones_de_vet(inf: Informe) -> None:
+    """La exención de `cargo-vet` de cada miembro tiene que nombrar SU versión.
+
+    POR QUÉ EXISTE: `cargo vet` exime crates POR VERSIÓN exacta. Al subir un
+    miembro —`quipu-nucleo` a 0.1.2, `quipu-voprf` a 0.2.3— la exención se queda
+    apuntando a la anterior y el check `cargo-vet (supply chain)` se pone ROJO
+    con «missing safe-to-deploy». Pasó el 2026-08-03 y lo cazó el CI, o sea
+    tarde: la coherencia de versiones ya miraba los cuatro sitios de `quipu`,
+    pero ninguno era este ni cubría a los hermanos.
+
+    LA REGLA, en una frase: si un miembro del workspace TIENE exención, su
+    versión tiene que ser la del miembro. No exige que la tenga —un crate
+    auditado de verdad no necesita exención, y obligar a ponerla sería premiar lo
+    peor—; solo que si está, no mienta.
+    """
+    ruta = RAIZ / "supply-chain" / "config.toml"
+    if not ruta.exists():
+        inf.omitido("exenciones de cargo-vet", "no hay supply-chain/config.toml")
+        return
+    try:
+        exenciones = _leer_toml(ruta).get("exemptions", {})
+        miembros = _miembros_publicables()
+        raiz = _leer_toml(RAIZ / "Cargo.toml")["package"]
+        miembros.append((raiz["name"], raiz["version"], "."))
+    except Exception as e:
+        inf.omitido("exenciones de cargo-vet", f"no se pudo leer: {e}")
+        return
+
+    desfasadas = []
+    revisadas = 0
+    for nombre, version, _ in miembros:
+        entradas = exenciones.get(nombre)
+        if not entradas:
+            continue  # sin exención: no hay nada que pueda mentir
+        revisadas += 1
+        versiones = [e.get("version") for e in entradas if isinstance(e, dict)]
+        if version not in versiones:
+            desfasadas.append(f"{nombre}: el árbol va por {version} y la exención dice {versiones}")
+
+    if desfasadas:
+        inf.fallo(
+            "exenciones de cargo-vet al día",
+            "; ".join(desfasadas)
+            + " — `cargo vet` exime por versión EXACTA, así que el check se pondrá "
+            "rojo: actualiza supply-chain/config.toml",
+        )
+    elif revisadas:
+        inf.ok("exenciones de cargo-vet al día", f"{revisadas} miembro(s) con exención, y concuerdan")
+    else:
+        inf.omitido(
+            "exenciones de cargo-vet",
+            "ningún miembro del workspace tiene exención: no hay nada que contrastar",
+        )
+
+
 def _miembros_publicables() -> list[tuple[str, str, str]]:
     """(nombre, versión, ruta) de cada miembro del workspace que SÍ se publica.
 
@@ -1801,6 +1856,9 @@ def main() -> int:
     if args.orden == "version":
         print(f"{GRIS}Comprobando que la versión concuerde en todos sus sitios…{FIN}")
         verificar_versiones(inf)
+        # `supply-chain/config.toml` es un sitio más de la versión, y de los que
+        # no se miran: no rompe la compilación, rompe un check del CI.
+        verificar_exenciones_de_vet(inf)
     if args.orden == "portada":
         print(f"{GRIS}Comprobando que las descripciones publicadas no mientan…{FIN}")
         verificar_promesas_de_la_portada(inf)

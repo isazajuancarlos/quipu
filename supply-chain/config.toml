@@ -434,11 +434,11 @@ version = "0.11.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.quipu-nucleo]]
-version = "0.1.0"
+version = "0.1.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.quipu-voprf]]
-version = "0.2.2"
+version = "0.2.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.quote]]
