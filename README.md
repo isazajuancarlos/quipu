@@ -414,8 +414,10 @@ not validate, it does not degrade to "unhardened".
   [`CHANGELOG.md`](CHANGELOG.md).
 - [`LICENSING.md`](LICENSING.md) — the dual licensing model.
 - [`docs/announcement.md`](docs/announcement.md) — design article (EN/ES).
-- [`docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md`](docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md)
-  — **Security Lab** design (adaptive red team, feature `lab`).
+- [`docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md`](https://github.com/isazajuancarlos/quipu/blob/estable/docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md)
+  — **Security Lab** design (adaptive red team, feature `lab`). Absolute link on
+  purpose: that directory is excluded from the published `.crate`, so a relative
+  path would 404 for anyone reading this from crates.io or docs.rs.
 
 Most documents are in Spanish; the threat model and the pre-audit have English
 versions, linked above.

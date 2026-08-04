@@ -33,12 +33,27 @@ repository = "https://github.com/isazajuancarlos/quipu"
 homepage = "https://github.com/isazajuancarlos/quipu"
 documentation = "https://docs.rs/quipu"
 # No publicar en el crate los borradores internos de planificación/financiación.
+#
+# `docs/superpowers/` entró el 2026-08-04: son 15 planes y specs de trabajo
+# —372 KiB— y TRES de ellos diseñan subsistemas que ya no existen (la ABI de C,
+# los bindings de Node y los de Go, eliminados en la 0.10). Un consumidor que
+# abre el .crate se encuentra documentación de algo muerto y no tiene cómo
+# saberlo. Los planes llevan además instrucciones para agentes
+# («REQUIRED SUB-SKILL: superpowers:executing-plans»), que no significan nada
+# fuera de aquí.
+#
+# Va el DIRECTORIO entero y no solo `plans/`: `specs/` tiene los mismos tres
+# diseños muertos, y una regla con excepción es donde se cuela el fallo. El
+# precio se paga en los dos README, que enlazaban el diseño del Security Lab por
+# ruta relativa: ahora lo enlazan por URL absoluta a GitHub, que resuelve
+# también desde crates.io y docs.rs.
 exclude = [
     "GRANT_NLNET.md",
     "OTF_RED_TEAM_LAB.md",
     "PENDIENTES.txt",
     "QUIPU_PROYECTO_Y_REQUISITOS.txt",
     "conversaciones/",
+    "docs/superpowers/",
 ]
 
 [lib]
