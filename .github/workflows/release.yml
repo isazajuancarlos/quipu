@@ -17,7 +17,7 @@ name: release-wheels
 # `refs/tags/v`, así que cada tag dispara solo lo suyo.
 on:
   push:
-    tags: ["v*", "voprf-v*", "nucleo-v*", "django-v*", "padme-v*"]
+    tags: ["v*", "voprf-v*", "nucleo-v*", "django-v*", "padme-v*", "cnsa-v*"]
   workflow_dispatch:
 
 permissions:
@@ -361,6 +361,19 @@ jobs:
   #
   # Este job NUNCA se ha ejecutado: el crate nació el 2026-08-01 y sigue sin
   # publicar. El primer `padme-v*` que se empuje es también su estreno.
+  #
+  # Y SU ESTRENO VA A FALLAR. No es una sospecha: la documentación de crates.io
+  # lo dice literalmente entre los prerrequisitos de trusted publishing —
+  # «Your crate must already be published to crates.io (initial publish requires
+  # an API token)» (rust-lang/crates.io, svelte/src/routes/docs/trusted-publishing).
+  # La configuración de OIDC vive en Settings → Trusted Publishing DEL CRATE, y
+  # un crate que no existe no tiene ajustes. Comprobado el 2026-08-03 contra el
+  # índice: `padme-frame` da 404.
+  #
+  # O sea que este job sirve de la SEGUNDA versión en adelante. La 0.1.0 hay que
+  # subirla a mano con un token de API, y solo después se configura el trusted
+  # publishing que hace funcionar el tag. Empujar `padme-v0.1.0` esperando que
+  # publique es perder el tag y tener que borrarlo.
   crate-padme:
     name: publish padme-frame to crates.io
     if: startsWith(github.ref, 'refs/tags/padme-v')
@@ -377,6 +390,39 @@ jobs:
         id: auth
       - name: cargo publish -p padme-frame
         run: cargo publish -p padme-frame
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  # `quipu-cnsa` no lleva `publish = false`, o sea que ES publicable, y hasta el
+  # 2026-08-02 no tenía ni tag ni job: un crate terminado —52+10 pruebas en
+  # verde, perfil simétrico y asimétrico— sin ninguna forma de salir. Lo delató
+  # `verificar_deriva_desde_el_tag`, que se negó a aprobarlo por no tener
+  # prefijo declarado en vez de callarse.
+  #
+  # Depende de `quipu-nucleo`, así que va DESPUÉS de él en la cadena.
+  #
+  # MISMO ESTRENO FALLIDO que `crate-padme`, y por la misma razón: `quipu-cnsa`
+  # tampoco está en el índice (404 el 2026-08-03), y el trusted publishing exige
+  # que el crate exista para poder configurarlo. Su 0.1.0 también va a mano con
+  # token. Los dos crates SIN publicar del workspace son exactamente estos dos;
+  # `quipu-nucleo`, `quipu-voprf` y `quipu` sí existen (200), así que sus jobs
+  # sí funcionan por tag.
+  crate-cnsa:
+    name: publish quipu-cnsa to crates.io
+    if: startsWith(github.ref, 'refs/tags/cnsa-v')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Autenticar contra crates.io por OIDC (token efímero)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: cargo publish -p quipu-cnsa
+        run: cargo publish -p quipu-cnsa
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
