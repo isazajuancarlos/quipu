@@ -409,8 +409,10 @@ no valida, no se degrada a "sin endurecer".
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — cómo contribuir · [`CHANGELOG.md`](CHANGELOG.md).
 - [`LICENSING.md`](LICENSING.md) — modelo de licenciamiento dual.
 - [`docs/announcement.md`](docs/announcement.md) — artículo de diseño (EN/ES).
-- [`docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md`](docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md)
-  — diseño del **Security Lab** (red-team adaptativo, feature `lab`).
+- [`docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md`](https://github.com/isazajuancarlos/quipu/blob/estable/docs/superpowers/specs/2026-07-01-quipu-security-lab-design.md)
+  — diseño del **Security Lab** (red-team adaptativo, feature `lab`). El enlace
+  es absoluto a propósito: ese directorio queda EXCLUIDO del `.crate` publicado,
+  así que una ruta relativa daría 404 a quien lea esto desde crates.io o docs.rs.
 
 > ⚠️ La pre-auditoría interna es preparación, **no** sustituye una auditoría
 > independiente. Ese sello externo es el siguiente paso del proyecto (solicitud
