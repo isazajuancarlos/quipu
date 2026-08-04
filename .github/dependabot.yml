@@ -8,20 +8,48 @@
 # Desde 0.10 solo hay DOS ecosistemas. Los de npm y Go se retiraron con los
 # envoltorios que vigilaban: Quipu es Rust, y se distribuye como crate y como
 # rueda de PyPI construida del mismo código.
+#
+# LA ASIMETRÍA DE `target-branch` ES DELIBERADA, y sin esta nota se «arregla»
+# mal: solo las acciones de GitHub apuntan a `testing`; cargo y pip siguen
+# apuntando a la rama por defecto. El motivo lo dice la documentación de GitHub
+# sobre las actualizaciones de SEGURIDAD: «In order for Dependabot to use this
+# configuration for security updates, [...] you should not specify a
+# target-branch». O sea que una entrada con `target-branch` DEJA DE SERVIR a las
+# alertas — y en cargo eso apagaría en silencio justamente lo que dice el
+# párrafo de arriba, que los avisos de RustSec lleguen como PR. En las acciones
+# de GitHub no hay ese aviso que perder, así que ahí sí se lleva al sitio donde
+# entra el trabajo.
 version: 2
 updates:
   # Acciones de GitHub usadas en ci.yml y release.yml.
   - package-ecosystem: github-actions
     directory: /
+    # Higiene de versiones, no alertas: aquí no se pierde nada por apuntar a
+    # `testing`, y se gana que una actualización no entre por `estable`, que es
+    # lo PUBLICADO. Llega a `estable` por promoción, como todo lo demás.
+    target-branch: testing
     schedule:
       interval: weekly
     groups:
       actions:
         patterns: ["*"]
         update-types: [minor, patch]
+    ignore:
+      # Se usa `@v1`, que es el tag FLOTANTE de la línea mayor: es justamente el
+      # que trae los parches solo. Proponer `@v1.0.183` no actualiza nada, lo
+      # CONGELA — y obliga a un PR por cada parche de una acción que publica
+      # varios a la semana. Lo que sí queremos ver es el salto a `v2`, que
+      # rompe; por eso se silencian menor y parche, no la mayor.
+      - dependency-name: anthropics/claude-code-action
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
 
   # El workspace de Rust: el crate raíz, quipu-nucleo, quipu-cnsa, quipu-voprf,
   # el servidor OPRF y el binding de Python (PyO3).
+  #
+  # SIN `target-branch` a propósito: es la entrada que sirve a los avisos de
+  # RustSec, y ponerlo la desconectaría de ellos (ver la nota de la portada).
   - package-ecosystem: cargo
     directory: /
     schedule:
@@ -33,6 +61,7 @@ updates:
         update-types: [minor, patch]
 
   # El plugin de Django, que es Python puro y depende de quipu-voprf.
+  # Sin `target-branch` por lo mismo que cargo.
   - package-ecosystem: pip
     directory: /integrations/django
     schedule:

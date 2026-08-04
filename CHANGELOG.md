@@ -6,6 +6,527 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- **`negacion::crear` comparaba las dos contraseñas por BYTES, y el KDF las
+  compara tras NFKC.** En ese hueco cabía justo el fallo que la guarda existía
+  para impedir: `caf\u{e9}` y `cafe\u{301}` son cadenas distintas byte a byte,
+  pasaban la comprobación de «no pueden compartir contraseña», y
+  `derive_master_key` derivaba de las dos LA MISMA maestra. El contenedor nacía
+  con las dos regiones bajo la misma clave y, como `intentar` da prioridad al
+  oculto cuando ambas abren, entregar el «señuelo» bajo coacción devolvía el
+  volumen verdadero.
+
+  No es alcanzable por un atacante —hace falta que el propio usuario elija dos
+  frases visualmente idénticas—, y por eso no salió como hallazgo de la revisión
+  de seguridad sino como observación. Se arregla igual, porque una guarda que no
+  significa lo que dice es una salvaguarda falsa.
+
+  El arreglo va en la REGLA y no en el caso (directiva 23): la noción de «la
+  misma contraseña» se define **una vez**, en `kdf::normalizar`, y la usan tanto
+  la derivación como la comparación. Comparar con un criterio y derivar con otro
+  era la causa; añadir un caso especial para los acentos habría sido el síntoma.
+
+  Prueba que discrimina: tres parejas NFKC-equivalentes —acento combinante,
+  ligadura `ﬁ`, superíndice `⁵`— con la premisa medida (bytes distintos, maestra
+  idéntica) y el gemelo obligado, `café` contra `cafe`, que SÍ difieren tras
+  NFKC y tienen que seguir aceptándose abriendo cada una lo suyo.
+- **`#![forbid(unsafe_code)]` en los SEIS paquetes del workspace, no en uno.**
+  Estaba solo en `quipu-cnsa`; `quipu`, `quipu-nucleo`, `quipu-voprf`,
+  `padme-frame` y el servidor OPRF tenían cero `unsafe` **hoy** y nada que lo
+  impidiera **mañana**.
+
+  Esta entrada decía «los CINCO crates» y **contaba de menos**, que es el mismo
+  error que venía a corregir: el workspace tiene seis miembros, y el sexto
+  —`quipu-oprf-server`— llevaba el atributo solo en `main.rs`. Su **lib**, que
+  es todo el código que corre en el VPS, no estaba cubierta: un `[[bin]]` es una
+  unidad de compilación aparte y no hereda nada de la lib. Cerrado el 2026-08-02
+  poniéndolo en `src/lib.rs` y en `src/bin/custodia-seed.rs`.
+
+  **Y la garantía no llegaba a quien la compra.** `git diff origin/estable HEAD
+  -- crates/quipu-voprf/` devolvía UN cambio, y era exactamente esa línea: el
+  atributo existía en el árbol y no en la 0.2.2 del índice, que es lo que
+  descarga quien hace `cargo add quipu-voprf`. crates.io no deja re-subir una
+  versión, así que sin bumpear se quedaba aquí para siempre. **`quipu-voprf` sube
+  a 0.2.3** — parche, porque un atributo de lint no cambia ninguna firma.
+
+  Importa justo en ese crate y no en otro: es el Apache-2.0, el que enlazan
+  clientes ajenos del servicio OPRF. Y es la misma lección por tercera vez en un
+  día — «los seis paquetes llevan `forbid`» era cierto en el árbol y falso en el
+  índice, igual que «los CINCO crates» era cierto de los cinco que contaba.
+
+  Es la diferencia entre una propiedad medida y una garantizada, y el `CLAUDE.md`
+  la difuminaba sin querer: «la única aparición en el árbol es un
+  `forbid(unsafe_code)`» es literalmente cierto y se lee como si el árbol entero
+  estuviera protegido.
+
+  Nota para quien lo herede: se probó primero con
+  `cfg_attr(not(feature = "python"), ...)` suponiendo que las 28 macros de PyO3
+  generarían `unsafe` en el crate. **No lo hacen** — el `forbid` incondicional
+  compila también con `--features python`—, así que el condicional se quitó. Un
+  mecanismo que sobra engaña sobre por qué está.
+
+### Added
+- **Simulación de enlazabilidad (N9): la afirmación es de POBLACIÓN y no tenía
+  prueba de población.** Los dos cambios que cierran N9 —la escalera canónica
+  del KDF y el `codebook_id` en cero— llegaron con pruebas unitarias buenas que
+  no pueden sostener lo que prometen: `la_escalera_colapsa_la_huella_de_
+  configuracion` cuenta las huellas de `KdfParams::canonicos()`, o sea **el
+  catálogo de la API, no lo que `encode` acaba escribiendo**. Y «todo el que use
+  `EQUILIBRADO` se ve igual» es una frase sobre un conjunto: no se verifica con
+  un elemento.
+
+  `tests/enlazabilidad_simulacion.rs` escribe **126 contenedores de 13 autores**
+  —cada uno con su frase, su pepper, su peldaño y **pidiendo un `codebook_id`
+  propio y no nulo**— en 13 hilos con `recv_timeout`, y mide sobre el blob los
+  15 bytes de cabecera que son a la vez visibles y estables: `flags`,
+  `codebook_id` y los doce del KDF. Salt y nonce quedan FUERA a propósito — son
+  frescos por operación, y meterlos daría 126 huellas únicas y un verde falso.
+
+  Exige tres cosas: como mucho 3 huellas para 13 autores, ninguna huella con un
+  solo autor detrás, y `codebook_id` en cero pese a que todos pidieron el suyo.
+
+  Con dos rojos que la validan, porque un banco que no discrimina es un
+  generador de ceros: reintroducir `codebook_id: opts.codebook_id` da «13
+  huellas distintas para 13 autores», y sustituir el Associated Data por una
+  constante rompe el camino de error que comprueba que el metadato está
+  AUTENTICADO — que no agrupe sirve de poco si se puede reescribir en tránsito.
+
+  Coste medido: 90 s en debug, 7,9 s en release (~11× de Argon2id). Es la prueba
+  más lenta del árbol y **la población no se recorta**: con tres personas el
+  aserto se cumpliría por aritmética y no por el mecanismo.
+
+- **`papel::tecleable` — la capa que un humano copia sin ninguna máquina, con el
+  marco Reed-Solomon OPCIONAL.** Es la condición que hace válida la única razón
+  por la que esa capa existe: `Marco::Desnudo` es `Base32(secreto)` según la RFC
+  4648 y **cualquier decodificador del mundo lo abre**, hoy y en 2050;
+  `Marco::Protegido` tolera errores de tecleo a cambio de necesitar esta
+  librería. Sin defecto: quien escribe elige.
+
+  Lo sujeta un KAT contra los vectores del §10 de la RFC —no contra nosotros
+  mismos—, con relleno `=` incluido porque un decodificador estricto lo exige.
+
+  Al leer se tolera cómo escribe la gente (minúsculas, espacios, guiones) y se
+  corrige el `0` por `O`, que es inequívoco. **Lo ambiguo se RECHAZA diciendo las
+  dos lecturas**: un `1` puede ser `I` o `L`, y adivinar produciría un secreto
+  distinto en silencio, que es el único fallo que este formato no puede
+  permitirse.
+
+- **Feature `qr` en `quipu-nucleo`: el símbolo hecho**, para quien no tenga
+  frontend que lo dibuje. `papel::qr::simbolos` devuelve la matriz de módulos de
+  cada trozo, con nivel de corrección **alto (30 %)** por defecto — más de lo
+  habitual, porque la medición mostró que el papel castiga más de lo que sugiere
+  la intuición. Cada símbolo es un QR estándar independiente: sin *Structured
+  Append*.
+
+  El círculo se cierra con un decoder **ajeno** (`rqrr`, dev-dependency): un
+  encoder roto de forma consistente pasaría una prueba contra sí mismo y fallaría
+  en el primer papel real. Y las dos capas de corrección quedan fijadas por
+  separado — la del QR repara una mancha DENTRO de un símbolo, la de Reed-Solomon
+  repara que un símbolo ENTERO no se pueda leer— con el caso rojo que comprueba
+  que un símbolo destrozado de verdad no se lee.
+
+- **`quipu-nucleo::papel` — la carga útil del portador de papel, sin ninguna
+  dependencia nueva.** `empaquetar` trocea, protege con Reed-Solomon e
+  **intercala**; `reensamblar` reconstruye con los trozos que se hayan podido
+  leer, en cualquier orden y sin necesitarlos todos.
+
+  El núcleo **no renderiza el símbolo**, y es la decisión que salió de medir
+  (hoja de ruta §6): dibujar un QR es presentación, y en la mayoría de los
+  productos ya lo hace el frontend. Así la simbología estándar se usa sin que el
+  núcleo cargue con una dependencia para dibujarla.
+
+  El intercalado es lo que convierte «se perdió un símbolo» en «falta un byte de
+  cada N», que es la diferencia entre recuperarse y no.
+
+  **Y el cuello de botella no está donde parecía.** La cuenta por bloques de
+  datos daba 50 símbolos perdidos tolerables con 155 símbolos y paridad 200; la
+  prueba dijo que con 50 no se recupera nada. La causa: `ecc::protect` antepone
+  un bloque propio de **15 bytes que corrige 5 errores**, y esos 15 bytes caen en
+  los 15 PRIMEROS símbolos — perder los 50 primeros no le quita a ese bloque una
+  fracción, se lo lleva entero. El bloque más pequeño es el más frágil y es el
+  que manda. `simbolos_perdidos_tolerados` devuelve ahora el mínimo de las dos
+  cuentas, y la garantía se prueba perdiendo los símbolos del PRINCIPIO, que es
+  el peor caso.
+
+- **`quipu-cnsa` crece a firma y canal de destinatario.** El perfil ya no es solo
+  cifrado simétrico: `firma` implementa **ML-DSA-87** y `destinatario`
+  **ML-KEM-1024** sobre AES-256-GCM, que son los dos algoritmos que CNSA 2.0
+  exige para esas funciones.
+
+  **Van PUROS, no híbridos, y eso es MÁS DÉBIL que `quipu`** — que firma
+  Ed25519 *y* ML-DSA-87 y encapsula X25519 *y* ML-KEM-1024. Aquí, si el
+  algoritmo de retículos cae, no queda socio clásico sujetando. Es lo que dice
+  el mandato, que no pide híbrido, y está escrito en negrita en la cabecera de
+  cada módulo y en el README: **si puedes elegir, usa `quipu`**. La asimetría que
+  más pesa: una firma rota se explota el día que se rompe, pero un secreto
+  cifrado hoy se guarda y se descifra mañana.
+
+  Se depende de `ml-dsa` y `ml-kem` **directamente** y no vía `quipu`: este
+  perfil es hermano de aquel, no cliente suyo, y arrastrarlo traería XChaCha20 y
+  todo lo demás. La derivación usa HKDF-**SHA-384** (no SHA-256) y ata la clave
+  pública completa al transcript, estilo X-Wing, para que sustituir la clave en
+  tránsito no lleve a la misma clave de contenido.
+
+- **Contenedor con negación (feature `negacion`, no-default).** Un archivo con dos
+  contraseñas: una abre el señuelo que se entrega bajo coacción, otra el volumen
+  verdadero. Ningún campo dice si el segundo existe, el tamaño total lo declara
+  quien lo crea, y el resto se rellena con azar del CSPRNG exista o no el oculto.
+  Implementa `docs/DISENO_NEGACION.md`, con la salida (a) del §5: **los parámetros
+  del KDF NO viajan en el contenedor**, lo que además quita del mapa una entrada
+  controlada por el adversario —hoy el camino normal toma el coste de Argon2id de
+  la cabecera que aporta quien entrega el archivo—.
+
+  El límite va en el README en negrita porque quien lo use puede depender de
+  entenderlo: **protege contra la PRUEBA, no contra la SOSPECHA**, y quien guarde
+  versiones sucesivas del mismo contenedor pierde la negación.
+
+- **`lab::papel` — la medición que decide el portador de papel** (hoja de ruta §6),
+  pendiente desde que se eliminaron los glifos. Hoja de área fija, la MISMA
+  corrección de errores para los dos portadores, y emparejados por **rasgo
+  mínimo**, que es la variable que domina el canal de la fotocopia.
+
+  **Gana la matriz en todas las degradaciones.** A igual rasgo lleva entre 10× y
+  23× más que el texto Base32, y engordar el módulo compra robustez más barato
+  que pasarse a glifos: un glifo gasta 48·s² puntos para llevar 5 bits, un módulo
+  s² para llevar 1. Una estampilla de 240×240 puntos con módulos de 6 entrega
+  147 B a través de un fax sucio; una clave de Quipu son 32.
+
+  Consecuencia: **la capa Base32 no se justifica por robustez**, solo por que un
+  humano pueda teclearla sin escáner. Y dos avisos que la propia medición se ganó:
+  la primera tabla comparaba un portador de trazo 1 contra uno de trazo 3 (medía
+  el grosor, no el sustrato), y con el barrido cortado en módulo 4 la conclusión
+  salía **invertida**.
+
+- **`lab::distinguidor::posicion_mas_delatora`**, la sonda posicional. Nació de un
+  caso rojo que falló: `entrenar_y_evaluar` **no vio un mágico `QUIP` de 4 bytes**
+  estampado a mano en un contenedor de 1024 (53 % de acierto), porque sus doce
+  rasgos son agregados de todo el blob y un campo corto queda diluido. La pregunta
+  del frente de la sospecha es posicional —«¿hay algún byte que siempre valga lo
+  mismo?»— y ahora hay con qué contestarla, con el umbral derivado de la cola de
+  Poisson y corregido por mirar `largo × 256` casillas a la vez.
+
+### Fixed
+- **`quipu` sube a 0.11.0: catorce archivos llevaban meses bajo un número ya
+  publicado.** Lo encontró el guardián de deriva nada más existir —`git diff
+  v0.10.0 HEAD -- src Cargo.toml` da 14 archivos— y es la instancia más grande
+  del fallo que se repitió cuatro veces en un día: `aleatorio`, `antihacker`,
+  `api`, `kdf`, `negacion`, `lab/papel` y el resto del trabajo de la rama no
+  habrían llegado nunca a crates.io, porque una versión no se re-sube.
+
+  **0.11.0 y no 0.10.1, y el motivo no es el tamaño.** La superficie pública
+  contra `v0.10.0` es estrictamente aditiva: ni un ítem retirado, ni una firma
+  cambiada. Por esa vara sola tocaba parche. Lo que lo mueve es un cambio de
+  COMPORTAMIENTO que el compilador no ve: `Options.codebook_id` pasó a
+  ignorarse, y era público y ajustable desde la 0.10.0. Quien lo estuviera
+  poniendo sigue compilando y obtiene otra cosa.
+
+  Con consecuencia medible, no teórica: `guaca` y `tunjo` piden
+  `quipu = "0.10"`. Con 0.10.1 se habrían llevado ese cambio solos en el
+  siguiente `cargo update`; con 0.11.0 no se mueven hasta que alguien edite el
+  requisito. Un cambio de comportamiento se hereda decidiéndolo.
+
+- **`quipu-nucleo` sube a 0.1.2, y el requisito que lo nombraba MENTÍA.** El
+  árbol se había quedado en 0.1.0 mientras `estable` y crates.io iban por 0.1.1
+  — una regresión que ningún check veía, porque «coherencia de versiones»
+  compara dentro de una rama y la promoción solo miraba el paquete raíz contra
+  PyPI. Es el fallo que vive ENTRE dos árboles: cada uno coherente, la relación
+  no.
+
+  **0.1.2 y no 0.2.0**: comparada la superficie pública ítem a ítem contra la
+  0.1.1, la diferencia entera es `ecc::PARIDAD_MAXIMA` y el módulo `papel`. Cero
+  removals, cero cambios de firma. En 0.x el minor hace de major para cargo, así
+  que 0.2.0 declararía una ruptura que no ocurrió.
+
+  Lo que apareció al arreglarlo era peor que la regresión: `Cargo.toml` pedía
+  `quipu-nucleo = { version = "0.1.0" }` mientras `src/lab/papel.rs` usa
+  `ecc::PARIDAD_MAXIMA`, **que no existe en ninguna de las dos versiones
+  publicadas**. Desde el árbol no se nota jamás, porque el `path` gana y siempre
+  resuelve a lo local; desde crates.io, `quipu --features lab` no compilaba. Un
+  requisito laxo no es tolerante: es una afirmación falsa sobre lo que hace
+  falta. `quipu-cnsa` se deja en `0.1.0` a propósito — no usa nada de lo nuevo, y
+  subirlo «por coherencia» sería el mismo error del otro lado.
+
+  Y la extracción de Padmé no cambió el formato, que era lo único que había que
+  demostrar: `crates/padme-frame/tests/paridad_con_la_implementacion_original.rs`
+  compara contra una copia literal del código de la 0.1.1 sobre 200 000
+  longitudes y 4 000 bloques, byte a byte. Existe porque la prueba del envoltorio
+  solo hace ida y vuelta **consigo misma**, y eso saldría verde igual si el
+  algoritmo hubiera cambiado.
+
+- **La cadena de publicación tenía un eslabón sin maquinaria.** `quipu-nucleo`
+  depende de `padme-frame` por `path` + `version` y `padme-frame` no está en
+  crates.io, así que `cargo publish -p quipu-nucleo` habría fallado el día del
+  release — el mismo fallo de `quipu-voprf`, que estuvo roto desde `a1c9056` sin
+  que nadie lo notara. `release.yml` ni siquiera reconocía un tag suyo. Añadidos
+  el disparador `padme-v*` y el job `crate-padme`; el orden completo es
+  `padme-frame → quipu-nucleo → quipu-voprf → quipu`.
+
+  Y `quipu-cnsa` estaba en el mismo hueco sin que nadie lo hubiera notado: no
+  lleva `publish = false` —o sea que ES publicable, con 62 pruebas en verde y
+  los dos perfiles terminados— y no tenía ni tag ni job. Un crate acabado sin
+  ninguna forma de salir. Lo delató el guardián de deriva al NEGARSE a aprobarlo
+  por no tener prefijo declarado, en vez de callarse: añadidos `cnsa-v*` y
+  `crate-cnsa`.
+
+  De paso, el gate de `wheels` y `sdist` pasa a ser **positivo**. Era una lista
+  de negaciones (`!voprf-v && !django-v`), y una lista de negaciones falla por lo
+  que no enumera: un tag `nucleo-v*` construía las tres ruedas —ubuntu, macOS y
+  Windows— y el `sdist` para después no publicarlos, porque el job `pypi` sí
+  exigía `refs/tags/v`. Añadir `!padme-v` habría arreglado el caso dejando la
+  regla igual de rota para el siguiente crate.
+
+- **`limpiar_pila` no limpiaba nada en `--release`, y nadie lo había visto porque
+  la prueba que lo mide no corría ahí** (#265, T6). El medidor de residuo estaba
+  gateado con `feature = "escrow"`, y la pasada de release del CI
+  (`cargo test --features slh --release`) no activa ese feature: el archivo
+  entero se saltaba. Al quitar el gate y correrlo, en release quedaban **1 copia
+  del canario tras limpiar la pila**, **3 de la clave maestra** y **3 de la clave
+  de contenido**; en debug, cero. La defensa funcionaba justo en la mitad que no
+  se publica.
+
+  Tres causas, y las tres son la misma forma de error —el marco muerto que nadie
+  puede borrar desde dentro—:
+
+  1. `limpiar_pila` **se incrustaba**. Sin marco propio, su lienzo pasa a ser una
+     variable más del marco del llamante y puede quedar por encima de la región
+     que había que pisar. Lleva `#[inline(never)]`, que es lo que garantiza que
+     el lienzo caiga DONDE estuvieron los marcos muertos.
+  2. `pqhybrid::combine` devolvía la clave de contenido por valor con el mismo
+     defecto que el KDF (`[u8; 32]` es `Copy`). Ahora borra su buffer y limpia la
+     pila de HKDF, y lo heredan encapsulación y decapsulación.
+  3. `decode_as_recipient` borraba con `wipe` la copia que tiene NOMBRE, pero la
+     clave le llegaba devuelta por valor desde `decapsulate` y ese viaje deja
+     copias en el marco —ya muerto— de quien la produjo. La regla que sale de
+     aquí, y que vale para toda la librería: **quien recibe un secreto por valor
+     limpia la pila del que se lo dio**.
+
+  El archivo ya no lleva gate de feature: cada escenario pide el suyo, así que
+  las mediciones corren en la pasada por defecto, en la de `honey`, en la de
+  `escrow` **y en la de release**.
+
+- **La medición de residuo de la clave maestra buscaba una clave que el proceso
+  nunca había derivado, y al arreglarla aparecieron copias de verdad** (#265, T6).
+  El arnés derivaba la clave con un salt fijo suyo mientras `encode` lo saca del
+  RNG en cada llamada, así que la aguja no existía en el hijo más que en el
+  escenario de fuga —donde se derivaba igual de mal—. El control pasaba, la
+  medición no medía nada, y el verde era indistinguible del verde real.
+
+  Con el salt REAL —el padre parsea la cabecera y comprueba que la clave derivada
+  abre el contenedor— quedaban **2 copias de la clave maestra** en la pila del
+  hilo después de `decode`. Dos causas, las dos arregladas en `kdf.rs`:
+
+  1. `[u8; 32]` es `Copy`: devolver la clave no vacía el marco del KDF, lo COPIA.
+     Ahora el buffer de salida se borra tras copiarlo al valor de retorno.
+  2. Argon2id deja el resto en marcos que no son nuestros, **a 99 KiB de
+     profundidad**, y `limpiar_pila` llegaba a 64 KiB. El limpiador pasa a 128 KiB
+     —medido, no elegido: con 64 quedaba 1 copia, con 128 quedan 0— y se llama
+     desde `derive_master_key`, donde nace el secreto, para que lo hereden
+     `encode`, `decode`, el streaming y honey sin tener que acordarse cada uno.
+     La profundidad NO escala con `mem_kib` (se midió con 64 y con 4096): los
+     bloques de Argon2 viven en el montón; lo hondo son los marcos.
+
+- **El streaming soltaba el texto en claro sin borrarlo, en las dos direcciones**
+  (#265, T6). Al descifrar, cada trozo salía de `cipher::decrypt` en un `Vec` que
+  se escribía al destino y se soltaba tal cual: **1 copia del claro en el montón**
+  tras `decrypt_stream_bytes`, con el llamante habiendo borrado la suya. Al
+  cifrar, los dos buffers de lectura por trozo se soltaban igual. Ahora son
+  `Zeroizing`, que además cubre los retornos por error de en medio, donde un
+  borrado al final no llegaría.
+
+### Added
+- **El medidor de residuo (T6) cubre CINCO caminos, con doce mediciones y sus doce
+  controles** (#265). Antes cubría tres, y la taxonomía lo decía; ahora se añaden
+  `decode_as_recipient` —la clave secreta del destinatario, la clave de contenido
+  que sale de la decapsulación y el texto en claro—, el **texto en claro** que
+  devuelve `decode`, el streaming `QST1` **al descifrar y al cifrar**, y `honey`.
+
+  Cada camino trae su propia fuga deliberada: el control de un escenario no valida
+  otro, y de eso ya hay tres precedentes en este mismo archivo. Dos piezas nuevas
+  del arnés hacen que las agujas sean las de verdad y no una reconstrucción:
+
+  - el **padre** monta los sobres y le pasa al hijo el material sensible en
+    hexadecimal —que no es la aguja—, porque quien mide tiene que conocer el
+    secreto y plantárselo al hijo lo convertiría en residuo propio;
+  - las claves que exigen abrir una cabecera a mano (la de contenido del híbrido,
+    la maestra del camino de contraseña) se **validan descifrando** el contenedor
+    con ellas: si el formato cambia, la prueba rompe en voz alta en vez de medir
+    humo.
+
+  Lo que sigue sin medirse va escrito en `docs/ATAQUES_TAXONOMIA.md` y en
+  `docs/THREAT_MODEL.md`: la clave que derivan el streaming y honey, cuyas
+  cabeceras son privadas. Heredan el arreglo del KDF, pero heredar no es medir.
+
+- **Dos objetivos de fuzz llevaban desde el 2026-07-27 en verde sin tocar el parser
+  que decían fuzzear.** Se descubrió al ir a encadenar el corpus (#131.1): antes de
+  encadenar nada se midió lo que había, y lo que había era nada.
+
+  `parse_signed` **no ejecutaba ni una línea de su cuerpo**. Fijaba la clave con
+  `VerifyingKey::from_bytes(&[0x42; 2624])` dentro de un `if let Some(vk)`, y esa
+  clave no parsea —sus 32 primeros bytes son un punto Ed25519 comprimido y `0x42`
+  repetido no lo es—, así que la condición era falsa en cada iteración y el `if let`
+  se saltaba todo en silencio. `parse_recipient` sí corría, pero moría en
+  `dict.decode`, que exige que cada carácter esté entre los 4096 glifos CJK del
+  alfabeto insignia. Y aunque hubieran pasado, no cabían: el parser firmado exige
+  4701 bytes y el `-max_len` por defecto de libFuzzer es 4096.
+
+  Medido antes y después, 45 s desde corpus vacío contra desde semillas:
+
+  | | antes | ahora |
+  |---|---|---|
+  | `cov` de `parse_signed` | 207 | 1 693 |
+  | features | 225 | 3 246 |
+  | corpus final | 10 unidades / 10 B | 87 unidades / 178 KB |
+
+  Arreglado en cuatro piezas: la clave se deriva de una semilla de 64 bytes (válida
+  por construcción, porque son semillas y no puntos) y el guardia silencioso pasa a
+  ser `panic!`; cada objetivo traduce su entrada al alfabeto por el mismo camino que
+  usa al construir, y además la pasa cruda si es UTF-8; `examples/gen_semillas_fuzz.rs`
+  siembra artefactos reales con sus mutaciones de frontera —lo que de paso sube solo
+  el `-max_len`—; y el CI **genera** ese corpus antes de fuzzear, porque
+  `fuzz/corpus` está en `.gitignore` y en una copia limpia no hay ni una unidad.
+
+  Lo sostiene una prueba y no un comentario:
+  `tests/taxonomia.rs::el_fuzz_de_los_contenedores_alcanza_el_parser_y_no_muere_en_el_alfabeto`,
+  que fue la que encontró lo de la clave. El comentario del objetivo afirmaba lo
+  contrario.
+
+### Added
+- **«La zeroización es *best-effort*» ya tiene número: CERO (#131.2).** Era la
+  única frase del modelo de amenaza que reconocía un residuo sin medirlo, y de ahí
+  salía la petición de `mlock`. `mlock` se descartó —protege del swap y de nada
+  más, al precio de meter `libc`—, pero descartarlo dejaba la pregunta de verdad
+  sin responder: **¿sobrevive algo?**
+
+  Primero hubo que corregir el encuadre. T6 es «atacante con acceso a la memoria
+  **DESPUÉS** de la operación» (volcado, swap, hibernación, cold boot); el
+  atacante presente MIENTRAS corre es R5, endpoint comprometido, y ya estaba fuera
+  de alcance por declaración. Mezclarlos es lo que hacía parecer que la brecha no
+  se podía cerrar: contra quien manda en el kernel en vivo, no; contra quien lee
+  la memoria después, sí.
+
+  `tests/residuo_memoria.rs` lo mide: un proceso HIJO hace la operación real y se
+  queda quieto, y el PADRE lee `/proc/<hijo>/mem` y cuenta apariciones de un
+  canario. Solo `std` — en Linux la memoria de un proceso es un fichero, así que
+  no hace falta `libc` ni ptrace explícito. Dos decisiones que no son de estilo
+  sino de que el número signifique algo:
+
+  - **Dos procesos, no uno.** Un escáner que lee su propio montón copia dentro de
+    su buffer los bytes que busca; medido al intentarlo, la misma situación daba
+    0, 17 o 33 según el orden del barrido.
+  - **Se busca un tramo INTERIOR del canario.** Al liberar un trozo el asignador
+    escribe sus punteros sobre los primeros 16 bytes, y exigir coincidencia
+    completa informaba «no hay residuo» con 240 de 256 bytes del secreto intactos
+    en memoria liberada.
+
+  **Resultado, en debug y en release: cero residuo** en los tres caminos — la
+  semilla de firma reconstruida por Shamir, la clave maestra derivada y la
+  contraseña misma. Cada medida lleva su **control**, que deja una copia viva a
+  propósito y exige que el escáner la vea; sin eso un cero sería indistinguible de
+  un escáner que mira donde no es.
+
+  **Y el aviso vale más que el cero: este medidor dio cero FALSO tres veces**, por
+  causas distintas y todas invisibles — se contaba a sí mismo; exigía coincidencia
+  completa del secreto y la metadata del asignador la rompía; y leía cada región de
+  un tirón, de modo que una página sin mapear descartaba la pila del hilo entera,
+  que era justo donde estaba el secreto. Esa tercera explicaba una diferencia
+  local/CI que se había atribuido al entorno: era no haber mirado. Encima, la
+  primera medida buena contaba el rastro del propio banco de pruebas, que
+  construía la clave para montar el escenario. Un medidor de ausencia no puede
+  avisar de que está ciego: solo lo dice el caso que lo pone rojo.
+
+  Se declara T6 cerrado **en esos tres caminos y no en la librería entera**. Faltan
+  `decode_as_recipient`, el texto en claro que devuelve `decode`, `stream` y
+  `honey`, cada uno con su propio control.
+- **Build reproducible de la rueda de Python (invariante I5, #124).** Medido antes
+  de tocar nada, y estaba mucho más cerca de lo que la ficha suponía: el compilador
+  nunca fue el problema. El `.crate` ya se reconstruía byte a byte —cargo normaliza
+  las mtime a una época fija y uid/gid a 0/0— y el `quipu.abi3.so` también. Lo
+  **único** no determinista de la rueda eran dos campos del SBOM CycloneDX que
+  escribe maturin: un `serialNumber` con UUID aleatorio y un `timestamp` de reloj.
+  El `RECORD` cambiaba solo porque los hashea.
+
+  Con `SOURCE_DATE_EPOCH` tomado de la fecha del **commit** —no de `now`, para que
+  el artefacto se derive del código y no del momento de construirlo— la rueda sale
+  idéntica entre corridas. Y con `--remap-path-prefix` desaparecen las rutas
+  absolutas que el binario llevaba dentro (72 cadenas `/home/<usuario>/.cargo/…`
+  de los metadatos de `panic`), que es lo que lo rompería en otra máquina.
+  `[profile.release] trim-paths` haría lo mismo más limpio pero **no está
+  estabilizado** en cargo 1.97.1 — comprobado, no supuesto.
+
+  No se afirma, se comprueba: el CI reconstruye la rueda y exige el mismo sha256, y
+  verifica aparte que el binario no lleve rutas de quien lo construyó. Los dos
+  checks se probaron contra una rueda hecha a propósito sin el remap, y ahí se
+  ponen rojos. Las mismas variables van en `release.yml`, porque si solo estuvieran
+  en el CI se estaría comprobando una propiedad que el artefacto publicado no
+  tiene.
+
+  Receta para terceros en `docs/REPRODUCIBILIDAD.md`, con el límite escrito al
+  lado: **falta** rehacer la rueda **manylinux publicada** en su propio contenedor
+  —el CI construye en `ubuntu-latest` y el release en el de `maturin-action`—, así
+  que hoy se caza el no-determinismo de origen pero no se demuestra lo del artefacto
+  que se descarga.
+- **`examples/coste_adivinacion.rs`** — el coste por intento con su procedencia, y la
+  cota de GPU. La taxonomía publicaba «6 intentos/s» sin decir con qué parámetros ni
+  en qué máquina, y una cifra de coste sin sus parámetros no dice nada: el
+  `KdfParams::default()` entrega 64 MiB y 3 iteraciones, y el banco `guessing.rs`
+  deriva con 16 MiB y 2. Medido, el `default()` da **5,69 intentos/s** y el banco
+  **42,16** en la misma máquina. El «6» que se publicaba era correcto y describía el
+  `default()`; lo que le faltaba era decirlo. La cota de GPU (2 503–8 320 intentos/s
+  según acelerador) va declarada **estimación y no medición**: se deriva del ancho de
+  banda de memoria, aquí no hay GPU.
+- **`fuzz/README.md`** — la tabla de familias de idioma de entrada, que es lo que
+  decide qué corpus se comparte con cuál. Encadenar «entre objetivos» solo sirve
+  dentro de un mismo idioma; `honey_decrypt` y `codec_roundtrip` quedan fuera porque
+  su primer byte significa otra cosa. Con el dato honesto de que el encadenado no
+  sube hoy la cobertura de `parse_container` ni `unpad` —están saturados—: se deja
+  montado porque no cuesta nada y paga cuando un parser de la familia crezca.
+- **`docs/DISENO_NEGACION.md`** — diseño cerrado del contenedor con negación (#99 y
+  #118), **sin implementar**, que es lo que autorizaba la luz verde. Modelo de
+  amenaza explícito, los dos frentes (la prueba y la sospecha), la medida de que 28
+  de los 68 bytes de cabecera gritan «Quipu», la circularidad del KDF que fuerza la
+  decisión de formato, primitivas sin inventar nada, y las tres sondas del banco
+  I1/I4 con las que se comprueba en vez de argumentarse.
+
+### Fixed
+- **`encode_base_n` era cuadrático por una razón evitable, y eso costaba el 98 % de
+  `encode_signed`.** El codec convertía el mensaje entero como UN número grande y le
+  sacaba los dígitos **de uno en uno**: una división del entero completo por dígito.
+  Cada división cuesta O(m) en limbos y hay O(m) dígitos, así que el coste crecía con
+  el cuadrado del tamaño — medido a 3,40 ns/n² constante a lo largo de un rango de 16×
+  (512 B → 8 KiB).
+
+  Lo que lo hizo visible: firmar un evento de bitácora de **61 bytes** tardaba 78 ms en
+  release, de los cuales solo **1,6 ms eran criptografía** (ML-DSA-87 + Ed25519). Los
+  otros 76,4 ms eran la conversión a base 94. Se descubrió persiguiendo por qué una
+  prueba de concurrencia de un consumidor se caía bajo carga; la firma nunca fue el
+  problema.
+
+  Arreglado dividiendo por `n^k` —el mayor `n^k` que cabe en un `u64`, 9 para la base 94
+  por defecto— y desmenuzando el resto con aritmética de máquina: **9 dígitos por
+  división grande en vez de uno**, y con `Integer::div_rem` se paga una división donde
+  antes eran dos (`%` y `/` por separado). Sigue siendo cuadrático, con una constante
+  17,8 veces menor.
+
+  **La salida es byte a byte la misma.** No hay cambio de formato y las firmas ya
+  emitidas siguen verificando; lo garantizan una prueba de propiedad contra la
+  implementación ingenua —conservada como oráculo— y vectores fijos tomados antes del
+  cambio. La prueba se comprobó inyectando la mutación que este rediseño podría
+  introducir (comerse los ceros de relleno de un bloque interior): la cazan cuatro
+  pruebas.
+
+  | | antes | ahora |
+  |---|---|---|
+  | `encode_base_n` | 3,40 ns/n² | 0,19 ns/n² |
+  | `encode_signed` (61 B → 5 813 glifos) | 78,0 ms | 5,6 ms |
+
+  `decode_base_n` también es cuadrático, pero su constante ya era 55 veces menor
+  (multiplicar por un dígito pequeño es mucho más barato que dividir), así que **no se
+  ha tocado**: no era el problema medido.
+
+- **Una base menor que 2 colgaba el proceso en silencio.** `encode_base_n(_, 1)` entraba
+  en un bucle infinito —`value % 1 == 0` y `value / 1 == value`— en vez de decir que una
+  base de 1 no representa nada. Ahora falla de forma ruidosa (directiva 20).
+
 ### Planned
 - Independent security audit and public remediation of findings.
 - Reference deployment of the online VOPRF hardening server.

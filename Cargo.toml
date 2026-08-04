@@ -1,10 +1,27 @@
 [workspace]
-members = [".", "crates/quipu-nucleo", "crates/quipu-cnsa", "crates/quipu-voprf", "crates/quipu-oprf-server"]
+members = [".", "crates/padme-frame", "crates/quipu-nucleo", "crates/quipu-cnsa", "crates/quipu-voprf", "crates/quipu-oprf-server"]
 resolver = "2"
 
 [package]
 name = "quipu"
-version = "0.10.0"
+# 0.11.0 y no 0.10.1, y la razón NO es el tamaño del cambio.
+#
+# La superficie pública contra el tag `v0.10.0` es ESTRICTAMENTE ADITIVA
+# (`negacion`, `lab::papel`, la escalera del KDF, `antihacker::limpiar_pila`,
+# `aleatorio::FalloDeSalud`): ni un ítem retirado, ni una firma tocada. Por esa
+# vara sola tocaría 0.10.1, que es lo que se hizo en `quipu-nucleo`.
+#
+# Lo que lo cambia es un CAMBIO DE COMPORTAMIENTO que no rompe la compilación:
+# `Options.codebook_id` pasó a IGNORARSE. Era público y ajustable desde la
+# 0.10.0 —lo dice `docs/SPEC.md`—, así que quien lo estuviera poniendo sigue
+# compilando igual y obtiene otra cosa. Eso no lo ve el compilador y no puede
+# viajar en un parche.
+#
+# Y hay una consecuencia concreta, no teórica: `guaca` y `tunjo` piden
+# `quipu = "0.10"`. Con 0.10.1 se lo llevarían SOLOS en el próximo `cargo
+# update`; con 0.11.0 no se mueven hasta que alguien edite el requisito, que es
+# como debe entrar un cambio de comportamiento — decidido, no heredado.
+version = "0.11.0"
 edition = "2024"
 description = "Codec criptográfico post-cuántico híbrido (X25519+ML-KEM-1024, Ed25519+ML-DSA-87) con endurecimiento online verificable por VOPRF conforme a RFC 9497. Datos en reposo."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
@@ -42,6 +59,13 @@ slh = ["dep:fips205"]
 # frases mnemónicas). Opt-in y SIN autenticación por diseño (un tag sería un
 # oráculo de éxito); no es sustituto del núcleo AEAD. Ver `src/honey.rs`.
 honey = []
+# Contenedor con negación: un archivo, dos contraseñas, y nada dentro que diga
+# si existe el segundo volumen. NO-default por dos razones, y la segunda pesa
+# más que la primera: un formato con promesa de seguridad seria no se enciende
+# por descuido, y su perfil de coste fija Argon2id en 256 MiB —cuatro veces el
+# camino normal— porque los parámetros NO viajan en el contenedor y subirlos
+# después lo paga el usuario legítimo en cada apertura. Ver `docs/DISENO_NEGACION.md`.
+negacion = []
 # Custodia de claves por umbral (Shamir k-de-n). NO-default: es una
 # herramienta de ESCROW, no del núcleo de cifrado. Aislada tras su propio
 # gate para que quien no la necesite no la lleve compilada — menos
@@ -72,7 +96,15 @@ pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optiona
 # canal visual. Se separó para que `quipu` y su hermana `quipu-cnsa` compartan
 # UNA sola implementación de todo lo que no es criptografía — un fallo se
 # arregla una vez. Ver el doc del crate y la tarea #92.
-quipu-nucleo = { version = "0.1.0", path = "crates/quipu-nucleo" }
+#
+# El requisito dice 0.1.2 y no 0.1.0 porque tiene que nombrar la versión que de
+# verdad trae lo que este crate compila: `src/lab/papel.rs` usa
+# `ecc::PARIDAD_MAXIMA`, que NO existe en la 0.1.1 ni en la 0.1.0 publicadas.
+# Con `version = "0.1.0"`, cargo podía resolverlo a cualquiera de esas dos desde
+# crates.io y `quipu --features lab` no compilaría — en el árbol nunca se nota,
+# porque el `path` gana y siempre apunta a lo de aquí. Un requisito laxo no es
+# «tolerante»: es una afirmación falsa sobre lo que hace falta.
+quipu-nucleo = { version = "0.1.2", path = "crates/quipu-nucleo" }
 chacha20poly1305 = "0.11"
 # Arrastra `rand_core` 0.6 al arbol, y NO se puede evitar: `hash_password_into`
 # —lo unico que Quipu llama— exige la feature `alloc`, que exige `password-hash`,
@@ -133,6 +165,14 @@ required-features = ["lab"]
 [[example]]
 name = "gen_vectors"
 required-features = ["honey"]
+
+# La medición del portador de papel vive en el laboratorio, así que su ejemplo
+# tampoco puede compilarse sin él. Sin esta declaración,
+# `cargo test --workspace --all-targets` —la línea principal del CI— intenta
+# construirlo sin `lab` y falla con «cannot find `lab` in `quipu`».
+[[example]]
+name = "papel"
+required-features = ["lab"]
 
 # --- Endurecimiento del binario / ruedas (Capa 5) ---
 # overflow-checks: mantiene la comprobación de overflow de enteros EN RELEASE

@@ -66,6 +66,35 @@ jobs:
         run: cargo clippy --features honey --all-targets -- -D warnings
       - name: Clippy (escrow)
         run: cargo clippy --features escrow --all-targets -- -D warnings
+      # La matriz automática de features solo recorre las del crate RAÍZ, así que
+      # `qr` —que vive en `quipu-nucleo`— no la cubre ninguna otra línea. Sin
+      # esto, la feature se rompería sin que nadie se enterara.
+      - name: Tests (qr — símbolo de papel, ida y vuelta con un decoder ajeno)
+        run: cargo test -p quipu-nucleo --features qr
+      - name: Clippy (qr, deny warnings)
+        run: cargo clippy -p quipu-nucleo --features qr --all-targets -- -D warnings
+      # `padme-frame` es `no_std` y CERO dependencias, y las dos cosas se rompen
+      # sin que nadie lo note: basta que alguien meta un `use std::` o una
+      # dependencia «pequeña». Se comprueba aparte porque el resto del workspace
+      # es `std` y no lo cazaría.
+      - name: Tests (padme-frame — el crate permisivo, no_std)
+        run: cargo test -p padme-frame
+      - name: Clippy (padme-frame, deny warnings)
+        run: cargo clippy -p padme-frame --all-targets -- -D warnings
+      # `palabras` (BIP-39), por lo mismo que `qr`: vive en `quipu-nucleo` y la
+      # matriz automática no la ve. Lo que aquí se juega no es que compile: son
+      # los 24 vectores OFICIALES de la norma y la ida y vuelta contra una
+      # implementación ajena. Si esto se rompe, lo que se imprima en un papel
+      # deja de poder leerlo el resto del mundo — y eso no se nota escribiendo
+      # y leyendo con nosotros mismos.
+      - name: Tests (palabras — BIP-39, vectores oficiales y lector ajeno)
+        run: cargo test -p quipu-nucleo --features palabras
+      - name: Clippy (palabras, deny warnings)
+        run: cargo clippy -p quipu-nucleo --features palabras --all-targets -- -D warnings
+      - name: Tests (negacion — contenedor con señuelo y volumen oculto)
+        run: cargo test --features negacion --all-targets
+      - name: Clippy (negacion, deny warnings)
+        run: cargo clippy --features negacion --all-targets -- -D warnings
       # Custodia del seed del OPRF (Shamir k-de-n). Es feature del CRATE DEL
       # SERVIDOR, no del núcleo, y no-default: no viaja en el binario del VPS.
       # Va aquí porque una herramienta que solo se usa el día del desastre es
@@ -126,6 +155,58 @@ jobs:
         run: cargo test --features "lab honey" honey_attack
       - name: Lab tests (honey parser fuzz)
         run: cargo test --features "lab honey" honey_fuzz
+      # El banco del §8 del diseño de negación: contenedor contra azar, con
+      # oculto contra sin oculto, y ninguna posición predecible. Trae sus cuatro
+      # casos ROJOS dentro, así que un verde aquí significa que las sondas ven.
+      - name: Lab tests (negación — banco de indistinguibilidad)
+        run: cargo test --features "lab negacion" --test negacion_indistinguibilidad
+      # Directiva 8: 120 contenedores, 104 aperturas concurrentes con timeout, y
+      # el camino de error inyectado que demuestra que la de arriba discrimina.
+      # Va con `lab` porque el perfil barato es lo que la hace correr en el CI
+      # sin pedir 2 GB; el formato que ejercita es el mismo.
+      - name: Lab tests (negación — simulación)
+        run: cargo test --features "lab negacion" --test negacion_simulacion
+      # El residuo de memoria de `negacion`. Necesita las TRES features a la vez
+      # —`escrow` porque el archivo entero cuelga de ella, `negacion` por el
+      # módulo y `lab` por el perfil KDF barato— y ninguna otra línea las junta,
+      # así que sin esto el escenario no lo correría nadie.
+      #
+      # Lo que mide es lo que más pesa del módulo: que el CLARO del volumen
+      # oculto no sobreviva a la operación. Ese residuo en un swap ES la prueba
+      # de que el segundo volumen existe.
+      # EL RESIDUO SE MIDE TAMBIÉN EN RELEASE, que es lo que se publica.
+      #
+      # El banco vive en el job general, que corre en DEBUG, y ahí pasaba. En
+      # release fallaba — y llevaba fallando sin que nadie lo viera, porque la
+      # salvaguarda se medía exactamente en la pasada donde funciona. Resultó ser
+      # un artefacto del propio banco (su canario vivía en un marco que el
+      # limpiador no puede alcanzar), pero eso solo se supo al MIRARLO.
+      #
+      # El caso que esta línea existe para cazar es el contrario: que una
+      # optimización de release deje residuo que el debug no muestra.
+      # UNA SOLA PASADA CON TODAS LAS FEATURES QUE GATEAN UNA MEDICIÓN, y en
+      # release. Aquí había dos líneas y entre las dos se colaba justo el fallo
+      # que #265 vino a cerrar:
+      #
+      #   · `--features escrow ... --release` medía en release, pero honey y
+      #     negación no están tras `escrow`: sus pruebas ni se compilaban.
+      #   · `--features "escrow negacion lab"` sí las compilaba, y corría en
+      #     DEBUG.
+      #
+      # O sea que el camino de negación —el que más pesa de los seis, porque su
+      # residuo no filtra un secreto sino la PRUEBA de que hay un volumen
+      # oculto— y el de honey se medían solo donde el compilador no optimiza. Es
+      # la misma forma del fallo de #265 («la medición nunca corría en release»)
+      # con otras features, y por eso el arreglo va en la REGLA (directiva 23):
+      # la pasada de residuo lleva TODAS las features que gatean una medición
+      # suya, y va en release. Si nace una medición tras una feature nueva, se
+      # añade aquí o no se mide donde importa.
+      #
+      # Medido el 2026-08-03 antes de escribir la línea: 22 pruebas, exit 0.
+      - name: Tests (residuo de memoria, RELEASE y con TODAS sus features — es lo que se publica)
+        run: cargo test --features "escrow negacion lab honey" --test residuo_memoria --release
+      - name: Clippy (lab + negacion, deny warnings)
+        run: cargo clippy --features "lab negacion" --all-targets -- -D warnings
       - name: Red-team (all surfaces consolidated)
         run: cargo run --example redteam --features "lab slh honey" --release
 
@@ -302,11 +383,77 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
+      # LAS DOS VARIABLES QUE HACEN LA RUEDA REPRODUCIBLE (invariante I5).
+      # Medido el 2026-07-31: sin ellas, dos corridas seguidas en la MISMA máquina
+      # dan ruedas distintas. La causa no era el compilador —el `quipu.abi3.so`
+      # salía byte a byte idéntico— sino dos campos del SBOM CycloneDX que
+      # generamos nosotros: un `serialNumber` UUID aleatorio y un `timestamp` de
+      # reloj. El `RECORD` difería solo porque hashea el SBOM.
+      #
+      # SOURCE_DATE_EPOCH sale de la fecha del COMMIT, no de `now`: así el
+      # artefacto se deriva del código y no del momento de construirlo, que es
+      # justo lo que I5 promete.
+      #
+      # RUSTFLAGS quita las rutas absolutas de la máquina. El binario llevaba
+      # cadenas `/home/<usuario>/.cargo/registry/...` de los metadatos de `panic`,
+      # y en otra máquina eso son otros bytes. Con el remap desaparecen todas.
+      # (Las dos cifras que se verán al medirlo: 72 líneas con `strings | grep -c`
+      # y 57 coincidencias únicas con el detector de abajo. Es el mismo fenómeno
+      # contado de dos maneras, no dos hallazgos.)
+      # (`[profile.release] trim-paths` haría lo mismo más limpio, pero NO está
+      # estabilizado en cargo 1.97.1: comprobado, no supuesto.)
+      - name: Entorno reproducible
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=--remap-path-prefix=$HOME/.cargo/registry/src=/cargo --remap-path-prefix=$PWD=/build" >> "$GITHUB_ENV"
       - name: Construir la rueda como la construye el release
         run: |
           python -m pip install --upgrade pip
           pip install maturin pytest
           maturin build --out dist
+      # I5 NO SE AFIRMA, SE COMPRUEBA. Se construye una segunda vez y se exige el
+      # mismo sha256. Si alguien reintroduce una fuente de no-determinismo —o
+      # quita las variables de arriba— esto se pone rojo aquí, no en el momento en
+      # que a un auditor externo no le cuadren los bytes de PyPI.
+      #
+      # LO QUE ESTE CHECK NO PRUEBA, y conviene que esté escrito al lado y no en
+      # un doc aparte: aquí se construye con `maturin build` sobre ubuntu-latest,
+      # mientras que `release.yml` construye con maturin-action y `manylinux:
+      # auto`, o sea DENTRO DE UN CONTENEDOR distinto. Así que esto caza el
+      # no-determinismo de origen —el SBOM, las rutas, cualquier fuente que se
+      # cuele en el código— pero NO demuestra que la rueda manylinux publicada sea
+      # bit a bit reconstruible. Eso exige rehacer el artefacto publicado en su
+      # mismo contenedor y comparar, y es el trabajo que queda de I5.
+      - name: La rueda se reconstruye byte a byte igual
+        run: |
+          maturin build --out dist-bis
+          uno=$(sha256sum dist/*.whl | cut -d' ' -f1)
+          dos=$(sha256sum dist-bis/*.whl | cut -d' ' -f1)
+          echo "1ª: $uno"
+          echo "2ª: $dos"
+          if [ "$uno" != "$dos" ]; then
+            echo "::error::la rueda NO es reproducible: dos construcciones del mismo commit dan bytes distintos"
+            command -v diffoscope >/dev/null && diffoscope dist/*.whl dist-bis/*.whl || true
+            exit 1
+          fi
+          rm -rf dist-bis
+      # Y que el remap de verdad borró las rutas de la máquina, no solo que las
+      # dos corridas coincidan: coincidir es fácil si ambas están igual de sucias.
+      - name: El binario no lleva rutas de la máquina que lo construyó
+        run: |
+          python -c "
+          import glob, zipfile, re, sys
+          whl = glob.glob('dist/*.whl')[0]
+          with zipfile.ZipFile(whl) as z:
+              so = next(n for n in z.namelist() if n.endswith('.so'))
+              datos = z.read(so)
+          fugas = set(re.findall(rb'/(?:home|Users|root)/[A-Za-z0-9._-]+/[^\x00\"]{0,80}', datos))
+          if fugas:
+              for f in sorted(fugas)[:10]:
+                  print(f.decode('utf-8', 'replace'))
+              sys.exit(f'{len(fugas)} rutas de la máquina dentro del binario: el remap no está actuando')
+          print('sin rutas de la máquina en el binario')
+          "
       - name: Instalar la rueda recién construida
         run: pip install --no-index --find-links dist quipu-crypto
       - name: La rueda trae lo que sus features prometen
@@ -354,6 +501,30 @@ jobs:
       # menos de lo que hay. Es el mismo defecto que la lista de doce archivos de
       # versión y el banco del verificador — un registro que hay que acordarse de
       # ampliar es un registro que diverge.
+      # EL CORPUS SE DERIVA, NO SE GUARDA. `fuzz/corpus` está en .gitignore, así
+      # que en una copia limpia —o sea, SIEMPRE en CI— no hay ni una unidad. Sin
+      # este paso, `parse_signed` no puede pasar su comprobación de longitud: el
+      # parser exige 4701 bytes y el -max_len por defecto de libFuzzer es 4096, de
+      # modo que el objetivo corría 20 s rechazando por corto y salía verde. Y el
+      # encadenado de abajo no tendría nada que encadenar.
+      #
+      # Se genera en vez de commitear por lo mismo que la lista de objetivos sale
+      # de `cargo fuzz list`: un artefacto guardado que hay que acordarse de
+      # regenerar es un artefacto que diverge del formato al que dice pertenecer.
+      - name: Sembrar el corpus
+        run: cargo run --release --example gen_semillas_fuzz
+
+      # EL CORPUS SE ENCADENA DENTRO DE SU FAMILIA DE IDIOMA, no entre todos.
+      # `parse_container`, `unpad`, `parse_signed` y `parse_recipient` consumen el
+      # MISMO idioma —blob crudo con mágico, versión y campos de longitud en
+      # offsets fijos—, así que lo que uno descubre le sirve a los otros tres y se
+      # les pasa su corpus como entrada de solo lectura. `honey_decrypt` y
+      # `codec_roundtrip` quedan fuera porque su primer byte significa otra cosa:
+      # mezclarlos sería ruido disfrazado de cobertura. La tabla y el porqué, en
+      # fuzz/README.md.
+      #
+      # libFuzzer escribe SOLO en el primer directorio; los hermanos van detrás y
+      # no se contaminan.
       - name: Smoke every fuzz target
         run: |
           set -o pipefail
@@ -363,9 +534,26 @@ jobs:
             exit 1
           fi
           echo "Objetivos detectados: $objetivos"
+          familia_blob="parse_container unpad parse_signed parse_recipient"
           for t in $objetivos; do
-            echo "::group::fuzz $t"
-            cargo fuzz run "$t" -- -max_total_time=20
+            # Al pasar el corpus EXPLÍCITO, libFuzzer exige que el directorio
+            # exista y aborta si no —cargo-fuzz solo lo crea cuando no le pasas
+            # ninguno—. `codec_roundtrip` y `honey_decrypt` no se siembran, así
+            # que sin este mkdir el job muere en el primer objetivo. Lo cazó
+            # correr esto contra una copia limpia; con el corpus local de la
+            # máquina de desarrollo pasaba en verde.
+            mkdir -p "fuzz/corpus/$t"
+            corpus="fuzz/corpus/$t"
+            case " $familia_blob " in
+              *" $t "*)
+                for h in $familia_blob; do
+                  [ "$h" = "$t" ] && continue
+                  [ -d "fuzz/corpus/$h" ] && corpus="$corpus fuzz/corpus/$h"
+                done
+                ;;
+            esac
+            echo "::group::fuzz $t  [corpus: $corpus]"
+            cargo fuzz run "$t" $corpus -- -max_total_time=20
             echo "::endgroup::"
           done
 

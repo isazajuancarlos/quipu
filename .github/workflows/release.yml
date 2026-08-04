@@ -17,7 +17,7 @@ name: release-wheels
 # `refs/tags/v`, así que cada tag dispara solo lo suyo.
 on:
   push:
-    tags: ["v*", "voprf-v*", "nucleo-v*", "django-v*"]
+    tags: ["v*", "voprf-v*", "nucleo-v*", "django-v*", "padme-v*", "cnsa-v*"]
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,18 @@ permissions:
 jobs:
   wheels:
     name: wheels-${{ matrix.os }}
-    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/django-v') }}
+    # GATE POSITIVO: solo el tag de `quipu` construye la rueda de `quipu`.
+    #
+    # Antes esto era una lista de negaciones (`!voprf-v && !django-v`), y una
+    # lista de negaciones falla por lo que NO enumera: un tag `nucleo-v*` no
+    # está en ella, así que construía las tres ruedas —ubuntu, macOS y
+    # Windows— para después no publicarlas, porque el job `pypi` sí exige
+    # `refs/tags/v`. Minutos pagados por un artefacto que se tira.
+    #
+    # Añadir `!padme-v` habría arreglado EL CASO y dejado la regla igual de
+    # rota para el sexto crate (directiva 23). La regla correcta es la que ya
+    # usaba `pypi`, y ahora la usan los tres.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/nucleo-v') && !startsWith(github.ref, 'refs/tags/django-v') && !startsWith(github.ref, 'refs/tags/padme-v') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -53,8 +64,25 @@ jobs:
       # instalándola en un venv limpio: `encode`, `decode`, `split_secret`,
       # `combine_secret` y `CustodioHsm` están todos. Comprobado contra el
       # ARTEFACTO, no contra el mensaje del log.
+      # I5: la rueda PUBLICADA tiene que derivarse del código, no del momento de
+      # construirla. Sin esto, el CI comprobaría una propiedad que el artefacto
+      # que descarga la gente no tiene.
+      #
+      # SOURCE_DATE_EPOCH sale de la fecha del commit: fija el `timestamp` y el
+      # `serialNumber` del SBOM CycloneDX que maturin mete en el dist-info, que
+      # medido el 2026-07-31 eran la ÚNICA fuente de no-determinismo de la rueda
+      # (el `.so` ya salía byte a byte idéntico).
+      #
+      # RUSTFLAGS quita las rutas absolutas del runner del binario — eran 72 con
+      # el `$HOME` de quien construye, y son bytes distintos en cada máquina.
+      - name: Entorno reproducible
+        shell: bash
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: Build wheels (maturin; las features salen de pyproject.toml)
         uses: PyO3/maturin-action@v1
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/build
         with:
           command: build
           args: --release --out dist
@@ -67,7 +95,8 @@ jobs:
 
   sdist:
     name: sdist
-    if: ${{ !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/django-v') }}
+    # Mismo gate positivo que `wheels`: ver el porqué allí.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/voprf-v') && !startsWith(github.ref, 'refs/tags/nucleo-v') && !startsWith(github.ref, 'refs/tags/django-v') && !startsWith(github.ref, 'refs/tags/padme-v') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -320,6 +349,80 @@ jobs:
         id: auth
       - name: cargo publish -p quipu-voprf
         run: cargo publish -p quipu-voprf
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  # `padme-frame` va PRIMERO en la cadena: `quipu-nucleo` depende de él por
+  # `path` + `version`, así que crates.io rechaza `quipu-nucleo` mientras
+  # `padme-frame` no esté en el índice. El orden completo es
+  #   padme-frame -> quipu-nucleo -> quipu-voprf -> quipu
+  # y es el mismo fallo que ya costó una publicación con `quipu-voprf`: un
+  # `path` que en el árbol resuelve solo y en el índice no existe.
+  #
+  # Este job NUNCA se ha ejecutado: el crate nació el 2026-08-01 y sigue sin
+  # publicar. El primer `padme-v*` que se empuje es también su estreno.
+  #
+  # Y SU ESTRENO VA A FALLAR. No es una sospecha: la documentación de crates.io
+  # lo dice literalmente entre los prerrequisitos de trusted publishing —
+  # «Your crate must already be published to crates.io (initial publish requires
+  # an API token)» (rust-lang/crates.io, svelte/src/routes/docs/trusted-publishing).
+  # La configuración de OIDC vive en Settings → Trusted Publishing DEL CRATE, y
+  # un crate que no existe no tiene ajustes. Comprobado el 2026-08-03 contra el
+  # índice: `padme-frame` da 404.
+  #
+  # O sea que este job sirve de la SEGUNDA versión en adelante. La 0.1.0 hay que
+  # subirla a mano con un token de API, y solo después se configura el trusted
+  # publishing que hace funcionar el tag. Empujar `padme-v0.1.0` esperando que
+  # publique es perder el tag y tener que borrarlo.
+  crate-padme:
+    name: publish padme-frame to crates.io
+    if: startsWith(github.ref, 'refs/tags/padme-v')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Autenticar contra crates.io por OIDC (token efímero)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: cargo publish -p padme-frame
+        run: cargo publish -p padme-frame
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  # `quipu-cnsa` no lleva `publish = false`, o sea que ES publicable, y hasta el
+  # 2026-08-02 no tenía ni tag ni job: un crate terminado —52+10 pruebas en
+  # verde, perfil simétrico y asimétrico— sin ninguna forma de salir. Lo delató
+  # `verificar_deriva_desde_el_tag`, que se negó a aprobarlo por no tener
+  # prefijo declarado en vez de callarse.
+  #
+  # Depende de `quipu-nucleo`, así que va DESPUÉS de él en la cadena.
+  #
+  # MISMO ESTRENO FALLIDO que `crate-padme`, y por la misma razón: `quipu-cnsa`
+  # tampoco está en el índice (404 el 2026-08-03), y el trusted publishing exige
+  # que el crate exista para poder configurarlo. Su 0.1.0 también va a mano con
+  # token. Los dos crates SIN publicar del workspace son exactamente estos dos;
+  # `quipu-nucleo`, `quipu-voprf` y `quipu` sí existen (200), así que sus jobs
+  # sí funcionan por tag.
+  crate-cnsa:
+    name: publish quipu-cnsa to crates.io
+    if: startsWith(github.ref, 'refs/tags/cnsa-v')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Autenticar contra crates.io por OIDC (token efímero)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: cargo publish -p quipu-cnsa
+        run: cargo publish -p quipu-cnsa
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 

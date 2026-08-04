@@ -32,17 +32,79 @@ pub struct KdfParams {
 }
 
 impl Default for KdfParams {
-    /// Coste interactivo de referencia (64 MiB, 3 iteraciones, 1 hilo).
+    /// [`KdfParams::EQUILIBRADO`]: 64 MiB, 3 iteraciones, 1 hilo.
+    ///
+    /// El defecto ES un peldaño de la escalera canónica, y no por casualidad:
+    /// así el caso abrumadoramente común escribe en la cabecera los mismos doce
+    /// bytes que todo el mundo. Ver [`KdfParams::canonicos`].
     fn default() -> Self {
-        Self {
-            mem_kib: 65536,
-            iterations: 3,
-            parallelism: 1,
-        }
+        Self::EQUILIBRADO
     }
 }
 
 impl KdfParams {
+    // # La escalera canónica, y por qué existe
+    // 
+    // Los tres parámetros del KDF **viajan en claro en la cabecera** y son
+    // idénticos entre todos los contenedores que una misma persona escriba. Con
+    // valores ajustados a mano —a la memoria de su máquina, a su gusto— esos
+    // doce bytes son **una huella de su configuración** que agrupa sus archivos
+    // en un corpus de procedencia mezclada. Está medido y declarado en N9 de
+    // `docs/THREAT_MODEL.md`.
+    // 
+    // La escalera lo colapsa **sin tocar el formato**: los doce bytes siguen
+    // ahí, pero pasan a llevar la elección entre tres valores en vez de
+    // configuración arbitraria. Todo el que use `EQUILIBRADO` se ve igual.
+    // 
+    // Es la misma forma que `negacion::tamano_canonico` para el tamaño del
+    // contenedor, y por la misma razón: lo que protege no es que cada uno elija
+    // bien, sino que **todos elijan entre los mismos pocos valores**.
+    // 
+    // **No se impone.** `Options::kdf_params` sigue aceptando cualquier valor
+    // sensato: quien tenga un motivo real —un dispositivo con 32 MiB, una
+    // política que exija otro coste— no puede quedarse sin camino. Lo que se
+    // hace es decirlo: **fuera de la escalera vive la huella**.
+
+    /// Para dispositivos con poca memoria o interacción muy frecuente.
+    /// 16 MiB, 3 iteraciones, 1 hilo.
+    pub const LIGERO: Self = Self {
+        mem_kib: 16 * 1024,
+        iterations: 3,
+        parallelism: 1,
+    };
+
+    /// El de referencia, y el que devuelve `Default`. 64 MiB, 3 iteraciones.
+    pub const EQUILIBRADO: Self = Self {
+        mem_kib: 64 * 1024,
+        iterations: 3,
+        parallelism: 1,
+    };
+
+    /// Para secretos de alto valor. 256 MiB —el máximo que se acepta al leer— y
+    /// 4 iteraciones. Coincide con `negacion::Perfil::V1`, que es deliberado:
+    /// dos módulos que eligen el mismo coste no deben escribir números
+    /// distintos.
+    pub const FUERTE: Self = Self {
+        mem_kib: Self::MAX_MEM_KIB,
+        iterations: 4,
+        parallelism: 1,
+    };
+
+    /// La escalera completa, de menor a mayor coste.
+    #[must_use]
+    pub const fn canonicos() -> &'static [Self] {
+        &[Self::LIGERO, Self::EQUILIBRADO, Self::FUERTE]
+    }
+
+    /// `true` si estos parámetros están en la escalera.
+    ///
+    /// Sirve para que una herramienta encima de Quipu pueda AVISAR —no
+    /// rechazar— cuando alguien se sale de ella.
+    #[must_use]
+    pub fn es_canonico(&self) -> bool {
+        Self::canonicos().contains(self)
+    }
+
     /// Memoria máxima soportada (256 MiB). Acota dos cosas: el overflow de
     /// Argon2 con parámetros maliciosos, y la AMPLIFICACIÓN de coste al descifrar
     /// entrada NO confiable — un contenedor ajeno fija sus propios params y el
@@ -68,6 +130,18 @@ impl KdfParams {
     }
 }
 
+/// Normaliza la passphrase EXACTAMENTE como lo hace [`derive_master_key`].
+///
+/// Es la única definición de «la misma contraseña» que existe en Quipu, y está
+/// expuesta al crate para que nadie la reimplemente: quien tenga que decidir si
+/// dos frases son la misma —`negacion::crear` lo hace antes de gastar un
+/// Argon2id— tiene que usar el mismo criterio que la derivación. Comparar bytes
+/// crudos donde el KDF compara tras NFKC abre un hueco entre lo que la
+/// comprobación dice y lo que la clave hace.
+pub(crate) fn normalizar(passphrase: &str) -> String {
+    passphrase.nfkc().collect()
+}
+
 /// Deriva la clave maestra desde la passphrase (normalizada NFKC), el salt,
 /// un pepper opcional y el coste Argon2id.
 pub fn derive_master_key(
@@ -77,8 +151,28 @@ pub fn derive_master_key(
     params: &KdfParams,
 ) -> [u8; KEY_LEN] {
     // NFKC: la "misma" contraseña deriva siempre la misma clave.
-    let mut normalized: String = passphrase.nfkc().collect();
+    let mut normalized: String = normalizar(passphrase);
     // El pepper se concatena al material de contraseña.
+    //
+    // AMBIGÜEDAD DE CODIFICACIÓN CONOCIDA, sin explotación hallada y anotada
+    // aquí porque este es el sitio donde se arreglaría. `NFKC(pw) ‖ pepper` sin
+    // separador significa que los pares (pw="ab", pepper="c") y (pw="a",
+    // pepper="bc") derivan LA MISMA clave. En el modo online la cadena es
+    // `pw ‖ pepper_base ‖ endurecido(64)`, con el mismo problema.
+    //
+    // POR QUÉ NO SE HA ENCONTRADO ATAQUE: quien elige la contraseña y quien
+    // elige el pepper son la misma parte, así que la colisión hay que
+    // provocársela uno mismo; y en el modo online el sufijo endurecido depende
+    // del propio `pw`, de modo que un par colisionante exigiría además
+    // `OPRF(pw₁) = OPRF(pw₂)`.
+    //
+    // POR QUÉ AUN ASÍ HAY QUE ARREGLARLO: es una ambigüedad gratuita en la ruta
+    // de derivación de claves, y las ambigüedades gratuitas son las que un día
+    // sostienen un ataque que nadie previó. El arreglo es un prefijo de longitud
+    // por campo, y es RUPTURA DE FORMATO — todas las claves derivadas cambian.
+    // Por eso va agrupado con las otras rupturas pendientes y no suelto:
+    // quitar `codebook_id`, borrar `src/oprf.rs`, perfiles canónicos de KDF y
+    // huella de alfabeto con clave. Una sola ruptura en vez de cinco.
     let mut secret = normalized.clone().into_bytes();
     normalized.zeroize(); // O5: no dejar la passphrase normalizada en memoria
     secret.extend_from_slice(pepper);
@@ -99,7 +193,30 @@ pub fn derive_master_key(
         .hash_password_into(&secret, salt, &mut out)
         .expect("derivación Argon2id no debe fallar con entradas válidas");
     secret.zeroize(); // O5: borra passphrase+pepper del buffer intermedio
-    out
+
+    // Y EL BUFFER DE SALIDA TAMBIÉN, que es lo que faltaba. `[u8; 32]` es `Copy`:
+    // devolverlo no vacía este marco, lo COPIA, y la copia de aquí sobrevive a la
+    // llamada tal cual. Medido en `tests/residuo_memoria.rs` (T6): con el salt de
+    // verdad quedaban 2 copias de la clave maestra en la pila del hilo después de
+    // `decode`, y el llamante solo puede borrar la suya. `zeroize` no lo hace solo
+    // —no hay `Drop` que corra en el origen de un movimiento—, así que se copia a
+    // mano al valor de retorno y se borra el original.
+    let clave = out;
+    out.zeroize();
+
+    // Y LA PILA DE ABAJO, que es de donde salía la otra copia: Argon2id arma el
+    // resultado en marcos que no son nuestros y que nadie borra al volver. Es la
+    // regla que documenta `antihacker::limpiar_pila` —toda función que
+    // materialice material sensible en la pila la llama antes de volver—
+    // aplicada DONDE NACE EL SECRETO, que es lo que hace que la hereden `encode`,
+    // `decode`, el streaming y honey sin que ninguno tenga que acordarse.
+    //
+    // Aquí y en un solo sitio: ponerlo además en `decode` sería un segundo
+    // mecanismo para tapar lo que dejó el primero. Lo que hizo falta no fue otra
+    // llamada sino que esta ALCANZARA — la copia estaba a 99 KiB y el limpiador
+    // llegaba a 64.
+    crate::antihacker::limpiar_pila();
+    clave
 }
 
 /// Deriva una subclave independiente desde la clave maestra y una etiqueta de
@@ -123,6 +240,90 @@ pub fn derive_stream(master: &[u8; KEY_LEN], info: &[u8], out: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
+    /// EL DEFECTO NO CAMBIÓ NI UN BYTE al introducir la escalera.
+    ///
+    /// Es la prueba que convierte esto en aditivo: si `Default` hubiera pasado a
+    /// devolver otra cosa, TODO contenedor nuevo escribiría parámetros distintos
+    /// y los viejos derivarían otra clave. La escalera se diseñó alrededor del
+    /// defecto que ya había, no al revés.
+    #[test]
+    fn el_defecto_sigue_siendo_exactamente_el_de_siempre() {
+        let d = KdfParams::default();
+        assert_eq!(d.mem_kib, 65536, "64 MiB, como desde la 0.10.0");
+        assert_eq!(d.iterations, 3);
+        assert_eq!(d.parallelism, 1);
+        assert_eq!(d, KdfParams::EQUILIBRADO);
+        assert!(d.es_canonico(), "el defecto TIENE que estar en la escalera");
+    }
+
+    /// LO QUE LA ESCALERA COMPRA: los doce bytes de la cabecera dejan de ser
+    /// una huella de la configuración y pasan a llevar una elección entre tres.
+    #[test]
+    fn la_escalera_colapsa_la_huella_de_configuracion() {
+        use std::collections::HashSet;
+
+        // Con la escalera: tres valores observables, se elija el que se elija.
+        let con: HashSet<[u8; 12]> = KdfParams::canonicos().iter().map(bytes_de).collect();
+        assert_eq!(con.len(), 3, "la escalera tiene que dar exactamente 3 huellas");
+
+        // Sin ella, ajustando a mano como invita `Options`: cada configuración
+        // es su propia huella. Se barre un rango PLAUSIBLE de ajustes humanos.
+        let mut sin: HashSet<[u8; 12]> = HashSet::new();
+        for mem in [8u32, 16, 32, 48, 64, 96, 128, 192, 256] {
+            for it in 2..=6u32 {
+                for par in 1..=4u32 {
+                    let p = KdfParams { mem_kib: mem * 1024, iterations: it, parallelism: par };
+                    if p.is_sane() {
+                        sin.insert(bytes_de(&p));
+                    }
+                }
+            }
+        }
+        assert!(
+            sin.len() > 100,
+            "solo {} configuraciones a mano: el barrido no representa el problema",
+            sin.len()
+        );
+        assert!(
+            con.len() * 30 < sin.len(),
+            "la escalera da {} huellas y el ajuste a mano {}: el colapso no compensa",
+            con.len(), sin.len()
+        );
+    }
+
+    /// Los doce bytes tal como van en la cabecera, en el mismo orden.
+    fn bytes_de(p: &KdfParams) -> [u8; 12] {
+        let mut b = [0u8; 12];
+        b[0..4].copy_from_slice(&p.mem_kib.to_be_bytes());
+        b[4..8].copy_from_slice(&p.iterations.to_be_bytes());
+        b[8..12].copy_from_slice(&p.parallelism.to_be_bytes());
+        b
+    }
+
+    /// La escalera entera tiene que pasar `is_sane`, o un peldaño sería
+    /// irrecuperable al leer: `recover` rechaza los parámetros insensatos ANTES
+    /// de derivar, así que un canónico que no lo fuera crearía contenedores que
+    /// la propia librería no puede abrir.
+    #[test]
+    fn todos_los_peldanos_son_sensatos_y_distintos() {
+        let c = KdfParams::canonicos();
+        for p in c {
+            assert!(p.is_sane(), "peldaño insensato: {p:?}");
+            assert!(p.es_canonico());
+        }
+        // Ordenados por coste creciente, que es lo que la documentación promete.
+        for par in c.windows(2) {
+            assert!(
+                par[0].mem_kib < par[1].mem_kib || par[0].iterations < par[1].iterations,
+                "la escalera no crece: {:?} antes que {:?}", par[0], par[1]
+            );
+        }
+        // Y discrimina: un ajuste a mano NO cuenta como canónico.
+        let a_mano = KdfParams { mem_kib: 100 * 1024, iterations: 3, parallelism: 1 };
+        assert!(a_mano.is_sane(), "el caso de prueba tiene que ser legítimo");
+        assert!(!a_mano.es_canonico(), "un ajuste a mano no puede pasar por canónico");
+    }
+
     use super::*;
 
     fn cheap() -> KdfParams {

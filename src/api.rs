@@ -34,9 +34,41 @@ const CIPHER_SUBKEY_INFO: &[u8] = b"quipu/v1/cipher";
 pub struct Options<'a> {
     /// Secreto que vive fuera del dato (código/HSM/env). `b""` si no se usa.
     pub pepper: &'a [u8],
-    /// Coste Argon2id (dificultad ajustable).
+    /// Coste Argon2id.
+    ///
+    /// **Use uno de [`KdfParams::canonicos`]** —`LIGERO`, `EQUILIBRADO` (el
+    /// defecto) o `FUERTE`— salvo que tenga un motivo concreto para no hacerlo.
+    ///
+    /// No es una recomendación de rendimiento: estos tres valores **viajan en
+    /// claro en la cabecera** y son idénticos entre todos los contenedores que
+    /// usted escriba. Ajustados a mano son **una huella de su configuración**
+    /// que agrupa sus archivos en un corpus de procedencia mezclada; en la
+    /// escalera, se ve igual que todo el mundo. Medido y declarado en N9 de
+    /// `docs/THREAT_MODEL.md`.
+    ///
+    /// Se acepta cualquier valor sensato: quien tenga una razón real —un
+    /// dispositivo con poca memoria, una política que exija otro coste— no
+    /// puede quedarse sin camino. Lo que se hace es decirlo.
     pub kdf_params: KdfParams,
-    /// Identificador del codebook (informativo en la cabecera).
+    /// **RESERVADO Y OBSOLETO. Déjelo en 0.**
+    ///
+    /// Se escribe en claro en la cabecera y **nunca se lee**: verificado en las
+    /// dos implementaciones — quien decide qué alfabeto se usó es la huella
+    /// (`codebook_hash_prefix`), que sí se comprueba. Este campo no entrega
+    /// nada.
+    ///
+    /// Y no es inocuo: son **16 bits de metadato en claro, elegidos por quien
+    /// cifra y estables entre todos sus contenedores**. Ponerle un valor con
+    /// significado —un identificador de inquilino, de usuario, de documento—
+    /// convierte cada archivo en enlazable con los demás del mismo dueño. Ver
+    /// N9 en `docs/THREAT_MODEL.md`, con la medición.
+    ///
+    /// **Por qué NO se rechaza un valor distinto de cero**, a diferencia de
+    /// `flags`: este campo es público y ajustable desde la 0.10.0. Rechazarlo al
+    /// descifrar dejaría ILEGIBLE PARA SIEMPRE cualquier contenedor que alguien
+    /// haya creado con él. Datos huérfanos y sin recurso, a cambio de limpieza.
+    /// Se marca, se documenta, y se quita en la próxima ruptura de formato —
+    /// cuando ya nadie lo escriba.
     pub codebook_id: u16,
 }
 
@@ -119,7 +151,20 @@ pub fn encode_to_blob(
     let header = Header {
         version: VERSION,
         flags: 0,
-        codebook_id: opts.codebook_id,
+        // PASO 2 DE LA RETIRADA DE `codebook_id` (2026-08-01): se escribe
+        // SIEMPRE 0, ignorando lo que pida el llamante.
+        //
+        // El campo nunca se lee —quien decide qué alfabeto se usó es la huella,
+        // que sí se comprueba— y son 16 bits de metadato en claro, elegidos por
+        // quien cifra y estables entre todos sus contenedores (N9).
+        //
+        // POR QUÉ ESTE PASO Y NO EL BORRADO: quitar el campo del formato, o
+        // rechazarlo al leer, dejaría ILEGIBLE cualquier contenedor que alguien
+        // ya haya creado con un valor. Escribir cero al crear no huerfana nada:
+        // los viejos se siguen abriendo, y los nuevos dejan de sumar al
+        // problema. Cuando no queden contenedores nuevos con valor, el paso 3
+        // es validarlo a cero como se hizo con `flags`.
+        codebook_id: 0,
         codebook_hash_prefix: codebook_fingerprint,
         salt,
         nonce,
@@ -234,7 +279,20 @@ pub fn encode_online(
     let opts2 = Options {
         pepper: &pepper,
         kdf_params: opts.kdf_params,
-        codebook_id: opts.codebook_id,
+        // PASO 2 DE LA RETIRADA DE `codebook_id` (2026-08-01): se escribe
+        // SIEMPRE 0, ignorando lo que pida el llamante.
+        //
+        // El campo nunca se lee —quien decide qué alfabeto se usó es la huella,
+        // que sí se comprueba— y son 16 bits de metadato en claro, elegidos por
+        // quien cifra y estables entre todos sus contenedores (N9).
+        //
+        // POR QUÉ ESTE PASO Y NO EL BORRADO: quitar el campo del formato, o
+        // rechazarlo al leer, dejaría ILEGIBLE cualquier contenedor que alguien
+        // ya haya creado con un valor. Escribir cero al crear no huerfana nada:
+        // los viejos se siguen abriendo, y los nuevos dejan de sumar al
+        // problema. Cuando no queden contenedores nuevos con valor, el paso 3
+        // es validarlo a cero como se hizo con `flags`.
+        codebook_id: 0,
     };
     Ok(encode(data, passphrase, dict, &opts2))
 }
@@ -324,6 +382,13 @@ pub fn decode_as_recipient(
         pqhybrid::decapsulate(recipient, encapsulation).ok_or(DecodeError::Decrypt)?;
     let result = cipher::decrypt(&content_key, &nonce, ciphertext, aad);
     antihacker::wipe(&mut content_key);
+    // `wipe` borra la copia que tiene NOMBRE; la clave llegó aquí devuelta por
+    // valor desde `decapsulate`, y ese viaje deja copias en el marco —ya muerto—
+    // de quien la produjo. Solo el llamante puede pisarlo, y solo después de que
+    // vuelva. Medido en release (T6): sin esta línea quedaba 1 copia de la clave
+    // de contenido. La regla general: quien recibe un secreto POR VALOR limpia la
+    // pila del que se lo dio.
+    antihacker::limpiar_pila();
 
     let mut padded = result.map_err(|_| DecodeError::Decrypt)?;
     let data = prelayers::unpad(&padded).map_err(|_| DecodeError::Decrypt);
@@ -503,6 +568,38 @@ pub fn decode_verified(
 
 #[cfg(test)]
 mod tests {
+    /// PASO 2 DE LA RETIRADA DE `codebook_id`: aunque el llamante pida un
+    /// valor, lo que se ESCRIBE es cero.
+    ///
+    /// De extremo a extremo, sobre el blob real, porque es donde importa: el
+    /// campo son 16 bits de metadato en claro y estables (N9), y quien lo
+    /// rellenara con un identificador de inquilino enlazaría todos sus
+    /// contenedores. Los contenedores VIEJOS con valor se siguen abriendo —eso
+    /// lo sujeta `codebook_id_distinto_de_cero_se_sigue_aceptando` en el crate
+    /// del formato—, así que esto no huerfana nada.
+    #[test]
+    fn el_campo_obsoleto_se_escribe_en_cero_aunque_se_pida_otra_cosa() {
+        let dict = crate::dictionaries::ascii94();
+        #[allow(deprecated)]
+        let opts = super::Options {
+            pepper: b"",
+            kdf_params: crate::kdf::KdfParams::LIGERO,
+            codebook_id: 0xBEEF,
+        };
+        let blob = super::encode_to_blob(
+            b"lo que sea",
+            "una contrasena",
+            crate::dictionary::HuellaDeCodebook::fingerprint(&dict),
+            &opts,
+        );
+        assert_eq!(&blob[6..8], &[0, 0], "se coló el codebook_id del llamante");
+        // Y el contenedor sigue abriéndose, que es lo único que no puede fallar.
+        assert_eq!(
+            super::decode_from_blob(&blob, "una contrasena", crate::dictionary::HuellaDeCodebook::fingerprint(&dict), b"").unwrap(),
+            b"lo que sea"
+        );
+    }
+
     use super::*;
     use proptest::prelude::*;
 

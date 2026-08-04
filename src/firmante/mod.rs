@@ -184,16 +184,46 @@ pub fn firmar_con_comparticiones(
     comparticiones: &[crate::shamir::Share],
     mensaje: &[u8],
 ) -> Result<Vec<u8>, ErrorDeFirma> {
-    let bytes = crate::shamir::combine(comparticiones)
-        .map_err(|e| ErrorDeFirma::OperacionRechazada(format!("reparto inválido: {e}")))?;
-    let clave = SigningKey::from_bytes(&bytes).ok_or_else(|| {
-        ErrorDeFirma::OperacionRechazada(
-            "las comparticiones reconstruyen algo que no es una clave de firma".into(),
-        )
-    })?;
-    // `clave` se suelta al salir de la expresión y `SigningKey` zeroiza sus
-    // semillas. La firma es lo único que sobrevive.
-    firmar(&EnMemoria::nuevo(clave), mensaje)
+    // TODO EL TRATO CON EL SECRETO OCURRE EN UN MARCO MÁS PROFUNDO, y el marco se
+    // borra al volver. No es estilo: `limpiar_pila()` solo puede sobreescribir por
+    // DEBAJO de su propio marco, así que llamarla desde la misma función que tiene
+    // la clave en una variable local no limpia esa variable — el `#[inline(never)]`
+    // es lo que garantiza que `interior` tenga marco propio y que quede por debajo.
+    //
+    // Hace falta porque `zeroize` no llega: en Rust MOVER un valor es un `memcpy`
+    // y `Drop` solo corre en el destino final, de modo que cada movimiento de la
+    // clave —al parámetro de `EnMemoria::nuevo`, al campo de la struct— deja una
+    // copia que nadie borra.
+    //
+    // HONESTAMENTE: esto es DEFENSA EN PROFUNDIDAD, no una reparación demostrada.
+    // El residuo que lo motivó —2 copias medidas en el runner del CI— resultó ser
+    // en buena parte contaminación del propio banco de pruebas, que construía la
+    // clave para montar el escenario y dejaba SU rastro. Con el banco corregido
+    // —monta el escenario en un marco aparte y solo entrega comparticiones, que es
+    // lo que hace un llamante real— la medida da cero CON Y SIN estas líneas.
+    // Se conservan porque no cuestan nada y porque la propiedad que dan sí está
+    // probada en aislamiento (`el_limpiador_de_pila_borra_lo_que_un_marco_dejo_atras`),
+    // pero que no se lea aquí que arreglaron algo que se pudiera demostrar roto.
+    #[inline(never)]
+    fn interior(
+        comparticiones: &[crate::shamir::Share],
+        mensaje: &[u8],
+    ) -> Result<Vec<u8>, ErrorDeFirma> {
+        let bytes = crate::shamir::combine(comparticiones)
+            .map_err(|e| ErrorDeFirma::OperacionRechazada(format!("reparto inválido: {e}")))?;
+        let clave = SigningKey::from_bytes(&bytes).ok_or_else(|| {
+            ErrorDeFirma::OperacionRechazada(
+                "las comparticiones reconstruyen algo que no es una clave de firma".into(),
+            )
+        })?;
+        // `clave` se suelta al salir de la expresión y `SigningKey` zeroiza sus
+        // semillas. La firma es lo único que sobrevive.
+        firmar(&EnMemoria::nuevo(clave), mensaje)
+    }
+
+    let firma = interior(comparticiones, mensaje);
+    crate::antihacker::limpiar_pila();
+    firma
 }
 
 #[cfg(test)]
@@ -202,8 +232,20 @@ mod tests {
     use crate::pqsign::generate_keypair;
 
     /// La prueba que hace útil a todo el módulo: pasar por el trait tiene que
-    /// dar EXACTAMENTE la misma firma que el camino directo. Si no, cambiar de
-    /// custodio rompería las firmas ya emitidas.
+    /// dar EXACTAMENTE la misma firma que el camino directo.
+    ///
+    /// LO QUE ESTA PRUEBA **NO** DEMUESTRA, y el README llegó a afirmarlo: nada
+    /// sobre un custodio de HARDWARE. Solo ejercita `EnMemoria`, donde la
+    /// igualdad se cumple trivialmente porque los dos caminos llaman al mismo
+    /// código determinista. En PKCS#11 se pide `HedgeType::Preferred` —ML-DSA
+    /// aleatorizado si el dispositivo lo admite—, así que ahí los bytes SÍ
+    /// difieren, y eso es correcto: el hedging es lo que recomienda FIPS-204.
+    ///
+    /// Lo que de verdad importa —que la firma la verifique el verificador de
+    /// siempre, venga de donde venga— lo cubre la prueba de abajo, y esa sí es
+    /// la propiedad que un cambio de custodio no puede romper. Una prueba que
+    /// se lee como más general de lo que es acaba sosteniendo una frase falsa en
+    /// la portada, y eso fue exactamente lo que pasó.
     #[test]
     fn firmar_por_el_trait_da_lo_mismo_que_el_camino_directo() {
         let (_, sk) = generate_keypair();

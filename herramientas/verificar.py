@@ -155,15 +155,36 @@ def bajar(url: str, destino: Path) -> bool:
         return False
 
 
-def leer_json(url: str):
-    """Los índices exigen User-Agent; sin él, crates.io responde 403 y un 403
-    NO significa «no publicado» (nos costó una conclusión equivocada)."""
+def leer_json_estado(url: str) -> tuple[str, object]:
+    """("ok", datos) · ("ausente", None) si el índice responde 404 ·
+    ("sin-respuesta", None) para todo lo demás.
+
+    Los índices exigen User-Agent; sin él, crates.io responde 403 y un 403 NO
+    significa «no publicado» (nos costó una conclusión equivocada).
+
+    Los tres estados existen porque colapsarlos a dos vuelve a producir esa
+    misma conclusión con otro disfraz: «no pude mirar» y «miré y no está» se
+    parecen en el código —los dos son un `None`— y son opuestos en lo que
+    autorizan. Un 404 del índice es un dato: el crate no está publicado. Un
+    timeout no es ningún dato.
+    """
     pet = urllib.request.Request(url, headers={"User-Agent": AGENTE})
     try:
         with urllib.request.urlopen(pet, timeout=60) as r:
-            return json.load(r)
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError):
-        return None
+            return "ok", json.load(r)
+    except urllib.error.HTTPError as e:
+        return ("ausente", None) if e.code == 404 else ("sin-respuesta", None)
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return "sin-respuesta", None
+
+
+def leer_json(url: str):
+    """Los datos, o `None` si no se pudieron leer POR EL MOTIVO QUE SEA.
+
+    Quien necesite distinguir «no está» de «no pude mirar» tiene que usar
+    [`leer_json_estado`]: aquí los dos casos son el mismo `None`.
+    """
+    return leer_json_estado(url)[1]
 
 
 # --------------------------------------------------------------------------
@@ -556,6 +577,28 @@ def _nombres_de_dependencias() -> set[str]:
 _SEP_VERSION = re.compile(r'[\s="@:^~<>\-]+$')
 _TOKEN_FINAL = re.compile(r'([A-Za-z][A-Za-z0-9_-]*)$')
 
+# Marcas que convierten la versión en una REFERENCIA HISTÓRICA, no en una
+# declaración: «público desde la 0.10.0» dice cuándo pasó algo, no qué versión
+# es esta. Un archivo así NO hay que actualizarlo al subir de versión — hacerlo
+# falsearía la historia.
+#
+# Es el tercer punto ciego del barrido, y el mismo error que los dos anteriores
+# con otro disfraz: marcaba `docs/SPEC.md` por la frase «has been public and
+# settable through `Options` since 0.10.0». La salvaguarda tenía razón en que
+# ahí había un «0.10.0» y se equivocaba en lo que significaba.
+#
+# LA LISTA ES CORTA A PROPÓSITO. Solo entran marcas INEQUÍVOCAS. Se dejaron
+# fuera «in» y «en» —«el fallo en 0.10.0» es histórico, pero «la versión en
+# 0.10.0» no— porque para una salvaguarda la duda se resuelve señalando
+# (directiva 21): un falso positivo cuesta una mirada, un falso negativo deja la
+# versión atrás en silencio.
+_MARCA_HISTORICA = re.compile(
+    r"(?:since|desde(?:\s+la)?|a\s+partir\s+de(?:\s+la)?|hasta(?:\s+la)?|until|"
+    r"introducid[oa]\s+en(?:\s+la)?|añadid[oa]\s+en(?:\s+la)?|added\s+in|"
+    r"removed\s+in|retirad[oa]\s+en(?:\s+la)?|deprecated\s+in)\s+v?$",
+    re.IGNORECASE,
+)
+
 
 def _version_a_espaldas(texto: str, v: str, deps: set[str]) -> bool:
     """¿`texto` nombra `v` COMO VERSIÓN DE QUIPU (no de una dependencia)?
@@ -580,6 +623,8 @@ def _version_a_espaldas(texto: str, v: str, deps: set[str]) -> bool:
     patron = re.compile(r"(?<![\d.])" + re.escape(v) + r"(?![\d.])")
     for m in patron.finditer(texto):
         izquierda = texto[max(0, m.start() - 40):m.start()]
+        if _MARCA_HISTORICA.search(izquierda):
+            continue  # «desde la 0.10.0»: dice cuándo, no cuál. No se actualiza.
         cola = _SEP_VERSION.sub("", izquierda)
         mtok = _TOKEN_FINAL.search(cola)
         nombre = mtok.group(1).lower() if mtok else ""
@@ -894,6 +939,486 @@ def _rama_actual() -> str | None:
     return salida.strip() if cod == 0 else None
 
 
+# --------------------------------------------------------------------------
+# Los crates HERMANOS: su versión NO puede ir por detrás de crates.io.
+# --------------------------------------------------------------------------
+#
+# El fallo que esto caza vive ENTRE dos árboles, y por eso ningún check de rama
+# lo veía. Medido el 2026-08-02: `estable` llevaba `quipu-nucleo` 0.1.1 —y
+# crates.io también— mientras `testing` seguía en 0.1.0. Dentro de `testing` ese
+# 0.1.0 es perfectamente coherente consigo mismo, así que «coherencia de
+# versiones» lo aprobaba; y esta misma función solo contrastaba contra PyPI la
+# versión del paquete RAÍZ, así que la promoción también lo aprobaba. Dos
+# guardianes en verde y una promoción que no se puede publicar.
+#
+# LA REGLA, escrita en una frase para poder auditarla: se rechaza que la versión
+# del árbol sea MENOR que la mayor publicada. Nada más.
+#
+# Lo que NO se rechaza, y es deliberado (directiva 21: se rechaza lo imposible,
+# nunca lo inusual): que sean IGUALES. Un release que toca `quipu` y no toca
+# `quipu-nucleo` deja el hermano en su número publicado y no lo republica —es la
+# operación normal, no un error—. Exigir «estrictamente mayor» convertiría cada
+# release en un bump obligatorio de los cinco crates, que es justo el cliente
+# legítimo contra el que hay que probar toda regla antes de escribirla.
+
+def verificar_exenciones_de_vet(inf: Informe) -> None:
+    """La exención de `cargo-vet` de cada miembro tiene que nombrar SU versión.
+
+    POR QUÉ EXISTE: `cargo vet` exime crates POR VERSIÓN exacta. Al subir un
+    miembro —`quipu-nucleo` a 0.1.2, `quipu-voprf` a 0.2.3— la exención se queda
+    apuntando a la anterior y el check `cargo-vet (supply chain)` se pone ROJO
+    con «missing safe-to-deploy». Pasó el 2026-08-03 y lo cazó el CI, o sea
+    tarde: la coherencia de versiones ya miraba los cuatro sitios de `quipu`,
+    pero ninguno era este ni cubría a los hermanos.
+
+    LA REGLA, en una frase: si un miembro del workspace TIENE exención, su
+    versión tiene que ser la del miembro. No exige que la tenga —un crate
+    auditado de verdad no necesita exención, y obligar a ponerla sería premiar lo
+    peor—; solo que si está, no mienta.
+    """
+    ruta = RAIZ / "supply-chain" / "config.toml"
+    if not ruta.exists():
+        inf.omitido("exenciones de cargo-vet", "no hay supply-chain/config.toml")
+        return
+    try:
+        exenciones = _leer_toml(ruta).get("exemptions", {})
+        miembros = _miembros_publicables()
+        raiz = _leer_toml(RAIZ / "Cargo.toml")["package"]
+        miembros.append((raiz["name"], raiz["version"], "."))
+    except Exception as e:
+        inf.omitido("exenciones de cargo-vet", f"no se pudo leer: {e}")
+        return
+
+    desfasadas = []
+    revisadas = 0
+    for nombre, version, _ in miembros:
+        entradas = exenciones.get(nombre)
+        if not entradas:
+            continue  # sin exención: no hay nada que pueda mentir
+        revisadas += 1
+        versiones = [e.get("version") for e in entradas if isinstance(e, dict)]
+        if version not in versiones:
+            desfasadas.append(f"{nombre}: el árbol va por {version} y la exención dice {versiones}")
+
+    if desfasadas:
+        inf.fallo(
+            "exenciones de cargo-vet al día",
+            "; ".join(desfasadas)
+            + " — `cargo vet` exime por versión EXACTA, así que el check se pondrá "
+            "rojo: actualiza supply-chain/config.toml",
+        )
+    elif revisadas:
+        inf.ok("exenciones de cargo-vet al día", f"{revisadas} miembro(s) con exención, y concuerdan")
+    else:
+        inf.omitido(
+            "exenciones de cargo-vet",
+            "ningún miembro del workspace tiene exención: no hay nada que contrastar",
+        )
+
+
+def _miembros_publicables() -> list[tuple[str, str, str]]:
+    """(nombre, versión, ruta) de cada miembro del workspace que SÍ se publica.
+
+    Se LEEN de `[workspace] members`, no se enumeran aquí: una lista escrita a
+    mano es una lista que diverge el día que nazca el sexto crate — y este
+    archivo ya documenta esa lección tres veces.
+    """
+    raiz = _leer_toml(RAIZ / "Cargo.toml")
+    salida: list[tuple[str, str, str]] = []
+    for rel in raiz.get("workspace", {}).get("members", []):
+        if rel == ".":
+            continue  # el paquete raíz lo cubre `_version_de_referencia`
+        pkg = _leer_toml(RAIZ / rel / "Cargo.toml").get("package", {})
+        if pkg.get("publish") is False:
+            continue
+        salida.append((pkg["name"], pkg["version"], rel))
+    return salida
+
+
+def _semver(v: str) -> tuple[int, int, int, int] | None:
+    """(mayor, menor, parche, 1 si es final / 0 si es prelanzamiento). `None` si
+    no se puede ordenar con certeza.
+
+    ESTA FUNCIÓN ESTUVO ESCRITA DOS VECES, y por eso está así de comentada.
+    Dos guardianes nacidos con un día de diferencia —`verificar_versiones_no_
+    retroceden` (1 ago) y `verificar_versiones_de_miembros` (2 ago)— trajeron
+    cada uno su `_semver` al mismo archivo, con contratos INCOMPATIBLES: una
+    devolvía una tupla de longitud variable o `None`, la otra una de cuatro
+    elementos que reventaba con `ValueError`. En Python la segunda definición
+    tapa a la primera SIN UN AVISO, así que al fusionar las dos ramas uno de los
+    dos guardianes habría pasado a llamar a una función que no era la suya:
+    `(0,1,1) < (0,1,1,1)` es `True`, o sea que la MISMA versión se habría leído
+    como «va por detrás» y habría suspendido una promoción legítima.
+
+    Unificadas el 2026-08-03 quedándose con lo mejor de cada una: el cuarto
+    elemento de la de 4 (ordena el prelanzamiento) y el `None` de la de 3 (no
+    inventar orden). Ese `None` es lo importante — **comparar mal es peor que no
+    comparar**, y el llamante lo convierte en SIN COMPROBAR, nunca en aprobado
+    (directiva 20).
+
+    Lo que SÍ ordena:
+      `0.1` → (0,1,0,1)          se rellena: cargo trata «0.1» como 0.1.0
+      `0.2.0` → (0,2,0,1)
+      `0.2.0-rc.1` → (0,2,0,0)   antes que `0.2.0`, que es lo que dice semver
+      `1.0.0+deadbeef` → (1,0,0,1)  el metadato de construcción NO cuenta para
+                                    la precedencia; lo dice la propia norma
+    Lo que devuelve `None` en vez de adivinar:
+      `0.1.x`, `dev`, ``          no es numérica
+      `1.2.3.4`                   cuatro componentes no son semver
+
+    LÍMITE DECLARADO: dos prelanzamientos del mismo núcleo salen IGUALES
+    —`0.2.0-rc.1` y `0.2.0-rc.2` son ambos (0,2,0,0)—. No hace falta resolverlo
+    en ninguno de los dos usos, y ordenar identificadores de prelanzamiento bien
+    (numéricos antes que alfanuméricos, campo a campo) es más norma de la que
+    aquí se necesita. Se dice en vez de fingir que se ordenan.
+    """
+    sin_build, _, _ = v.strip().partition("+")
+    nucleo, _, pre = sin_build.partition("-")
+    partes = nucleo.split(".")
+    if not (1 <= len(partes) <= 3) or not all(p.isdigit() for p in partes):
+        return None
+    partes = (partes + ["0", "0"])[:3]
+    return (*(int(p) for p in partes), 0 if pre else 1)  # type: ignore[return-value]
+
+
+def verificar_versiones_de_miembros(inf: Informe) -> None:
+    """Ningún crate hermano puede llevar una versión ya superada en crates.io."""
+    try:
+        miembros = _miembros_publicables()
+    except Exception as e:
+        inf.omitido("versiones de los crates hermanos", f"no se pudo leer el workspace: {e}")
+        return
+    if not miembros:
+        inf.omitido(
+            "versiones de los crates hermanos",
+            "el workspace no declaró ninguno: eso NO es un aprobado",
+        )
+        return
+
+    for nombre, version, rel in miembros:
+        estado, datos = leer_json_estado(
+            f"https://crates.io/api/v1/crates/{nombre}/versions"
+        )
+        if estado == "ausente":
+            inf.ok(f"{nombre} {version}", "todavía no está en crates.io: nada que superar")
+            continue
+        if estado != "ok":
+            inf.omitido(
+                f"versión de {nombre}",
+                "crates.io no respondió: sin ese dato no se puede promover",
+            )
+            continue
+        nums = [
+            v["num"] for v in (datos or {}).get("versions", []) if not v.get("yanked")
+        ]
+        if not nums:
+            inf.ok(f"{nombre} {version}", "sin versiones vivas en crates.io")
+            continue
+        propia = _semver(version)
+        if propia is None:
+            inf.omitido(
+                f"versión de {nombre}",
+                f"«{version}» no se puede ordenar, y no se inventa un orden para "
+                "ella: mírala a mano antes de promover",
+            )
+            continue
+
+        # Las del índice que no se puedan ordenar se APARTAN y se DICEN. Dejarlas
+        # caer en silencio convertiría «no pude leer una» en «no había ninguna
+        # mayor», que es un aprobado por ausencia de datos.
+        ordenables = [(n, _semver(n)) for n in nums]
+        ilegibles = [n for n, s in ordenables if s is None]
+        comparables = [(n, s) for n, s in ordenables if s is not None]
+        if ilegibles:
+            inf.omitido(
+                f"versiones de {nombre} que no se pudieron ordenar",
+                ", ".join(sorted(ilegibles)) + " — quedan fuera de la comparación",
+            )
+        if not comparables:
+            inf.omitido(
+                f"versión de {nombre}",
+                "ninguna versión del índice se pudo ordenar: eso NO es un aprobado",
+            )
+            continue
+
+        mayor, s_mayor = max(comparables, key=lambda par: par[1])
+        atrasada = propia < s_mayor
+        if atrasada:
+            inf.fallo(
+                f"{nombre} {version} va POR DETRÁS de crates.io ({mayor})",
+                f"{rel}/Cargo.toml quedó en un número ya publicado — súbelo por "
+                f"encima de {mayor} o esta promoción no se puede publicar",
+            )
+        else:
+            inf.ok(
+                f"{nombre} {version}",
+                "no va por detrás de crates.io"
+                + ("" if version != mayor else f" (igual a la publicada {mayor}: no se republica)"),
+            )
+
+
+# --------------------------------------------------------------------------
+# Retroceso ENTRE RAMAS: el mismo fallo, medido sin salir a la red.
+# --------------------------------------------------------------------------
+#
+# `verificar_versiones_de_miembros` compara el ÁRBOL contra CRATES.IO.
+# Esto compara el ÁRBOL contra LA RAMA DESTINO. Parecen lo mismo y no lo son, y
+# por eso conviven en vez de que uno sustituya al otro:
+#
+#   · el de crates.io ve lo que de verdad está publicado —incluido lo que
+#     alguien subió a mano sin que ninguna rama lo refleje—, pero necesita red y
+#     se calla si el índice no responde;
+#   · este ve la relación entre las dos ramas sin preguntarle a nadie, así que
+#     no se pone rojo porque un índice esté caído, y caza el caso que al otro se
+#     le escapa: `estable` puede llevar una versión que todavía no llegó al
+#     índice (release en vuelo) y promover por encima la despublicaría igual.
+#
+# Cubren fallos distintos con la misma forma. Lo que NO puede haber es dos
+# maneras de ordenar versiones: eso era el choque, y se resolvió en `_semver`.
+#
+# EL CASO REAL: el 2026-08-01 `testing` llevaba cuatro días con
+# `quipu-nucleo 0.1.0` mientras `estable` ya publicaba la 0.1.1. Promover así
+# habría devuelto el crate a la versión anterior en silencio, y ningún check lo
+# veía — `verificar_versiones` mira los cuatro sitios de la versión de `quipu`,
+# que estaban perfectamente coherentes consigo mismos EN LAS DOS RAMAS. El fallo
+# no vive en un árbol: vive ENTRE DOS, y ningún examen de uno solo puede verlo
+# por minucioso que sea.
+
+
+def _toml_de_texto(texto: str) -> dict:
+    """El mismo TOML que `_leer_toml`, pero desde una cadena (viene de `git show`)."""
+    try:
+        import tomllib
+    except ModuleNotFoundError as e:  # Python < 3.11
+        raise SystemExit(
+            "verificar.py necesita Python 3.11+ (tomllib) para leer los "
+            "manifiestos."
+        ) from e
+    return tomllib.loads(texto)
+
+
+def _versiones_de_los_crates(ref: str) -> dict[str, str] | None:
+    """`{nombre: versión}` de los miembros del workspace TAL COMO ESTÁN en `ref`.
+
+    Lee del árbol de git, no del disco: la pregunta es qué versiones lleva esa
+    rama, y el disco solo sabe de la actual. La lista de miembros se toma también
+    del ref, porque un crate puede haber nacido o desaparecido entre las dos
+    ramas — `padme-frame` nació el 2026-08-01 y no existe en `estable`.
+
+    `None` cuando no se pudo leer el ref: es «no pude mirar», que el llamante
+    convierte en SIN COMPROBAR y jamás en aprobado.
+    """
+    cod, raiz = correr(["git", "show", f"{ref}:Cargo.toml"], cwd=RAIZ, timeout=60)
+    if cod != 0:
+        return None
+    try:
+        miembros = _toml_de_texto(raiz)["workspace"]["members"]
+    except Exception:
+        return None
+
+    versiones: dict[str, str] = {}
+    for m in miembros:
+        rel = "Cargo.toml" if m == "." else f"{m}/Cargo.toml"
+        cod, texto = correr(["git", "show", f"{ref}:{rel}"], cwd=RAIZ, timeout=60)
+        if cod != 0:
+            continue
+        try:
+            pkg = _toml_de_texto(texto)["package"]
+        except Exception:
+            continue
+        if "name" in pkg and "version" in pkg:
+            versiones[pkg["name"]] = pkg["version"]
+    return versiones
+
+
+def _copia_de_origin_al_dia(ref: str) -> tuple[bool | None, str]:
+    """¿`origin/<rama>` en el disco coincide con lo que el remoto tiene AHORA?
+
+    Existe porque este archivo no hace `fetch` en ningún momento, y comparar
+    contra una copia vieja de `origin/estable` daría un APROBADO EN SILENCIO —
+    justo la forma de fallo que el guardián viene a impedir. Una consulta barata
+    (`git ls-remote`, sin descargar objetos) convierte «mi copia está vieja» en
+    algo que se dice, en vez de en un verde inmerecido.
+
+    Devuelve `(None, motivo)` cuando no se pudo preguntar: no saber no es estar
+    al día.
+    """
+    if not ref.startswith("origin/"):
+        return True, "ref local: no hay copia remota que contrastar"
+    rama = ref[len("origin/"):]
+    cod, local = correr(["git", "rev-parse", ref], cwd=RAIZ, timeout=60)
+    if cod != 0:
+        return None, f"no existe {ref} en el disco: haz `git fetch origin {rama}`"
+    cod, remoto = correr(["git", "ls-remote", "--heads", "origin", rama], cwd=RAIZ, timeout=120)
+    if cod != 0 or not remoto.strip():
+        return None, f"el remoto no respondió por «{rama}»"
+    if remoto.split()[0].strip() != local.strip():
+        return False, (
+            f"tu {ref} está desactualizada respecto del remoto — "
+            f"`git fetch origin {rama}` antes de fiarte de esta comparación"
+        )
+    return True, f"{ref} coincide con el remoto"
+
+
+def verificar_versiones_no_retroceden(inf: Informe, origen: str, destino: str) -> None:
+    """Ningún crate del workspace puede llevar en `origen` una versión INFERIOR a
+    la que ya lleva `destino`.
+
+    Que sean IGUALES no suspende, y es deliberado (directiva 21): un release que
+    toca `quipu` y no toca `quipu-nucleo` deja al hermano en su número y no lo
+    republica. Es la operación normal contra la que hay que probar toda regla
+    antes de escribirla; exigir «estrictamente mayor» obligaría a bumpear los
+    cinco crates en cada release.
+    """
+    al_dia, motivo = _copia_de_origin_al_dia(destino)
+    if al_dia is not True:
+        inf.omitido(
+            f"ninguna versión retrocede de {origen} a {destino}",
+            motivo + " — comparar contra una copia vieja aprobaría sin mirar",
+        )
+        return
+
+    de_origen = _versiones_de_los_crates(origen)
+    de_destino = _versiones_de_los_crates(destino)
+    if de_origen is None or de_destino is None:
+        cual = origen if de_origen is None else destino
+        inf.omitido(
+            "ninguna versión retrocede",
+            f"no se pudo leer el workspace de «{cual}» — sin las dos ramas la "
+            "comparación no se puede hacer",
+        )
+        return
+
+    retrocesos, sin_comparar = [], []
+    for crate, vd in sorted(de_destino.items()):
+        vo = de_origen.get(crate)
+        if vo is None:
+            # Un crate que el origen ya no tiene es un borrado deliberado, no un
+            # retroceso de versión. Lo mira quien revise el PR.
+            continue
+        a, b = _semver(vo), _semver(vd)
+        if a is None or b is None:
+            sin_comparar.append(f"{crate} ({vo} vs {vd})")
+        elif a < b:
+            retrocesos.append(f"{crate}: {origen} lleva {vo} y {destino} ya tiene {vd}")
+
+    if retrocesos:
+        inf.fallo(
+            f"ninguna versión retrocede de {origen} a {destino}",
+            "; ".join(retrocesos) + " — promover así DESPUBLICA ese release: "
+            f"fusiona {destino} en {origen} antes de promover",
+        )
+    else:
+        inf.ok(
+            f"ninguna versión retrocede de {origen} a {destino}",
+            f"{len(de_destino)} crates comparados",
+        )
+
+    if sin_comparar:
+        inf.omitido(
+            "versiones que no se pudieron ordenar",
+            "; ".join(sin_comparar) + " — no se inventa un orden para ellas",
+        )
+
+
+# --------------------------------------------------------------------------
+# Deriva desde el tag: cambios que NO llegarán al índice.
+# --------------------------------------------------------------------------
+#
+# `verificar_versiones_de_miembros` caza que el árbol vaya por DEBAJO de
+# crates.io. No caza el caso simétrico y más silencioso: que vaya IGUAL y el
+# CONTENIDO haya cambiado.
+#
+# Pasó con `quipu-voprf` el 2026-08-02. El árbol y la 0.2.2 publicada diferían
+# en exactamente una línea —el `#![forbid(unsafe_code)]`—, y como crates.io no
+# deja re-subir una versión, ese endurecimiento no habría llegado JAMÁS a quien
+# hace `cargo add`. Nada estaba roto: el número coincidía, las pruebas pasaban y
+# el guardián nuevo lo aprobaba con razón. Simplemente el trabajo se quedaba en
+# el disco.
+#
+# LA REGLA: si existe el tag de la versión que declara el árbol y hay cambios
+# entre ese tag y HEAD dentro del crate, el número tiene que subir.
+#
+# POR QUÉ SOLO AL PROMOVER, y no en cada verificación: durante el desarrollo esa
+# diferencia es el estado NORMAL —se trabaja sobre la versión publicada hasta
+# que toca subirla—, así que una alarma continua sería falsa todos los días y a
+# la tercera nadie la miraría (directiva 23). En la promoción a `estable`, en
+# cambio, es exactamente la pregunta que hay que contestar.
+
+# Prefijo de tag por crate. TIENE QUE CONCORDAR con `on.push.tags` de
+# `.github/workflows/release.yml`; si no, esto mira un tag que nadie empuja.
+_PREFIJO_DE_TAG = {
+    "quipu": "v",
+    "quipu-voprf": "voprf-v",
+    "quipu-nucleo": "nucleo-v",
+    "padme-frame": "padme-v",
+    "quipu-cnsa": "cnsa-v",
+}
+
+
+def verificar_deriva_desde_el_tag(inf: Informe) -> None:
+    """Ningún crate puede llevar cambios sin publicar bajo un número ya usado."""
+    if not hay("git"):
+        inf.omitido("deriva desde el tag", "git no está instalado")
+        return
+    try:
+        miembros = _miembros_publicables()
+    except Exception as e:
+        inf.omitido("deriva desde el tag", f"no se pudo leer el workspace: {e}")
+        return
+
+    # El paquete raíz no sale de `members`, y es el que más importa.
+    #
+    # Sus rutas van ACOTADAS a lo que `cargo publish -p quipu` empaqueta. Con un
+    # `.` el diff cazaría cualquier cambio del repositorio —un README de otro
+    # crate, un workflow— y diría que `quipu` tiene trabajo sin publicar cuando
+    # no lo tiene. Una alarma así es peor que ninguna.
+    try:
+        miembros = [("quipu", _version_de_referencia(), None)] + miembros
+    except Exception as e:
+        inf.omitido("deriva desde el tag", f"no se pudo leer la versión raíz: {e}")
+        return
+
+    for nombre, version, rel in miembros:
+        prefijo = _PREFIJO_DE_TAG.get(nombre)
+        if prefijo is None:
+            # Un crate publicable sin prefijo declarado NO se aprueba en
+            # silencio: o se le da tag, o se dice que no se puede mirar.
+            inf.omitido(
+                f"deriva de {nombre}",
+                "no tiene prefijo de tag en `_PREFIJO_DE_TAG` — si es publicable, "
+                "necesita uno en release.yml y aquí",
+            )
+            continue
+
+        tag = f"{prefijo}{version}"
+        cod, _ = correr(["git", "rev-parse", "-q", "--verify", f"{tag}^{{}}"], cwd=RAIZ, timeout=30)
+        if cod != 0:
+            inf.ok(
+                f"{nombre} {version}",
+                f"el tag {tag} no existe aún: es una versión sin cortar, nada que comparar",
+            )
+            continue
+
+        rutas = ["src", "Cargo.toml"] if rel is None else [rel]
+        cod, salida = correr(
+            ["git", "diff", "--name-only", tag, "HEAD", "--", *rutas], cwd=RAIZ, timeout=60
+        )
+        if cod != 0:
+            inf.omitido(f"deriva de {nombre}", f"git diff contra {tag} no respondió")
+            continue
+        cambios = [l for l in salida.strip().splitlines() if l.strip()]
+        if cambios:
+            muestra = ", ".join(cambios[:3]) + (" …" if len(cambios) > 3 else "")
+            inf.fallo(
+                f"{nombre} {version} cambió desde el tag {tag}",
+                f"{len(cambios)} archivo(s) distintos ({muestra}) bajo un número YA "
+                f"publicado: sube la versión o esos cambios no llegarán al índice",
+            )
+        else:
+            inf.ok(f"{nombre} {version}", f"idéntico al tag {tag}: nada sin publicar")
+
+
 def verificar_promocion(inf: Informe, destino: str) -> None:
     """Comprueba que esta rama puede promoverse a `destino`. No fusiona."""
     if destino not in _DESTINOS:
@@ -955,6 +1480,24 @@ def verificar_promocion(inf: Informe, destino: str) -> None:
     else:
         inf.ok("rama empujada", f"origin/{rama} está al día")
 
+    # --- ningún hermano puede ir por detrás, ni del índice ni del destino ---
+    #
+    # En las DOS promociones, no solo al ir a `estable`: la regresión se
+    # introduce al entrar en `testing` y cuanto antes se vea, más barata sale.
+    #
+    # Son DOS comprobaciones porque son dos preguntas: contra lo publicado (red,
+    # ve lo subido a mano) y contra la rama destino (sin red, ve el release en
+    # vuelo que aún no llegó al índice). Comparten `_semver` y nada más.
+    verificar_versiones_de_miembros(inf)
+    verificar_versiones_no_retroceden(inf, rama, f"origin/{destino}")
+
+    # --- ni llevar cambios sin publicar bajo un número ya usado -------------
+    #
+    # Solo al ir a `estable`, y el porqué está en el encabezado de la función:
+    # durante el desarrollo esa deriva es el estado normal.
+    if destino == "estable":
+        verificar_deriva_desde_el_tag(inf)
+
     # --- la versión no puede estar ya publicada -----------------------------
     #
     # Solo al ir a `estable`, porque es de donde sale el tag. Publicar una
@@ -962,26 +1505,52 @@ def verificar_promocion(inf: Informe, destino: str) -> None:
     # rechaza, pero el resto del flujo ya arrancó. Y PyPI NO deja re-subir, así
     # que equivocarse cuesta un yank — pasó con la 0.9.0.
     if destino == "estable":
-        try:
-            v = _version_de_referencia()
-        except Exception as e:
-            inf.omitido("versión no publicada aún", f"no se pudo leer Cargo.toml: {e}")
-            return
-        meta = leer_json(f"https://pypi.org/pypi/quipu-crypto/{v}/json")
-        if meta is None:
-            # Un fallo de red NO es un aprobado. Que se note.
-            inf.omitido(
-                f"la versión {v} no está publicada aún",
-                "PyPI no respondió: sin ese dato no se puede promover con seguridad",
-            )
-        elif meta.get("info"):
-            inf.fallo(
-                f"la versión {v} YA está en PyPI",
-                "sube la versión antes de promover, o el release publicará algo "
-                "distinto con el mismo número (PyPI no deja re-subir)",
-            )
-        else:
-            inf.ok(f"la versión {v} no está publicada", "el tag será nuevo")
+        verificar_version_no_publicada(inf)
+
+
+def verificar_version_no_publicada(inf: Informe) -> None:
+    """La versión del árbol no puede existir ya en PyPI.
+
+    Va en función propia y no dentro de `verificar_promocion` PARA PODER
+    PROBARLA: mientras estuvo embebida, su rama verde nunca se ejecutó y nadie
+    lo notó.
+    """
+    try:
+        v = _version_de_referencia()
+    except Exception as e:
+        inf.omitido("versión no publicada aún", f"no se pudo leer Cargo.toml: {e}")
+        return
+    # EL ENDPOINT ES POR VERSIÓN, así que una versión que no existe devuelve
+    # **404** — y ese 404 es la respuesta BUENA, la que dice «adelante».
+    #
+    # Aquí se usaba `leer_json`, que devuelve `None` tanto para el 404 como
+    # para un fallo de red, y el 404 caía en la rama de «PyPI no respondió».
+    # Consecuencia: la comprobación NUNCA podía aprobar. Con la 0.11.0 sin
+    # publicar salía «? SIN COMPROBAR» y la puerta entera acababa en
+    # INCOMPLETA, o sea que bloqueaba toda promoción de una versión nueva —
+    # justo la única clase de promoción que existe. La rama `ok` era código
+    # muerto y nadie lo había ejecutado jamás.
+    #
+    # Es el error que este archivo ya tiene documentado dos veces: colapsar
+    # «no pude mirar» con un veredicto. `leer_json_estado` existe para
+    # separar los tres estados y este sitio se había quedado sin migrar.
+    # Comprobado a mano el 2026-08-03: `curl` a ese endpoint da 200 para
+    # 0.10.0 y 404 para 0.11.0.
+    estado, meta = leer_json_estado(f"https://pypi.org/pypi/quipu-crypto/{v}/json")
+    if estado == "ausente":
+        inf.ok(f"la versión {v} no está publicada", "el tag será nuevo")
+    elif estado == "ok" and isinstance(meta, dict) and meta.get("info"):
+        inf.fallo(
+            f"la versión {v} YA está en PyPI",
+            "sube la versión antes de promover, o el release publicará algo "
+            "distinto con el mismo número (PyPI no deja re-subir)",
+        )
+    else:
+        # Un fallo de red NO es un aprobado. Que se note.
+        inf.omitido(
+            f"la versión {v} no está publicada aún",
+            "PyPI no respondió: sin ese dato no se puede promover con seguridad",
+        )
 
 
 def abrir_pr_de_promocion(destino: str) -> int:
@@ -1313,6 +1882,9 @@ def main() -> int:
     if args.orden == "version":
         print(f"{GRIS}Comprobando que la versión concuerde en todos sus sitios…{FIN}")
         verificar_versiones(inf)
+        # `supply-chain/config.toml` es un sitio más de la versión, y de los que
+        # no se miran: no rompe la compilación, rompe un check del CI.
+        verificar_exenciones_de_vet(inf)
     if args.orden == "portada":
         print(f"{GRIS}Comprobando que las descripciones publicadas no mientan…{FIN}")
         verificar_promesas_de_la_portada(inf)

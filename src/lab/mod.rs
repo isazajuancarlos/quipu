@@ -27,6 +27,9 @@ pub mod honey_attack;
 #[cfg(feature = "honey")]
 pub mod honey_fuzz;
 pub mod leak;
+/// ¿Qué sobrevive a una fotocopia a igual área de papel? La medición que la
+/// hoja de ruta (§6) declara pendiente para elegir el portador de papel.
+pub mod papel;
 pub mod stream_attack;
 
 #[cfg(feature = "lab-offline")]

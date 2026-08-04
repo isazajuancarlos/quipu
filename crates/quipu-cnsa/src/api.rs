@@ -57,7 +57,25 @@ pub struct Options<'a> {
     pub kdf_params: KdfParams,
     /// Secreto que vive FUERA del dato (código, HSM, variable de entorno).
     pub pepper: &'a [u8],
-    /// Identificador del codebook usado para la representación.
+    /// **RESERVADO Y OBSOLETO. Déjelo en 0.**
+    ///
+    /// Se escribe en claro en la cabecera y **nunca se lee**: verificado en las
+    /// dos implementaciones — quien decide qué alfabeto se usó es la huella
+    /// (`codebook_hash_prefix`), que sí se comprueba. Este campo no entrega
+    /// nada.
+    ///
+    /// Y no es inocuo: son **16 bits de metadato en claro, elegidos por quien
+    /// cifra y estables entre todos sus contenedores**. Ponerle un valor con
+    /// significado —un identificador de inquilino, de usuario, de documento—
+    /// convierte cada archivo en enlazable con los demás del mismo dueño. Ver
+    /// N9 en `docs/THREAT_MODEL.md`, con la medición.
+    ///
+    /// **Por qué NO se rechaza un valor distinto de cero**, a diferencia de
+    /// `flags`: este campo es público y ajustable desde la 0.10.0. Rechazarlo al
+    /// descifrar dejaría ILEGIBLE PARA SIEMPRE cualquier contenedor que alguien
+    /// haya creado con él. Datos huérfanos y sin recurso, a cambio de limpieza.
+    /// Se marca, se documenta, y se quita en la próxima ruptura de formato —
+    /// cuando ya nadie lo escriba.
     pub codebook_id: u16,
 }
 
@@ -92,7 +110,20 @@ pub fn encode_to_blob(
     let header = Header {
         version: VERSION,
         flags: 0,
-        codebook_id: opts.codebook_id,
+        // PASO 2 DE LA RETIRADA DE `codebook_id` (2026-08-01): se escribe
+        // SIEMPRE 0, ignorando lo que pida el llamante.
+        //
+        // El campo nunca se lee —quien decide qué alfabeto se usó es la huella,
+        // que sí se comprueba— y son 16 bits de metadato en claro, elegidos por
+        // quien cifra y estables entre todos sus contenedores (N9).
+        //
+        // POR QUÉ ESTE PASO Y NO EL BORRADO: quitar el campo del formato, o
+        // rechazarlo al leer, dejaría ILEGIBLE cualquier contenedor que alguien
+        // ya haya creado con un valor. Escribir cero al crear no huerfana nada:
+        // los viejos se siguen abriendo, y los nuevos dejan de sumar al
+        // problema. Cuando no queden contenedores nuevos con valor, el paso 3
+        // es validarlo a cero como se hizo con `flags`.
+        codebook_id: 0,
         codebook_hash_prefix: codebook_fingerprint,
         salt,
         nonce,

@@ -11,6 +11,13 @@
 //! `handle_connection` (el binario servidor); aquí solo va el protocolo.
 //! En producción: poner detrás de TLS (nginx stream / stunnel) en el VPS.
 
+// USO INTERNO DE LO OBSOLETO: este módulo ES la superficie marcada, o su
+// transporte. Silenciarlo AQUÍ y solo aquí es lo que deja el aviso vivo
+// para quien lo importe desde fuera, que es el único a quien va dirigido.
+// Sin esto, `clippy -D warnings` rompería el CI por avisos que no son
+// para nosotros.
+#![allow(deprecated)]
+
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
@@ -20,6 +27,10 @@ use crate::voprf;
 /// Cliente SIN verificación (sin prueba DLEQ): no detecta un servidor
 /// deshonesto. Prefiere [`evaluate_remote_verified`]. Oculto de la doc.
 #[doc(hidden)]
+#[deprecated(
+    since = "0.10.1",
+    note = "no verifica la prueba DLEQ: un servidor deshonesto (T4) pasa desapercibido. Use `evaluate_remote_verified`."
+)]
 pub fn evaluate_remote(addr: &str, blinded: &[u8; 32]) -> std::io::Result<Option<[u8; 32]>> {
     let mut stream = TcpStream::connect(addr)?;
     stream.write_all(blinded)?;
@@ -35,6 +46,10 @@ pub fn evaluate_remote(addr: &str, blinded: &[u8; 32]) -> std::io::Result<Option
 /// Servidor SIN verificación (responde sin prueba DLEQ). Prefiere
 /// [`handle_connection_verified`]. Oculto de la doc.
 #[doc(hidden)]
+#[deprecated(
+    since = "0.10.1",
+    note = "sirve el protocolo SIN prueba DLEQ. Use `handle_connection_verified`."
+)]
 pub fn handle_connection<S: Read + Write>(
     stream: &mut S,
     server: &Server,
@@ -112,6 +127,9 @@ pub fn handle_connection_verified<S: Read + Write>(
 }
 
 #[cfg(test)]
+// El arnés de `#[test]` genera código que referencia estos ítems desde
+// FUERA del `allow` del módulo, así que hace falta aquí también.
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::oprf;

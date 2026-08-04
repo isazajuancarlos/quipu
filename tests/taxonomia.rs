@@ -291,3 +291,94 @@ fn la_clave_maestra_sale_de_argon2id_y_no_de_otra_cosa() {
         );
     }
 }
+
+// ===========================================================================
+// FAMILIA 7 — QUE EL FUZZ DE LOS PARSERS LLEGUE AL PARSER
+// ===========================================================================
+
+/// Los objetivos `parse_signed` y `parse_recipient` reciben TEXTO y empiezan por
+/// `dict.decode`, que exige que cada carácter esté en el alfabeto insignia — 4096
+/// glifos CJK. Alimentarlos con los bytes crudos del fuzzer, como se hizo desde
+/// que se añadieron hasta el 2026-07-31, es morir en esa puerta SIEMPRE: medido,
+/// 96.923 ejecuciones con la cobertura congelada desde la nº 5 y un corpus
+/// degenerado a unidades de un byte. Estaban verdes sin haber tocado nunca el
+/// rebanado de firmas que decían fuzzear.
+///
+/// La corrección fue que el objetivo traduzca su entrada al alfabeto por el mismo
+/// camino que se usa al construir. Esta prueba fija esa traducción: replica lo
+/// que hace el objetivo y exige que el error que sale NO sea el del alfabeto.
+///
+/// Si alguien revierte la traducción, o cambia el alfabeto por uno que no admita
+/// lo que el codec produce, esto se pone rojo. Un comentario en el objetivo no
+/// habría aguantado: el defecto original venía con su comentario diciendo lo
+/// contrario.
+#[test]
+fn el_fuzz_de_los_contenedores_alcanza_el_parser_y_no_muere_en_el_alfabeto() {
+    use quipu::api::{decode_as_recipient, decode_verified, DecodeError};
+    use quipu::{codec, dictionaries, pqhybrid, pqsign};
+
+    let dict = dictionaries::flagship();
+
+    // Exactamente la pasada (1) de fuzz/fuzz_targets/parse_signed.rs.
+    let traducir = |data: &[u8]| -> String {
+        dict.encode(&codec::encode_base_n(data, dict.base()))
+            .expect("el codec produce índices dentro de la base")
+    };
+
+    // LAS CLAVES FIJAS DE LOS OBJETIVOS, tal cual las construyen ellos. Esto no
+    // es preámbulo: `parse_signed` usaba `VerifyingKey::from_bytes(&[0x42; 2624])`
+    // dentro de un `if let Some(vk)`, esa clave NO parsea —los 32 primeros bytes
+    // son un punto Ed25519 comprimido y `0x42` repetido no lo es—, y por tanto el
+    // cuerpo del objetivo no se ejecutó ni una vez desde que se añadió. Con el CI
+    // en verde. Que la clave del objetivo parsee es la mitad de esta prueba.
+    let sk_firma = pqsign::SigningKey::from_bytes(&[0x42u8; pqsign::SIGNING_KEY_LEN])
+        .expect("la semilla de firma constante de parse_signed debe parsear");
+    let vk = sk_firma.verifying_key();
+    let sk = pqhybrid::SecretKey::from_bytes(&[0x37u8; pqhybrid::SECRET_KEY_LEN])
+        .expect("la clave secreta constante de parse_recipient debe parsear");
+
+    // Y que se note por qué se cambió: el relleno constante de antes NO da clave.
+    assert!(
+        pqsign::VerifyingKey::from_bytes(&[0x42u8; pqsign::VERIFYING_KEY_LEN]).is_none(),
+        "si un relleno constante ya diera VerifyingKey válida, el defecto original \
+         no habría existido y esta prueba estaría midiendo otra cosa"
+    );
+
+    // Un blob corto y uno del tamaño que el parser firmado exige de mínimo. El
+    // largo es el que importa: con `-max_len` por defecto (4096) libFuzzer no
+    // podía fabricarlo, y por eso el corpus semilla no es afinado sino requisito.
+    let minimo_firmado = 10 + pqsign::SIGNATURE_LEN;
+    for data in [vec![0xABu8; 32], vec![0xCDu8; minimo_firmado + 64]] {
+        let simbolos = traducir(&data);
+
+        match decode_verified(&simbolos, &vk, &dict) {
+            Err(DecodeError::Symbol(e)) => panic!(
+                "parse_signed volvió a morir en el alfabeto ({e:?}): el objetivo \
+                 no está tocando el parser que dice fuzzear"
+            ),
+            Ok(_) => panic!("un blob arbitrario verificó contra una clave ajena"),
+            Err(_) => {}
+        }
+
+        match decode_as_recipient(&simbolos, &sk, &dict) {
+            Err(DecodeError::Symbol(e)) => panic!(
+                "parse_recipient volvió a morir en el alfabeto ({e:?}): el objetivo \
+                 no está tocando la decapsulación que dice fuzzear"
+            ),
+            Ok(_) => panic!("un blob arbitrario se abrió con una clave que no lo cifró"),
+            Err(_) => {}
+        }
+    }
+
+    // Y que la prueba DISCRIMINE: sin traducir, el alfabeto rechaza. Si esto no
+    // fallara, lo de arriba pasaría por la razón equivocada y no mediría nada.
+    let crudo = "esto no son glifos del alfabeto insignia";
+    assert!(
+        matches!(
+            decode_verified(crudo, &vk, &dict),
+            Err(DecodeError::Symbol(_))
+        ),
+        "sin traducir debería morir en el alfabeto; si no, esta prueba no distingue \
+         el camino corregido del roto"
+    );
+}

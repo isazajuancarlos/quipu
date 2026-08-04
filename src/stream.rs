@@ -232,15 +232,18 @@ pub fn encrypt_stream<R: Read, W: Write>(
 
     let chunk = opts.chunk_size;
     let mut counter: u32 = 0;
-    let mut cur = vec![0u8; chunk];
-    let mut nxt = vec![0u8; chunk];
-    let mut n_cur = read_chunk(&mut reader, &mut cur)?;
+    // LOS DOS BUFFERS LLEVAN TEXTO EN CLARO: son los trozos que se acaban de leer
+    // del origen. `Zeroizing` los borra al soltarlos, y también en los retornos
+    // por error de en medio, que es donde un `wipe` al final no llegaría.
+    let mut cur = Zeroizing::new(vec![0u8; chunk]);
+    let mut nxt = Zeroizing::new(vec![0u8; chunk]);
+    let mut n_cur = read_chunk(&mut reader, &mut cur[..])?;
 
     loop {
         let is_last = if n_cur < chunk {
             true
         } else {
-            let n_nxt = read_chunk(&mut reader, &mut nxt)?;
+            let n_nxt = read_chunk(&mut reader, &mut nxt[..])?;
             if n_nxt == 0 {
                 true
             } else {
@@ -309,8 +312,14 @@ pub fn decrypt_stream<R: Read, W: Write>(
                     return Err(StreamError::Truncated);
                 }
                 let nonce = chunk_nonce(&header.nonce_prefix, counter, false);
-                let pt = cipher::decrypt(&key, &nonce, &cur[..n_cur], &header_bytes)
-                    .map_err(|_| StreamError::Decrypt)?;
+                // EL TROZO DESCIFRADO ES TEXTO EN CLARO y se soltaba sin borrar:
+                // medido en `tests/residuo_memoria.rs` (T6), quedaba 1 copia en
+                // el montón tras `decrypt_stream_bytes`, con el llamante habiendo
+                // borrado la suya.
+                let pt = Zeroizing::new(
+                    cipher::decrypt(&key, &nonce, &cur[..n_cur], &header_bytes)
+                        .map_err(|_| StreamError::Decrypt)?,
+                );
                 writer.write_all(&pt)?;
                 counter = counter.checked_add(1).ok_or(StreamError::Truncated)?;
                 std::mem::swap(&mut cur, &mut nxt);
@@ -320,8 +329,10 @@ pub fn decrypt_stream<R: Read, W: Write>(
         };
         debug_assert!(is_last);
         let nonce = chunk_nonce(&header.nonce_prefix, counter, true);
-        let pt = cipher::decrypt(&key, &nonce, &cur[..n_cur], &header_bytes)
-            .map_err(|_| StreamError::Decrypt)?;
+        let pt = Zeroizing::new(
+            cipher::decrypt(&key, &nonce, &cur[..n_cur], &header_bytes)
+                .map_err(|_| StreamError::Decrypt)?,
+        );
         writer.write_all(&pt)?;
         break;
     }

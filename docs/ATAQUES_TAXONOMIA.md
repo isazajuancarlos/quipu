@@ -327,7 +327,52 @@ Y la lista del CI **se deriva** con `cargo fuzz list` en vez de escribirse: la
 anterior tenía cuatro nombres a mano y habría dejado los dos nuevos fuera sin que
 nadie lo notara — el job seguiría verde fuzzeando menos de lo que hay.
 
-*Falta todavía:* el corpus encadenado entre objetivos.
+### Los dos objetivos que estaban verdes sin fuzzear nada (2026-07-31)
+
+Al ir a encadenar el corpus se midió primero lo que había, y lo que había era
+esto: **`parse_signed` y `parse_recipient` no llegaban al parser**. Ninguno de los
+dos. Desde que se añadieron, con el CI en verde.
+
+- **`parse_signed` no ejecutaba ni una línea de su cuerpo.** Fijaba la clave con
+  `VerifyingKey::from_bytes(&[0x42; 2624])` dentro de un `if let Some(vk)`. Esa
+  clave no parsea —sus 32 primeros bytes son un punto Ed25519 comprimido, y `0x42`
+  repetido no lo es—, así que la condición era falsa en cada iteración y el
+  `if let` se saltaba todo en silencio. Medido: 96.923 ejecuciones, cobertura
+  congelada desde la nº 5, y un corpus que degeneró a unidades de **un byte**
+  porque alargar la entrada no abría nada.
+- **`parse_recipient` sí corría, pero moría en la puerta del alfabeto.** Los dos
+  reciben `&str` y empiezan por `dict.decode`, que exige que CADA carácter esté
+  entre los 4096 glifos CJK del alfabeto insignia. Los bytes crudos del fuzzer no
+  lo están casi nunca, y nunca en cadena larga.
+- **Y aunque hubieran pasado, no cabían.** `decode_verified` rechaza por
+  `TooShort` todo blob de menos de 4701 bytes; el `-max_len` por defecto de
+  libFuzzer es 4096. Sin semilla larga la puerta era infranqueable por
+  construcción.
+
+Corregido en tres piezas, y cada una arregla la REGLA, no el caso: la clave se
+deriva de una semilla de 64 bytes (válida por construcción, porque son semillas y
+no puntos) y el `return` silencioso pasa a ser un `panic!` —un objetivo de fuzz
+que no fuzzea tiene que doler—; cada objetivo traduce su entrada al alfabeto por
+el mismo camino que usa al construir, y además la pasa cruda si es UTF-8, para no
+perder el decodificador; y `examples/gen_semillas_fuzz.rs` siembra artefactos
+reales con sus mutaciones de frontera, lo que de paso sube solo el `-max_len`.
+
+Lo sostiene una prueba, no este párrafo:
+`tests/taxonomia.rs::el_fuzz_de_los_contenedores_alcanza_el_parser_y_no_muere_en_el_alfabeto`
+exige que la clave del objetivo parsee y que el error que sale no sea el del
+alfabeto, y comprueba que discrimina. Fue esa prueba la que encontró lo de la
+clave; el comentario del objetivo afirmaba justo lo contrario.
+
+### El corpus encadenado
+
+Encadenar «entre objetivos» solo sirve dentro de un mismo **idioma de entrada**.
+`parse_container`, `unpad`, `parse_signed` y `parse_recipient` consumen todos blob
+crudo —mágico, versión, banderas, longitudes en offsets fijos—, así que el CI le
+pasa a cada uno el corpus de sus tres hermanos como entrada de solo lectura.
+`honey_decrypt` (formato `QHNY` propio) y `codec_roundtrip` (dos bytes de base +
+payload) quedan fuera: su primer byte significa otra cosa y mezclarlos sería ruido
+disfrazado de cobertura. La tabla de familias está en `fuzz/README.md`, y lo que
+hay que decidir al añadir un objetivo nuevo es en qué fila entra.
 
 **Invariante:** I2.
 
@@ -354,7 +399,139 @@ El riesgo que cubre no es criptográfico sino de comodidad: basta con que alguie
 añada la passphrase a un error «para depurar mejor» y esa cadena acaba en un log
 o en la consola de un cliente.
 
-*Falta todavía:* `mlock` opcional para el material reconstruido.
+#### El residuo del material reconstruido: por qué no lleva `mlock` (2026-07-31)
+
+Aquí decía «falta `mlock` opcional para el material reconstruido». No va a
+llegar, y la razón no es pereza sino que **no cumple el criterio**: la defensa que
+se acepte tiene que cerrar la brecha ENTERA, no una parte.
+
+La brecha entera son cinco caminos por los que el material reconstruido puede
+salir de RAM: el **swap**, un **volcado de proceso** (core dump), el **cold
+boot**, un **ptrace** desde otro proceso del mismo usuario, y la **imagen de
+hibernación**. `mlock` cierra el primero y a medias el último, a cambio de meter
+`libc` como dependencia directa del árbol. Sus primos del sistema —`mlockall`,
+`prctl(PR_SET_DUMPABLE, 0)`, `madvise(MADV_DONTDUMP)`— tienen la misma forma:
+cada uno tapa un camino, todos piden la misma dependencia. Cinco parches
+parciales no suman uno entero, y dejan un README diciendo que la memoria está
+protegida cuando lo está contra uno de cinco.
+
+Lo que sí se hizo fue **comprobar el lado del código, en vez de suponerlo**. El
+camino del material reconstruido está limpio: `shamir::combine` devuelve
+`Zeroizing<Vec<u8>>` y zeroiza sus intermedios (`lambdas`, `coeficientes`);
+`SigningKey` zeroiza sus semillas al soltarse; y `firmar_con_comparticiones` acota
+la vida del secreto a una llamada, de la que solo sobrevive la firma. No había
+rutas sin `zeroize` que añadir: es un negativo medido, no una tarea pendiente
+disfrazada.
+
+#### Y «best-effort» ya tiene número
+
+Descartar `mlock` dejaba sin responder la pregunta que de verdad importa —**¿sobrevive
+algo?**—, y esa pregunta nunca se había medido, solo afirmado. Medirla es lo que
+cierra la brecha, no parchear alrededor.
+
+Lo mide `tests/residuo_memoria.rs`: un proceso HIJO hace la operación real y se
+queda quieto, y el PADRE lee `/proc/<hijo>/mem` y cuenta apariciones de un
+secreto canario. Solo `std` —en Linux la memoria de un proceso es un fichero, así
+que no hace falta `libc` ni ptrace explícito—, y con dos decisiones que no son de
+estilo sino de que el número signifique algo:
+
+- **Dos procesos, no uno.** Un escáner que lee su propio montón copia dentro de su
+  buffer justo los bytes que busca. Medido al intentarlo: la misma situación daba
+  0, 17 o 33 según el orden del barrido. El instrumento se contaba a sí mismo.
+- **Se busca un tramo INTERIOR del canario.** Al liberar un trozo, el asignador
+  escribe sus punteros sobre los primeros 16 bytes; exigir coincidencia completa
+  informaba «no hay residuo» con 240 de 256 bytes del secreto intactos en memoria
+  liberada. Un falso negativo, y de los caros.
+- **Se lee PÁGINA A PÁGINA, no la región de un tirón.** La pila de un hilo son 2
+  MiB reservados de los que solo se ha tocado una parte, y una lectura completa
+  falla en la primera página sin mapear y **descarta la región entera**. Así se
+  perdía justo la pila donde estaba el secreto, y el instrumento informaba «no hay
+  residuo» por no haber mirado. Fue lo que hizo que la primera versión diera cero
+  en la máquina de desarrollo y dos en el runner del CI: no era el entorno, era el
+  instrumento.
+- **El banco no puede tocar el secreto**, o mide su propio rastro. Construir una
+  clave para montar el escenario la devuelve por valor —un movimiento, y por tanto
+  una copia en el marco de quien la monta—, y esa copia se contaba contra la
+  librería. El montaje vive en un marco aparte y entrega solo comparticiones, que
+  es lo que recibe un llamante real. La misma trampa reapareció escribiendo esto:
+  pedirle al canario su LONGITUD ya lo construye, y el padre contaba esos 64 bytes
+  como residuo de la librería.
+- **El secreto lo conoce el PADRE, no el hijo.** Quien mide tiene que saber qué
+  busca, así que los sobres los cifra el padre y le pasa al hijo el material
+  sensible en HEXADECIMAL, que no es la aguja. El hijo lo convierte en un marco
+  profundo y lo borra antes de tocar la librería.
+- **La aguja se valida contra el artefacto.** Cuando conocerla exige abrir una
+  cabecera a mano —la clave de contenido del híbrido, la maestra del camino de
+  contraseña—, el padre comprueba que esa clave DESCIFRA el contenedor antes de
+  buscarla. Sin eso, un desplazamiento mal puesto da cero sin haber mirado nada.
+
+**Resultado, en debug y en release: CERO residuo** en doce mediciones sobre cinco
+caminos. Cada medida lleva su **control**, que deja una copia viva a propósito y
+exige que el escáner la vea: sin eso, un cero sería indistinguible de un escáner
+que mira donde no es.
+
+Y una advertencia que vale más que el resultado: **este instrumento ha dado cero
+por cuatro razones equivocadas distintas** —se contaba a sí mismo; no leía la pila
+del hilo; medía el rastro de su propio banco; y buscaba una clave que el proceso
+nunca había derivado, con el control derivándola igual de mal—. El cero de arriba
+solo significa algo por los controles que lo acompañan, y solo si la aguja está
+validada contra el artefacto. Un medidor de residuo sin un caso que lo ponga rojo
+es un generador de ceros; con un control que se equivoca igual que él, también.
+
+Con lo que la situación queda dicha con precisión:
+
+- **T6 —leer la memoria DESPUÉS de la operación— está cerrado y medido en DOCE
+  mediciones sobre CINCO caminos**, cada una con su propio control de fuga
+  deliberada (el control de un escenario no valida otro):
+
+  | Camino | Qué se busca en la memoria del proceso |
+  |---|---|
+  | custodia (`escrow`) | la semilla de firma reconstruida por Shamir |
+  | contraseña (`encode`/`decode`) | la contraseña, la clave maestra y el texto en claro |
+  | destinatario (`decode_as_recipient`) | la clave secreta del destinatario, la clave de contenido de la decapsulación y el texto en claro |
+  | streaming (`QST1`), en las dos direcciones | el texto en claro al descifrar y al cifrar, y la contraseña |
+  | honey | el secreto (la secuencia de tokens) y la contraseña |
+
+  En los cinco, para un volcado, una imagen de swap, una de hibernación o un cold
+  boot, no queda nada que encontrar.
+
+  **Medir cambió el resultado, que es la única razón por la que medir vale la
+  pena.** Tres cosas que estaban mal y el verde anterior no veía:
+
+  1. La medición de la clave maestra **buscaba una clave que el proceso nunca
+     había derivado**: el padre la derivaba con un salt fijo suyo y `encode` saca
+     el salt del RNG en cada llamada. El control pasaba porque la fuga se derivaba
+     igual de mal. Con el salt de verdad aparecieron **2 copias**.
+  2. Esas dos copias eran del KDF: `[u8; 32]` es `Copy`, así que devolver la clave
+     no vacía el marco sino que lo copia, y Argon2id deja el resto **a 99 KiB de
+     profundidad**, fuera del alcance de un limpiador que llegaba a 64 KiB.
+  3. El streaming soltaba **el trozo descifrado sin borrarlo**: 1 copia del texto
+     en claro en el montón tras `decrypt_stream_bytes`, con el llamante habiendo
+     borrado la suya. Y lo mismo al cifrar, con los buffers de lectura.
+  4. Y la peor: **en `--release` el limpiador de pila no limpiaba**. La medición
+     no corría ahí —el archivo estaba gateado con `escrow` y la pasada de release
+     del CI no activa ese feature—, así que la defensa funcionaba en debug y no en
+     lo que se publica. En release quedaban 1 copia del canario tras limpiar, 3 de
+     la clave maestra y 3 de la clave de contenido. Causa: `limpiar_pila` se
+     incrustaba y su lienzo dejaba de caer sobre los marcos muertos; más el mismo
+     defecto de `Copy` en `pqhybrid::combine`. De ahí sale la regla general:
+     **quien recibe un secreto POR VALOR limpia la pila del que se lo dio**, y el
+     medidor ya no lleva gate de archivo, así que corre en las cuatro pasadas.
+
+  **Lo que sigue sin medirse, y por tanto no se afirma**: la clave que derivan el
+  streaming y honey. Sus cabeceras son privadas, así que el medidor no puede sacar
+  el salt sin reconstruir el formato a ciegas — y una aguja mal derivada daría
+  cero sin haber mirado nada, que es exactamente el error del punto 1. Las dos
+  heredan el arreglo del KDF, pero heredar no es medir.
+- **El adversario con root MIENTRAS el proceso corre es R5**, endpoint
+  comprometido, y ya está fuera de alcance por declaración. Meter los dos en el
+  mismo saco es lo que hace parecer que esta brecha no se puede cerrar; son
+  amenazas distintas.
+- **Con HSM**: cerrada también por construcción — la clave privada no sale del
+  dispositivo.
+- **Y como defensa en profundidad del despliegue**, que no sustituye a lo
+  anterior: swap cifrado o desactivado, hibernación desactivada, volcados de
+  proceso desactivados y cifrado de disco completo.
 
 **Invariante:** I3 (residencia) + I5 (procedencia de la custodia).
 
@@ -365,16 +542,61 @@ stuffing; y para lo estructurado, modelos de "lo que parece humano" (medido: ×7
 de ventaja contra señuelos uniformes con PIN humano).
 
 **Exposición de Quipu.** **Contenida en tres capas complementarias.** Argon2id
-hace cada conjetura cara (medido: **6 intentos/s** con el contenedor en la mano);
-el OPRF **online** hace la fuerza bruta imposible sin el servidor (endurecimiento
-de credenciales); honey **offline** quita el oráculo de éxito para secretos
-uniformes de baja entropía. Tres respuestas a la misma amenaza para tres
+hace cada conjetura cara (medido: **5,69 intentos/s** con el contenedor en la
+mano); el OPRF **online** hace la fuerza bruta imposible sin el servidor
+(endurecimiento de credenciales); honey **offline** quita el oráculo de éxito para
+secretos uniformes de baja entropía. Tres respuestas a la misma amenaza para tres
 despliegues.
 
+#### Con qué parámetros y en qué máquina (2026-07-31)
+
+La cifra decía «6 intentos/s» sin decir ninguna de las dos cosas, y una cifra de
+coste sin sus parámetros no dice nada: `KdfParams::default()` entrega 64 MiB y 3
+iteraciones, mientras que el banco `guessing.rs` deriva con 16 MiB y 2 — seis
+veces menos trabajo de memoria, y en la misma máquina da **42,16 intentos/s**. La
+misma frase describía dos mundos.
+
+Medido con `cargo run --release --example coste_adivinacion`, que existe para que
+esto no vuelva a ser folclore:
+
+| Parámetros | s/intento | intentos/s |
+|---|---|---|
+| `default()` — lo que recibe el usuario (64 MiB, t=3, p=1) | 0,176 | **5,69** |
+| `guessing.rs` — lo que mide el banco (16 MiB, t=2, p=1) | 0,024 | 42,16 |
+
+Máquina: Intel Pentium Gold G6400 @ 4,00 GHz, un hilo. El «6 intentos/s» que se
+venía publicando **era correcto** y describía el `default()`; lo que le faltaba
+era la procedencia.
+
+#### Coste en GPU: ESTIMADO, no medido
+
+Aquí no hay GPU, así que no se mide: se **acota**. Argon2id con m=64 MiB y t=3
+mueve como mínimo `2 × 3 × 64 MiB = 384 MiB` de tráfico de memoria por derivación
+(cada pase lee y escribe cada bloque una vez; Argon2 mueve más, así que tomar el
+mínimo da la cota SUPERIOR del atacante — el lado conservador para quien se
+defiende). De ahí, `intentos/s ≤ ancho de banda / tráfico`:
+
+| Acelerador | ≤ intentos/s | × vs. esta CPU | ≤ simultáneas |
+|---|---|---|---|
+| RTX 4090 (1008 GB/s, 24 GB) | 2 503 | 440× | 384 |
+| RTX 5090 (1792 GB/s, 32 GB) | 4 450 | 782× | 512 |
+| A100 80 GB (2039 GB/s) | 5 064 | 890× | 1 280 |
+| H100 SXM (3350 GB/s) | 8 320 | 1 462× | 1 280 |
+
+Los límites van con la cifra a donde vaya: es una **cota, no un rendimiento
+observado** (el real es menor — el direccionamiento dependiente de datos de la
+segunda mitad de Argon2id castiga a la GPU y ninguna implementación satura el
+bus); **no cubre ASIC ni FPGA** con memoria a medida; y supone una contraseña de
+la entropía que se declare, porque contra una débil el coste por intento es el
+suelo, no el techo. Aun con la cota más generosa, 60 bits de espacio de claves
+salen a 4,4 millones de años en una H100.
+
 **Herramienta.** *Existe:* `guessing.rs` (coste de adivinación acelerado por IA),
-la simulación de ataque de diccionario (5000 intentos → 5000 rechazados).
-*Falta:* medir el coste real en GPU/ASIC (hoy es CPU), y llevar la tabla de
-señuelos estática de honey a un ×1 (hoy ×70 con secreto humano — el techo de #28).
+la simulación de ataque de diccionario (5000 intentos → 5000 rechazados), y
+`examples/coste_adivinacion.rs` (coste por intento con procedencia + cota de GPU).
+*Falta:* la medición real en GPU/ASIC, que necesita hardware que aquí no hay, y
+llevar la tabla de señuelos estática de honey a un ×1 (hoy ×70 con secreto humano
+— el techo de #28).
 
 **Invariante:** I4 (honey) + coste como refuerzo de I3.
 

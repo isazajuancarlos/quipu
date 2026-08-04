@@ -16,7 +16,8 @@ All multi-byte integers are **big-endian** unless stated otherwise.
 ## 1. Overview
 
 Quipu protects data with an authenticated encryption pipeline and then renders the
-resulting bytes in a chosen representation (dense text, PNG, or glyphs). Security
+resulting bytes in a chosen representation (dense text over a public
+alphabet). Security
 lives in the keys and the vetted primitives; the representation is public
 (Kerckhoffs).
 
@@ -26,7 +27,7 @@ plaintext
   → AEAD encrypt (XChaCha20-Poly1305)  (§3), AAD = header
   → container = header ‖ ciphertext    (§2)
   → base-N codec → symbol indices      (§5)
-  → dictionary / PNG / glyph rendering (§6)
+  → dictionary rendering (§6)
 ```
 
 ## 2. Primitives
@@ -71,7 +72,11 @@ cipher_key(32) = HKDF-SHA256(ikm = master, salt = none,
 
 **KDF parameter bounds** (rejected before deriving, to prevent DoS from a tampered
 header): `1 ≤ parallelism ≤ 16`, `1 ≤ iterations ≤ 16`, `8·parallelism ≤ mem_kib ≤
-1 048 576` (1 GiB). Defaults: `mem_kib = 65536` (64 MiB), `iterations = 3`,
+262 144` (**256 MiB**). Corrected 2026-08-01: this said 1 048 576 (1 GiB), the
+old bound. The code has held 256 MiB since the anti-amplification work — the
+reasoning is at `kdf.rs`, `MAX_MEM_KIB` — and a spec quoting the looser bound
+would have an implementer accept headers the reference rejects.
+Defaults: `mem_kib = 65536` (64 MiB), `iterations = 3`,
 `parallelism = 1`.
 
 ### 3.2 Container format
@@ -83,7 +88,7 @@ Fixed 68-byte header, followed by the AEAD output (ciphertext ‖ 16-byte tag):
 | 0  | 4  | magic = `"QUIP"` (0x51 0x55 0x49 0x50) |
 | 4  | 1  | version = `1` |
 | 5  | 1  | flags (currently `0`) |
-| 6  | 2  | codebook_id (informational) |
+| 6  | 2  | codebook_id (**RESERVED, deprecated — write 0**) |
 | 8  | 8  | codebook_hash_prefix (first 8 bytes of the dictionary fingerprint) |
 | 16 | 16 | salt |
 | 32 | 24 | nonce (XChaCha20) |
@@ -94,6 +99,31 @@ Fixed 68-byte header, followed by the AEAD output (ciphertext ‖ 16-byte tag):
 
 The **entire 68-byte header is the AEAD Associated Data (AAD)**. Any alteration of
 version, codebook_id, salt, nonce, or KDF parameters causes decryption to fail.
+
+> **`flags` and `codebook_id` — reserved fields, and they are handled
+> differently on purpose (2026-08-01).**
+>
+> **`flags` (offset 5) is now VALIDATED: a non-zero value is REJECTED**
+> (`ContainerError::FlagsDesconocidos`). This is not tidiness — it closes a
+> **silent downgrade**. The header travels as AAD, so a future container with
+> `flags = 1` authenticates perfectly against an old decoder; if that decoder
+> *ignored* the field it would interpret the payload under the old rules and
+> return misread data **with the AEAD green**, which is the worst possible
+> outcome: a failure nobody notices. Same reason TLS is strict about unknown
+> extensions. An old decoder must refuse, not guess.
+>
+> **`codebook_id` (offset 6) is NOT rejected**, and the asymmetry is deliberate.
+> It has been public and settable through `Options` since 0.10.0, so refusing a
+> non-zero value would render **permanently unreadable** any container somebody
+> already built with it — orphaned data, no recovery, in exchange for tidiness.
+> It is marked deprecated with its reason and removed at the next format break,
+> once nothing writes it any more.
+>
+> This entry used to call the field *"informational"*, and that word is what
+> turned a format reservation into an invitation to store a tenant, user or
+> document identifier there — 16 bits of cleartext metadata, chosen by the
+> encryptor and stable across every container they write (see N9 in the threat
+> model).
 
 ### 3.3 Encryption
 
@@ -153,13 +183,17 @@ only maps index → symbol identity.
   `flagship()` (N = 4096 CJK glyphs, ~12 bits/symbol), or `from_range(start,
   count)`. The dictionary "fingerprint" is the first 8 bytes of SHA-256 over its
   symbols, stored in the header for mismatch detection.
-- **PNG:** the container bytes are rendered as a lossless grayscale PNG.
-- **Robust PNG:** as above but wrapped with Reed-Solomon ECC (`parity`
-  bytes/block) to tolerate print/photo channel noise. ECC is error correction,
-  not a security layer.
-- **Native glyphs:** the bytes are base-N encoded over a deterministic native
-  glyph font and rendered as a strip; recognition maps glyphs back to indices by
-  nearest fingerprint.
+> **Removed 2026-08-01.** This section also listed **PNG**, **Robust PNG** and
+> **Native glyphs** as representation layers. All three were deleted in PR
+> #93/#99 and no module for them exists in the tree. A specification that
+> describes carriers the software does not have is the exact defect that made
+> the README announce Node/Go/C-ABI bindings months after they were removed.
+>
+> What exists instead is the **paper carrier** (`quipu_nucleo::papel`): standard
+> symbology — QR, so any phone reads it — plus a typeable layer with three
+> framings (bare Base32, Base32 + Reed-Solomon, and BIP-39 words). The reason it
+> is standard symbology and not our own alphabet is custody, not aesthetics:
+> what decides at twenty years is that the decoder exists in 2050.
 
 ## 7. Hybrid post-quantum mode (asymmetric)
 
@@ -275,6 +309,25 @@ All points are 32-byte compressed ristretto255 encodings.
 
 Minimal TCP protocol (put behind TLS in production):
 
+> **TLS hides the content, not the sizes — and here the sizes are a signature
+> (2026-08-01).** The exchange below is **32 bytes out, 97 bytes in, always**,
+> and `decode_online` performs it exactly like `encode_online` does. So a passive
+> network observer — an ISP, a corporate proxy, anyone on the same network —
+> learns, per host and in real time, **when a file is encrypted and when a file
+> is OPENED**. Not which file, not its content: the timeline.
+>
+> **Padding is not the answer, and saying so matters.** The sizes are *already*
+> constant, and published right here; padding to a different constant is still a
+> constant. What betrays is the pattern and its timing, so hiding it would take
+> cover traffic or batching — a different product, not a bigger buffer. Offering
+> padding would be the appearance of a fix.
+>
+> This is declared, not mitigated. §4 of the threat model says the server
+> "participates without seeing the passphrase or the result", and that is true —
+> it says nothing about who else sees **that it participated**. Anyone whose
+> threat model includes when-you-opened-a-file should use the offline mode with
+> a pepper.
+
 ```
 client → server:  B                       (32 bytes, blinded point)
 server → client:  status(1) ‖ Z(32) ‖ proof(64)   (97 bytes; status 1 = ok, 0 = denied)
@@ -308,16 +361,28 @@ seed material is zeroized on drop.
 
 ### 9.2 Signing and verification
 
+> **Corrected 2026-08-01.** This section specified **ML-DSA-65** — NIST level 3 —
+> with its sizes (1984 / 3309 / 3373), while §9.1 fourteen lines above, the code,
+> and the entire product claim say **ML-DSA-87**, level 5, the one CNSA 2.0
+> requires. Leftovers from an earlier version that were never migrated.
+>
+> This document says the source wins where they disagree, and that clause only
+> helps whoever *notices* the disagreement: §9.1 (table) and §9.2 (pseudocode)
+> read as complementary, not contradictory, so nobody goes looking. Anyone
+> reimplementing a verifier from the normative section would have built one at
+> level 3 — and it would not interoperate either, because the preimage binds a
+> verifying key of a different length.
+
 ```
-preimage = "quipu/v3/sign" ‖ verifying_key(1984) ‖ message
+preimage = "quipu/v3/sign" ‖ verifying_key(2624) ‖ message
 σ_ed     = Ed25519.Sign(sk_ed, preimage)            # 64 B, deterministic
-σ_ml     = MLDSA65.Sign(sk_ml, preimage)            # 3309 B, deterministic (empty ctx)
-signature = σ_ed(64) ‖ σ_ml(3309)                   # 3373 B
+σ_ml     = MLDSA87.Sign(sk_ml, preimage)            # 4627 B, deterministic (empty ctx)
+signature = σ_ed(64) ‖ σ_ml(4627)                   # 4691 B
 
 verify(vk, message, signature):
     preimage = "quipu/v3/sign" ‖ vk ‖ message
     return Ed25519.VerifyStrict(vk_ed, preimage, σ_ed)   # rejects small-order / malleable
-           AND MLDSA65.Verify(vk_ml, preimage, σ_ml)     # AND-combiner
+           AND MLDSA87.Verify(vk_ml, preimage, σ_ml)     # AND-combiner
 ```
 
 Binding the **full** verifying key (both components) and a domain label into the
@@ -330,7 +395,7 @@ least one** of Ed25519 / ML-DSA-87 remains unforgeable.
 
 ```
 blob = "QSG1"(4) ‖ version=1 (1) ‖ flags=0 (1) ‖ msg_len(u32 BE, 4)
-       ‖ message(msg_len) ‖ signature(3373)
+       ‖ message(msg_len) ‖ signature(4691)
 ```
 
 `blob` is base-N encoded and rendered like the other modes. On decode the message
@@ -443,7 +508,7 @@ Every key derivation / hash uses a unique label:
 | salt | 16 bytes |
 | DLEQ proof | 64 bytes |
 | VOPRF verified response | 97 bytes |
-| Hybrid verifying key / signing key / signature | 1984 / 64 / 3373 bytes |
+| Hybrid verifying key / signing key / signature | 2624 / 64 / 4691 bytes |
 
 ## 14. Interoperability test vectors
 

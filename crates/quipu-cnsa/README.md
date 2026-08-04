@@ -8,9 +8,20 @@ SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza Arenas
 Perfil de [Quipu](https://github.com/isazajuancarlos/quipu) alineado con los
 algoritmos de **CNSA 2.0** que cubre: AES-256-GCM y HKDF-SHA-384.
 
-**Alcance: solo cifrado simétrico.** No hay firma ni establecimiento de clave, así
-que ML-DSA-87 y ML-KEM-1024 —que CNSA 2.0 exige para esas dos funciones— no están
-aquí todavía. `quipu` sí los tiene; ver «Lo que todavía no cubre».
+**Alcance desde el 2026-07-31: cifrado simétrico, FIRMA y CANAL DE
+DESTINATARIO.** Se añadieron **ML-DSA-87** (módulo `firma`) y **ML-KEM-1024**
+(módulo `destinatario`), que son los dos algoritmos que CNSA 2.0 exige para esas
+funciones.
+
+**Y van PUROS, no híbridos — eso es MÁS DÉBIL que `quipu`.** Aquel firma
+Ed25519 **y** ML-DSA-87, y encapsula X25519 **y** ML-KEM-1024, de modo que
+romperlo exige romper las dos familias. Aquí no hay socio clásico: si el
+algoritmo de retículos cae, no queda nada sujetando. Es lo que dice el mandato,
+que no pide híbrido — y es la razón por la que **si puedes elegir, usa `quipu`**.
+
+La asimetría que conviene ver: una firma rota se explota el día que se rompe;
+**un secreto cifrado hoy se guarda y se descifra mañana**. Contra «cosecha ahora,
+descifra después» el híbrido protege y el puro no.
 
 Hasta el 2026-07-27 el titular de este archivo y la descripción del crate
 anunciaban ML-KEM-1024, y no estaba implementado en ninguna parte: la
@@ -25,14 +36,25 @@ implementa los algoritmos pero **no está validado**.
 **Esta librería implementa los algoritmos que exige CNSA 2.0. NO está validada
 FIPS 140-3.**
 
-No lo estará por escribir más código. La validación FIPS 140-3 es un proceso de
-laboratorio acreditado, con coste y calendario propios, y **es a lo que se
-destina la financiación que buscamos**, no un requisito previo que ya hayamos
-cumplido.
+No lo estará por escribir más código: la validación FIPS 140-3 es un proceso de
+laboratorio acreditado con coste y calendario propios. **Y no está en el plan.**
+La cola del CMVP promedió 542 días a principios de 2024 y el histórico va de 12 a
+18 meses, así que un módulo enviado hoy llegaría con certificado después de enero
+de 2027 —la fecha en que CNSA 2.0 muerde para adquisiciones nuevas—; un módulo
+validado lo está en UNA versión, de modo que cada corrección obligaría a
+revalidar; y quien exige FIPS es el gobierno federal estadounidense, que no es el
+comprador de esta librería.
 
-Si necesitas cumplimiento formal —no alineación— para un contrato o una
-auditoría, esto todavía no te sirve. Preferimos que lo sepas ahora y no cuando
-alguien lo pregunte en una revisión.
+**Si tu pliego exige FIPS 140-3, la respuesta no es esperar a que validemos
+esto: es poner debajo un dispositivo ya validado.** `quipu` guarda la clave de
+firma en un PKCS#11 (feature `hsm`), así que el material sensible vive en un
+módulo con su propio certificado y esta librería no lo toca. Es la vía que usa
+todo el mundo y no depende de nuestro calendario.
+
+Lo que sí se busca financiar es una **auditoría criptográfica independiente**,
+que es lo que un tercero puede verificar y lo que un comité de seguridad sabe
+leer. Preferimos que sepas la diferencia ahora y no cuando alguien la pregunte en
+una revisión.
 
 Esta advertencia está en la primera pantalla a propósito. No es letra pequeña.
 
@@ -96,9 +118,18 @@ un archivo de estado que corromper y sincronizar entre procesos.
 
 ## Lo que todavía NO cubre
 
-**No hay firma todavía.** Este perfil solo cifra y descifra. El modo streaming,
-el canal de destinatario (ML-KEM) y los enlaces para otros lenguajes tampoco
-están. Llegan sobre el mismo núcleo.
+**El modo streaming**, sobre el mismo núcleo.
+
+Esta frase decía también «y los enlaces para otros lenguajes», y eso no era una
+carencia: era una promesa que contradice una decisión ya tomada. Node, Go y la
+C ABI se retiraron en julio de 2026 y Quipu tiene **un solo binding, Python**
+(ver `docs/HOJA_DE_RUTA.md`). Prometer los que se quitaron es el defecto exacto
+que ya cometió el README de `quipu` — anunciaba Node/Go/C-ABI meses después de
+eliminarlos.
+
+La firma (`firma`, ML-DSA-87) y el canal de destinatario (`destinatario`,
+ML-KEM-1024) **ya están** desde el 2026-07-31; esta sección los listaba como
+pendientes hasta entonces.
 
 ### Sobre LMS/XMSS, con el matiz correcto
 
@@ -116,8 +147,10 @@ software*. Es más preciso decirlo así:
 - **SLH-DSA no está en CNSA 2.0.** Es FIPS-205 y `quipu` lo ofrece como refuerzo
   propio, no como conformidad.
 
-Consecuencia para este perfil: cuando añadamos firma, **ML-DSA-87 basta para
-estar alineados**. LMS/XMSS sería una opción adicional para quien firme firmware,
+Consecuencia para este perfil, y ya no es futura: la firma es `firma`
+(ML-DSA-87), está construida, y **basta para estar alineados también en este
+renglón** — que es el que `docs/CNSA.md` daba por descubierto hasta el
+2026-08-02. LMS/XMSS sería una opción adicional para quien firme firmware,
 con un coste operativo serio: son esquemas **con estado**, cada clave produce un
 número finito de firmas y reutilizar el estado es catastrófico. Eso exige
 gestionar un contador persistente que sobreviva a caídas y no se duplique en un

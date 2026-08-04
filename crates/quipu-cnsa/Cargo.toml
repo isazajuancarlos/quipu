@@ -2,7 +2,7 @@
 name = "quipu-cnsa"
 version = "0.1.0"
 edition = "2024"
-description = "Perfil de Quipu con los algoritmos de CNSA 2.0 que cubre: AES-256-GCM y HKDF-SHA-384. Solo cifrado simetrico: sin firma ni establecimiento de clave. NO validado FIPS 140-3."
+description = "Perfil de Quipu con los algoritmos de CNSA 2.0: AES-256-GCM, HKDF-SHA-384, firma ML-DSA-87 y canal de destinatario ML-KEM-1024. PUROS, no hibridos: mas debil que quipu y es lo que pide el mandato. NO validado FIPS 140-3."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
 license = "AGPL-3.0-or-later"
 keywords = ["cryptography", "post-quantum", "cnsa", "aes-gcm", "fips"]
@@ -13,9 +13,16 @@ homepage = "https://github.com/isazajuancarlos/quipu"
 documentation = "https://docs.rs/quipu-cnsa"
 
 [dependencies]
-# Formato, contenedor, codec y canal visual: COMPARTIDOS con `quipu`. Es la
+# Formato, contenedor, codec, padding Padmé y ECC: COMPARTIDOS con `quipu`. Es la
 # razón de existir de ese crate — un fallo de formato se arregla una vez, no
 # dos. Ver crates/quipu-nucleo.
+#
+# Se queda en 0.1.0 A PROPÓSITO, aunque el crate del árbol vaya por 0.1.2 y el
+# de `quipu` diga 0.1.2: este perfil no usa nada de lo que se añadió después
+# —ni `ecc::PARIDAD_MAXIMA` ni el módulo `papel`—, comprobado por grep sobre
+# `src/`. El requisito nombra lo que de verdad hace falta, ni más ni menos.
+# Subirlo «por coherencia» con el hermano sería declarar una dependencia que no
+# existe, que es el mismo error que tener uno laxo, del otro lado.
 quipu-nucleo = { version = "0.1.0", path = "../quipu-nucleo" }
 
 # --- Lo que CAMBIA respecto de `quipu`: las primitivas ---
@@ -32,6 +39,25 @@ hkdf = "0.13"
 # normativa: PBKDF2 no tiene coste en memoria y es mucho más barato de atacar
 # con hardware dedicado. Se mantiene Argon2id y se declara en el README.
 argon2 = "0.5"
+
+# --- Firma y establecimiento de clave: lo que CNSA 2.0 exige y faltaba ---
+# PUROS, no híbridos, y esa es la diferencia con `quipu`: el mandato nombra
+# estos dos algoritmos y no pide socio clásico. Es MÁS DÉBIL —si uno cae, no
+# queda nada sujetando— y está dicho en la cabecera de cada módulo.
+# Se dependen DIRECTAMENTE y no vía `quipu`: este perfil es hermano de aquel,
+# no cliente suyo, y arrastrar `quipu` traería XChaCha20 y todo lo demás.
+# `features = ["zeroize"]` NO es opcional aquí, aunque la feature sí lo sea en
+# el crate: sin ella los `Drop` de `SigningKey` y `ExpandedSigningKey` quedan
+# fuera de la compilación y `s1`, `s2` y `t0` —la clave privada real de
+# ML-DSA-87— se sueltan intactas en cada firma. Este crate envuelve la SEMILLA
+# en `Zeroizing` y documenta que «se limpia sola»; sin esta línea esa frase era
+# falsa justo para el buffer más grande y más sensible.
+ml-dsa = { version = "0.1.1", features = ["zeroize"] }
+# Lo mismo: sin `zeroize` el `Drop` de `DecapsulationKey` no existe y `dk_pke`,
+# `d` y `z` no se borran nunca.
+ml-kem = { version = "0.3", features = ["zeroize"] }
+rand_core = "0.10"
+rand_chacha = "0.10"
 
 unicode-normalization = "0.1"
 getrandom = { version = "0.4", features = ["std"] }

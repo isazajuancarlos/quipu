@@ -28,6 +28,107 @@ pub fn wipe(buf: &mut [u8]) {
     buf.zeroize();
 }
 
+/// Profundidad de pila que sobreescribe [`limpiar_pila`], en bytes.
+///
+/// **Es el parámetro delicado de este mecanismo, y conviene saber por qué.** Un
+/// limpiador solo borra lo que alcanza: si la operación anterior gastó más pila
+/// que esto, lo que quede por debajo sobrevive — y sobrevive EN SILENCIO, que es
+/// la peor forma. No hay manera de medir en Rust seguro cuánta pila usó una
+/// llamada (haría falta aritmética de punteros, y este crate es
+/// `#![forbid(unsafe_code)]`), así que la cifra no se puede calcular: se elige
+/// con la medición de residuo delante, que es lo más parecido a saberlo.
+///
+/// 64 KiB bastaban para los marcos de una firma híbrida. **No bastaban para el
+/// KDF**, y lo dijo la prueba, no el razonamiento: al medir la clave maestra con
+/// el salt de verdad (2026-07-31, `tests/residuo_memoria.rs`) quedaba una copia a
+/// **99 KiB** del tope de la pila del hilo, fuera del alcance del limpiador. Con
+/// 128 KiB la cuenta baja a cero.
+///
+/// La cifra NO escala con el coste del Argon2id: se midió la misma profundidad
+/// con `mem_kib` 64 y 4096, porque los bloques de Argon2 viven en el montón. Lo
+/// hondo son los marcos, no la memoria de trabajo.
+///
+/// Y el techo tiene un motivo, que es el precio de subirla: este array vive en la
+/// pila, así que la constante ES el mínimo de pila que Quipu le exige a quien lo
+/// llama. Un hilo pequeño —128 KiB, como los que reparte algún runtime embebido—
+/// desbordaría. Un residuo es peor que nada; un desbordamiento es peor que un
+/// residuo. Si un día una operación gasta más, esto se sube CON la medición
+/// delante, igual que se subió esta vez.
+const PILA_A_LIMPIAR: usize = 128 * 1024;
+
+/// Sobreescribe con ceros la región de pila que acaba de usar una operación con
+/// material sensible.
+///
+/// # Por qué hace falta, y por qué `zeroize` NO lo cubre
+///
+/// En Rust **mover** un valor es un `memcpy`, y `Drop` solo corre en el destino
+/// final. `Zeroizing` borra donde el valor **acabó**; las posiciones intermedias
+/// por las que pasó al moverse quedan intactas. Una clave que se construye en la
+/// pila y luego se mueve a una struct deja tantas copias como movimientos.
+///
+/// No es teoría: `tests/residuo_memoria.rs` midió **2 copias** de la semilla de
+/// firma en memoria tras `firmar_con_comparticiones` —que la mueve dos veces, al
+/// parámetro de `EnMemoria::nuevo` y al campo de la struct— en el runner del CI.
+/// En la máquina de desarrollo daban **cero**, 50 corridas seguidas. Depende del
+/// asignador y del compilador, así que no se puede razonar: hay que medirlo, y
+/// por eso la prueba vive en el CI y no en la cabeza de nadie.
+///
+/// # La regla, no el caso
+///
+/// Toda función que materialice en la pila material sensible RECONSTRUIDO —y por
+/// tanto no controlado por un `Zeroizing` que sobreviva— debe llamar a esto antes
+/// de volver. No sustituye a `zeroize`: lo complementa, porque atacan cosas
+/// distintas (el valor vivo frente a las copias que dejó al moverse).
+///
+/// # Lo que NO hace
+///
+/// No toca el montón —de eso se encargan `Zeroizing` y [`wipe`]— ni protege de un
+/// adversario que lea la memoria MIENTRAS la operación corre. Eso es R5 en
+/// `docs/THREAT_MODEL.md`, endpoint comprometido, y está fuera de alcance por
+/// declaración. Esto cierra T6: la memoria leída DESPUÉS.
+///
+/// **Y NO PUEDE TOCAR EL MARCO DE QUIEN LA LLAMA.** Sobrescribe hacia ABAJO
+/// desde el punto de la llamada, así que todo lo que viva en marcos más
+/// superficiales —incluido el marco vivo del llamante— queda fuera de su
+/// alcance por construcción. No es una carencia: un limpiador no puede borrar la
+/// pila sobre la que está corriendo.
+///
+/// La consecuencia práctica, y costó media hora averiguarla: **si el llamante
+/// tiene el secreto en su PROPIO marco, esto no lo borra**, y en `--release` un
+/// `fill(0)` sobre esa variable puede no bastar porque el compilador deja copias
+/// en otros huecos del mismo marco. Lo correcto es que el material sensible viva
+/// en un marco anidado, de modo que quede por debajo del punto de limpieza.
+/// `tests/residuo_memoria.rs` lo hace así desde el 2026-08-01, y hasta entonces
+/// su propio canario producía un falso fallo en release que parecía un defecto
+/// de esta función.
+///
+/// # Por qué `inline(never)`, y no es una micro-optimización al revés
+///
+/// El lienzo tiene que caer DONDE ESTUVIERON los marcos muertos, y eso solo se
+/// cumple si esta función tiene marco propio, justo debajo del de quien la llama.
+/// Si el compilador la incrusta, el array pasa a ser una variable más del marco
+/// del llamante y puede acabar por encima de la región que había que pisar.
+///
+/// No es teoría: en `--release` —donde el inlining sí ocurre— la prueba
+/// `el_limpiador_de_pila_borra_lo_que_un_marco_dejo_atras` medía **1 copia
+/// superviviente** del canario tras limpiar, y en debug cero. El limpiador
+/// parecía funcionar en las pruebas y no funcionaba en lo que se publica, que es
+/// justo la mitad que importa.
+///
+/// Las dos notas de arriba son la misma lección por los dos lados: **esta
+/// función solo puede pisar lo que quede POR DEBAJO de su propio marco**, así
+/// que necesita tener marco (de ahí `inline(never)`) y el llamante necesita
+/// haber dejado el secreto en uno más profundo que el punto de limpieza.
+#[inline(never)]
+pub fn limpiar_pila() {
+    let mut lienzo = [0u8; PILA_A_LIMPIAR];
+    // Sin las dos barreras el optimizador tiene todo el derecho a eliminar un
+    // buffer que nadie lee: el borrado tiene que ser observable para él.
+    std::hint::black_box(&mut lienzo);
+    lienzo.zeroize();
+    std::hint::black_box(&lienzo);
+}
+
 /// Compara dos secuencias en tiempo constante (no termina antes ante el primer
 /// byte distinto). Devuelve `true` si son iguales.
 pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
