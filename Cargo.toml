@@ -4,7 +4,24 @@ resolver = "2"
 
 [package]
 name = "quipu"
-version = "0.10.0"
+# 0.11.0 y no 0.10.1, y la razón NO es el tamaño del cambio.
+#
+# La superficie pública contra el tag `v0.10.0` es ESTRICTAMENTE ADITIVA
+# (`negacion`, `lab::papel`, la escalera del KDF, `antihacker::limpiar_pila`,
+# `aleatorio::FalloDeSalud`): ni un ítem retirado, ni una firma tocada. Por esa
+# vara sola tocaría 0.10.1, que es lo que se hizo en `quipu-nucleo`.
+#
+# Lo que lo cambia es un CAMBIO DE COMPORTAMIENTO que no rompe la compilación:
+# `Options.codebook_id` pasó a IGNORARSE. Era público y ajustable desde la
+# 0.10.0 —lo dice `docs/SPEC.md`—, así que quien lo estuviera poniendo sigue
+# compilando igual y obtiene otra cosa. Eso no lo ve el compilador y no puede
+# viajar en un parche.
+#
+# Y hay una consecuencia concreta, no teórica: `guaca` y `tunjo` piden
+# `quipu = "0.10"`. Con 0.10.1 se lo llevarían SOLOS en el próximo `cargo
+# update`; con 0.11.0 no se mueven hasta que alguien edite el requisito, que es
+# como debe entrar un cambio de comportamiento — decidido, no heredado.
+version = "0.11.0"
 edition = "2024"
 description = "Codec criptográfico post-cuántico híbrido (X25519+ML-KEM-1024, Ed25519+ML-DSA-87) con endurecimiento online verificable por VOPRF conforme a RFC 9497. Datos en reposo."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]

@@ -1,6 +1,22 @@
 [package]
 name = "quipu-voprf"
-version = "0.2.2"
+# 0.2.3 para que el `#![forbid(unsafe_code)]` LLEGUE a crates.io.
+#
+# El árbol y la 0.2.2 publicada difieren en exactamente esa línea
+# (`git diff origin/estable HEAD -- crates/quipu-voprf/`: un cambio, una
+# inserción). crates.io no deja re-subir una versión existente, así que sin
+# subir el número el endurecimiento se queda en el disco y la frase «los seis
+# paquetes llevan forbid» sigue siendo cierta solo EN EL ÁRBOL.
+#
+# Importa más aquí que en los demás: este es el crate Apache-2.0, el que
+# enlazan clientes ajenos del servicio OPRF. Es donde la garantía se vende.
+#
+# Parche y no minor: un atributo de lint no cambia una firma. Cero API tocada,
+# comprobado con el mismo diff.
+#
+# El requisito de la raíz se queda en "0.2.2" A PROPÓSITO: `quipu` no necesita
+# nada nuevo de aquí, y nombrar 0.2.3 declararía una dependencia que no existe.
+version = "0.2.3"
 edition = "2024"
 rust-version = "1.85"
 description = "Cliente y servidor VOPRF sobre ristretto255 con pruebas DLEQ. Primitivas del servicio Quipu OPRF."
