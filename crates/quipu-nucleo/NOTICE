@@ -1,0 +1,47 @@
+quipu-nucleo
+Copyright 2024-2026 Juan Carlos Isaza Arenas
+
+Este producto incluye software desarrollado por Juan Carlos Isaza Arenas.
+
+Se distribuye bajo la AGPL-3.0-or-later. El texto completo de la licencia está
+en el archivo LICENSE que acompaña a este paquete.
+
+--------------------------------------------------------------------------------
+DATOS DE TERCEROS EMPOTRADOS
+--------------------------------------------------------------------------------
+
+El código de este crate es original. Lo que NO es original, y por eso se declara
+aquí, son dos conjuntos de datos normativos que viajan dentro del paquete
+transcritos literalmente:
+
+1. `src/bip39_english.txt` — las 2.048 palabras de la lista canónica en inglés
+   de la BIP-39, tal como aparecen en `bips/bip-0039/english.txt` del repositorio
+   de propuestas de mejora de Bitcoin.
+
+   Marek Palatinus, Pavol Rusnak, Aaron Voisine, Sean Bowe.
+   "BIP-39: Mnemonic code for generating deterministic keys", 2013.
+
+   Se transcribe en vez de reconstruirse porque es la lista o no es BIP-39: una
+   sola palabra distinta produce frases que ninguna otra implementación puede
+   leer. La transcripción está atada a su fuente por el SHA-256 que declara
+   `papel::bip39::SHA256_CANONICO`, y la prueba `la_lista_es_la_canonica` lo
+   verifica en cada corrida.
+
+2. `tests/vectores_bip39.txt` — los vectores oficiales de la BIP-39, tomados de
+   la implementación de referencia `trezor/python-mnemonic` (`vectors.json`).
+
+   Son lo que separa «conforme a BIP-39» de «inspirado en»: un vector inventado
+   que pasa es peor que no tener vector.
+
+En ambos casos la atribución es a la ESPECIFICACIÓN y a su implementación de
+referencia, no a código incorporado: este crate no copia una sola línea de
+programa de terceros.
+
+--------------------------------------------------------------------------------
+DEPENDENCIAS
+--------------------------------------------------------------------------------
+
+Las dependencias se ENLAZAN, no se incluyen, y conservan cada una su licencia.
+`sha2` es opcional y solo entra con la feature `palabras`, porque la suma de
+verificación la exige la propia BIP-39; sin esa feature este crate se compila
+sin una sola función criptográfica, que es su regla de diseño.
