@@ -29,24 +29,43 @@ orden de todo lo que viene.
 
 Nada de lo demás importa hasta que el dinero pueda entrar.
 
-### 1. `xiliux.com`: las cabeceras YA ESTÁN; queda el `HEAD /` — **medio HECHO**
+### 1. `xiliux.com` sin HSTS ni `nosniff` — **HECHO el 2026-08-05**
 
-Es el sitio que cobra con PayPal. Este punto pedía dos cosas y hoy solo falta
-una. **Medido contra producción el 2026-08-05**, no recordado:
+Es el sitio que cobra con PayPal. El punto pedía dos cosas y las dos están, las
+dos **medidas contra producción**, no recordadas:
 
-- **HSTS puesto** — `Strict-Transport-Security: max-age=31536000`. Con él, la
-  primera petición de un cliente nuevo ya no viaja en claro. Van además
+- **Cabeceras puestas** — `Strict-Transport-Security: max-age=31536000`, así que
+  la primera petición de un cliente nuevo ya no viaja en claro. Van además
   `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` y una CSP con
   `object-src 'none'`, `base-uri 'self'` y `frame-ancestors 'none'`.
-- **`HEAD /` sigue devolviendo 405**, y `GET /` devuelve 200. Un monitor
-  estándar sondea con `HEAD`: hoy reportaría CAÍDA la página de pago. Eso no se
-  arregla en nginx —lo contesta la aplicación NiceGUI—, así que el trabajo es
-  del repositorio del portafolio, no de este.
+- **El `HEAD` ya responde 200**, desplegado el 2026-08-05. Y el problema era
+  cuatro veces mayor de lo que decía este punto: no fallaba `/`, fallaban
+  **diez de las once rutas públicas** —incluidas `/robots.txt` y
+  `/sitemap.xml`, que los rastreadores piden así—. Solo `/favicon.ico` se
+  salvaba.
 
-Cómo volver a comprobarlo sin creerle a este documento:
+  La causa no era de la portada: **FastAPI no añade `HEAD` al registrar un
+  `GET`** (Starlette sí lo hace en su `Route`; `APIRoute` no, y NiceGUI monta
+  sus páginas por ahí). Por eso el arreglo es un middleware que vale para todas
+  las rutas y para las que se escriban mañana, y **no** un `@app.head('/')` que
+  habría tapado el caso del informe dejando nueve rotas.
+
+  **No se arregló en nginx a propósito**, que era la salida obvia y es peor: si
+  nginx contesta el `HEAD`, el monitor recibe 200 aunque el proceso esté muerto
+  —«sano» y «muerto» se verían igual, que es justo lo que un monitor existe para
+  distinguir—. Contestando desde la aplicación, el 200 prueba que el proceso
+  vive y que su router funciona.
+
+Cómo volver a comprobarlo sin creerle a este documento — las dos mitades:
 
 ```bash
 curl -sI https://xiliux.com/ -w 'http=%{http_code}\n' | grep -iE 'strict-transport|x-content-type'
+for u in / /blog /servicios /quipu /informes /cotizador /quipu/precios \
+         /robots.txt /sitemap.xml /manifest.json /favicon.ico; do
+  printf '%-16s HEAD=%s GET=%s\n' "$u" \
+    "$(curl -sI -o /dev/null -w '%{http_code}' https://xiliux.com$u)" \
+    "$(curl -s  -o /dev/null -w '%{http_code}' https://xiliux.com$u)"
+done   # 11/11 en 200 el 2026-08-05
 ```
 
 ### 2. Probar el camino del dinero de punta a punta
