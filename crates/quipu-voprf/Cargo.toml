@@ -16,7 +16,7 @@ name = "quipu-voprf"
 #
 # El requisito de la raíz se queda en "0.2.2" A PROPÓSITO: `quipu` no necesita
 # nada nuevo de aquí, y nombrar 0.2.3 declararía una dependencia que no existe.
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.85"
 description = "Cliente y servidor VOPRF sobre ristretto255 con pruebas DLEQ. Primitivas del servicio Quipu OPRF."

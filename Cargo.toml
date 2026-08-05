@@ -21,7 +21,7 @@ name = "quipu"
 # `quipu = "0.10"`. Con 0.10.1 se lo llevarían SOLOS en el próximo `cargo
 # update`; con 0.11.0 no se mueven hasta que alguien edite el requisito, que es
 # como debe entrar un cambio de comportamiento — decidido, no heredado.
-version = "0.11.0"
+version = "0.11.1"
 edition = "2024"
 description = "Codec criptográfico post-cuántico híbrido (X25519+ML-KEM-1024, Ed25519+ML-DSA-87) con endurecimiento online verificable por VOPRF conforme a RFC 9497. Datos en reposo."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]

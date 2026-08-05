@@ -6,6 +6,118 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.1] — 2026-08-05
+
+**Un corte de EMPAQUETADO y titularidad: ni una línea de código de la librería
+cambia.** Salen cuatro artefactos —`quipu` **0.11.1**, `quipu-voprf` **0.2.4**,
+`quipu-nucleo` **0.1.3** y `quipu-cnsa` **0.1.1**— y los cuatro existen por la
+misma razón: crates.io es INMUTABLE, así que un defecto en lo que viaja dentro
+del `.crate` no se corrige donde se cometió, solo en la versión siguiente.
+
+Los tres defectos que lo motivan se cometieron el 2026-08-04 y **ninguno lo vio
+una prueba en verde**, porque ninguna prueba miraba el ARTEFACTO. Los tres se
+habrían cazado con un `cargo package --list` antes de subir.
+
+### Fixed
+
+- **`quipu` 0.11.0 se publicó con los 15 borradores de `docs/superpowers/`
+  dentro** —149 archivos frente a los 134 de este corte, y la diferencia son
+  exactamente esos 15—. Tres de ellos diseñan subsistemas **eliminados en la
+  0.10** (la ABI de C, los bindings de Node y los de Go), así que un consumidor
+  que abriera el `.crate` leía documentación de algo muerto sin forma de
+  saberlo; y todos llevan instrucciones para agentes que no significan nada
+  fuera del repositorio.
+
+  La causa es de calendario y conviene que quede escrita: el tag `v0.11.0`
+  apunta a `690cbc3`, y el `exclude` que los saca entró **41 minutos después de
+  publicar**, en `cbe6d66`. El veredicto estaba anclado a la rama y no al
+  artefacto (directiva 31). La 0.11.0 no se retira con `yank`: no está rota ni
+  es insegura, y `^0.11` resuelve solo a esta.
+
+- **`quipu-voprf` 0.2.3 se publicó sin `NOTICE`.** Es el crate **Apache-2.0** de
+  la familia —el que enlazan terceros sin arrastrar la AGPL—, y la atribución es
+  justo lo que esa licencia pide propagar (§4(d)). El archivo se escribió a las
+  20:34 y la publicación salió a las 21:30 desde un estado que no lo incluía:
+  **2 h 24 min tarde**. Quedaban dentro las cabeceras SPDX y el campo `authors`,
+  así que la titularidad nunca desapareció del todo; lo que se perdió es su
+  exigibilidad en la cadena de esa versión.
+
+- **`quipu-nucleo` y `quipu-cnsa` declaraban AGPL-3.0-or-later y no entregaban
+  el texto de la licencia** — ni `LICENSE` ni `NOTICE`, en ninguna de sus
+  versiones publicadas. El campo SPDX **declara** la licencia; no la **entrega**,
+  y la familia GPL/AGPL pide que cada receptor reciba copia. Quien los sacaba de
+  crates.io —que es como los saca todo el mundo, no clonando el repositorio— no
+  la recibía. Los dos llevan ahora el texto AGPL y un `NOTICE` propio.
+
+- **`scripts/oprf-e2e.sh` llevaba meses sin poder ejecutarse, y viajaba dentro
+  del `.crate`.** Invocaba `quipu-capi`, `bindings/node` y `bindings/go`,
+  eliminados en la 0.10, y moría en su primera orden. Es el mismo defecto que
+  motivó sacar los documentos muertos, aplicado a medias: aquella pasada quitó
+  los documentos y dejó dentro el guion. Se **arregla** en vez de excluirse,
+  porque es lo único del repositorio que cruza la frontera del programa para el
+  OPRF: arranca el binario de verdad y le habla por HTTP.
+
+  Y al correrlo salió lo de fondo: **ese e2e no podía ponerse rojo nunca**
+  —`run_client` se tragaba el estado del cliente y la última orden era un
+  `echo`—. Ahora el cliente de Rust es obligatorio y falla con `exit 1`; el de
+  Python es best-effort y se marca **SALTADO**, que no puede verse igual que
+  «pasó». Verificado con su pareja: mutando el cliente, `exit 1`; sin mutante,
+  `exit 0`.
+
+### Added
+
+- `NOTICE` en el crate raíz, en `quipu-nucleo` y en `quipu-cnsa`. Existen además
+  de `COPYRIGHT` porque son dos lectores distintos: `COPYRIGHT` es la
+  declaración jurídica, y `NOTICE` es lo que cosechan las herramientas de
+  cumplimiento del cliente para armar su página de atribuciones.
+
+  Los tres declaran los **datos normativos de terceros** que hasta ahora no
+  constaban en ninguna parte: los vectores ACVP de NIST (FIPS 203 y FIPS 204) en
+  el raíz, y en `quipu-nucleo` la lista canónica BIP-39 —atada a su fuente por
+  el SHA-256 que verifica `la_lista_es_la_canonica`— junto con los vectores
+  oficiales de `trezor/python-mnemonic`. En los tres casos la atribución es a la
+  ESPECIFICACIÓN, no a código incorporado.
+
+### Changed
+
+- **La regla que rige la lista `exclude` estaba escrita al revés**, y en la
+  dirección que más duele. Decía que empaquetando desde el repositorio git
+  —el camino normal, el de los cinco jobs `crate-*` de `release.yml`—
+  «`.gitignore` decide solo, y estas entradas no llegan a opinar». Es falso para
+  lo **rastreado**: git no aplica `.gitignore` a lo que ya está en el índice, así
+  que ahí `exclude` no es el segundo cinturón sino el único. El positivo de
+  control estaba dentro del propio repositorio —`docs/superpowers/` son 15
+  archivos rastreados, no ignorados, ausentes del paquete—. De creer la versión
+  anterior se concluye que para publicar basta con ignorar.
+
+  Con la regla corregida vuelven a la lista `PENDIENTES.txt` —que se había
+  podado por no existir hoy en el árbol, y podar por ausencia es lo que la regla
+  prohíbe— y entra `CLAUDE.md`, que faltaba desde siempre.
+
+- **La portada de docs.rs remitía a un archivo inexistente.** `src/lib.rs` decía
+  «Arquitectura por capas (ver `QUIPU_PROYECTO_Y_REQUISITOS.txt`)», y ese archivo
+  está excluido y sin rastrear: ni en el `.crate` ni en GitHub. Ahora apunta a
+  `docs/SPEC.md`, por URL absoluta —igual que los dos README desde el
+  2026-08-04—, porque una ruta relativa resuelve en GitHub y se rompe desde
+  crates.io y docs.rs.
+
+- **La cabecera de `docs/SPEC.md` decía «through v0.6.0»** mientras el crate iba
+  por 0.11.0 y el propio documento ya cubría en sus §§7–11 el modo híbrido PQ, el
+  VOPRF, las firmas híbridas, el streaming y honey. Lo caducado era el banner, no
+  el cuerpo — pero es la primera línea que lee quien llega desde docs.rs. Declara
+  ahora los **seis** formatos que especifica (`QUIP`, `QPQ1`, `QSG1`, `QSG3`,
+  `QST1`, `QHNY`) con su sección, y que el modo con negación no estrena formato.
+
+### Security
+
+Ninguna vulnerabilidad. La revisión de seguridad de este corte —`estable`
+`7cd7f0c` contra `testing` `48bab4c`, y el delta posterior— salió **sin
+hallazgos ≥ 8** en contextos independientes. Los defectos de arriba son de
+empaquetado, documentación y titularidad; ninguno afecta a la criptografía, y
+ninguno expuso nada no público: los 134 archivos del paquete están todos
+rastreados en un repositorio público, con cero coincidencias en un barrido de
+claves, tokens, rutas de máquina e IPs.
+
 ## [0.11.0] — 2026-08-04
 
 **Cinco artefactos salen en el mismo corte**, y por eso llevan una sola sección
@@ -1236,6 +1348,7 @@ First public release. Published to crates.io (`quipu`) and PyPI
 - **Not yet independently audited** — see [`SECURITY.md`](SECURITY.md).
 
 [Unreleased]: https://github.com/isazajuancarlos/quipu/compare/v0.11.0...HEAD
+[0.11.1]: https://github.com/isazajuancarlos/quipu/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/isazajuancarlos/quipu/compare/v0.10.0...v0.11.0
 [quipu-nucleo 0.1.1]: https://github.com/isazajuancarlos/quipu/compare/v0.10.0...nucleo-v0.1.1
 [0.10.0]: https://github.com/isazajuancarlos/quipu/compare/v0.9.1...v0.10.0

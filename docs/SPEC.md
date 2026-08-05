@@ -1,6 +1,18 @@
 # Quipu — Technical Specification
 
-**Covers the container formats through v0.6.0 · updated 2026-07-04**
+**Covers the container formats as of v0.11.1 · updated 2026-08-05**
+
+> The banner said *«through v0.6.0»* until 2026-08-05, while the crate was at
+> 0.11.0 and §§7–11 of this very document already covered the hybrid PQ mode, the
+> VOPRF, hybrid signatures, streaming and honey encryption. What was stale was the
+> banner, never the body — but a reader arriving from docs.rs reads the banner
+> first, so it was the one line able to make the whole spec look abandoned.
+>
+> **Scope, stated so it can be checked**: the **six** wire formats specified here
+> are `QUIP` (§3.2), `QPQ1` (§7.3), `QSG1` (§9.3), `QSG3` (§9.4), `QST1` (§10)
+> and `QHNY` (§11). The deniable mode (opt-in feature `negacion`) introduces
+> **no new format** — it reuses the `QUIP` container, and its threat model and
+> design live in [`DISENO_NEGACION.md`](DISENO_NEGACION.md).
 
 > ⚠️ This spec is **descriptive of the current implementation**, not a frozen wire
 > standard. Formats may change before v1.0. It is intended for auditors and for
