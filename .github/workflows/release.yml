@@ -422,11 +422,17 @@ jobs:
   # de «404» ya no aplica a ninguno. Lo que sigue sin ejercitarse es `padme-v*`
   # (ver el job de arriba).
   #
-  # PENDIENTE que NO está en este repositorio: ahora que su primer tag publicó
-  # solo, a `quipu-cnsa` le toca marcar «Require trusted publishing for all new
-  # versions» en crates.io — la regla del CLAUDE.md es que se marca cuando el tag
-  # publica solo, no antes, para no quitarle el respaldo manual justo donde puede
-  # hacer falta. Se ajusta a mano en la web de crates.io.
+  # Y SU CASILLA YA ESTÁ MARCADA. El 2026-08-05, después de que este tag
+  # publicara solo, Juan marcó «Require trusted publishing for all new versions»
+  # en https://crates.io/crates/quipu-cnsa/settings — que es la condición que
+  # fija el CLAUDE.md: se marca cuando el tag publica solo, no antes, para no
+  # quitarle el respaldo manual justo donde puede hacer falta.
+  #
+  # CONSECUENCIA OPERATIVA: en `quipu-cnsa`, igual que en `quipu`,
+  # `quipu-nucleo` y `quipu-voprf`, `cargo publish` con token de API YA NO
+  # FUNCIONA. Si el OIDC fallara, el fallback manual exige desmarcarla primero.
+  # El único de los cinco que conserva el respaldo con token es `padme-frame`,
+  # porque su camino por tag sigue sin ejercitarse.
   crate-cnsa:
     name: publish quipu-cnsa to crates.io
     if: startsWith(github.ref, 'refs/tags/cnsa-v')
