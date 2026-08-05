@@ -29,14 +29,25 @@ orden de todo lo que viene.
 
 Nada de lo demás importa hasta que el dinero pueda entrar.
 
-### 1. `xiliux.com` sin HSTS ni `nosniff`
+### 1. `xiliux.com`: las cabeceras YA ESTÁN; queda el `HEAD /` — **medio HECHO**
 
-Es el sitio que cobra con PayPal. Sin HSTS, la primera petición de un cliente
-nuevo viaja en claro, que es exactamente donde se intercepta; el `301` no la
-protege. Además `HEAD /` devuelve 405, así que un monitor estándar reportaría
-caída la página de pago.
+Es el sitio que cobra con PayPal. Este punto pedía dos cosas y hoy solo falta
+una. **Medido contra producción el 2026-08-05**, no recordado:
 
-Son dos líneas de nginx. Requiere acceso al VPS.
+- **HSTS puesto** — `Strict-Transport-Security: max-age=31536000`. Con él, la
+  primera petición de un cliente nuevo ya no viaja en claro. Van además
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` y una CSP con
+  `object-src 'none'`, `base-uri 'self'` y `frame-ancestors 'none'`.
+- **`HEAD /` sigue devolviendo 405**, y `GET /` devuelve 200. Un monitor
+  estándar sondea con `HEAD`: hoy reportaría CAÍDA la página de pago. Eso no se
+  arregla en nginx —lo contesta la aplicación NiceGUI—, así que el trabajo es de
+  `/mnt/data/portafolio`, no de aquí.
+
+Cómo volver a comprobarlo sin creerle a este documento:
+
+```bash
+curl -sI https://xiliux.com/ -w 'http=%{http_code}\n' | grep -iE 'strict-transport|x-content-type'
+```
 
 ### 2. Probar el camino del dinero de punta a punta
 
@@ -54,8 +65,11 @@ Los dos bloqueos que este punto describía están cerrados, y se comprueba en lo
   `path` + `version` de `quipu` sobre él no volverá a tumbar un release.
 - **La rueda de `quipu-voprf` alcanzó al crate**: misma versión en PyPI y en
   crates.io, y es el paquete que se le indica al cliente del SaaS.
-- Queda fuera del índice el perfil `quipu-cnsa`, y no bloquea a nadie: no es
-  dependencia de `quipu`.
+- **`quipu-cnsa` y `padme-frame` entraron al índice el 2026-08-04**, los dos en
+  0.1.0. Este punto decía que el perfil CNSA quedaba fuera —cierto hasta el
+  2026-08-03, cuando `curl` al índice daba 404 para los dos— y ya no lo está:
+  con `padme-frame` publicado, `cargo package -p quipu-nucleo` deja de fallar
+  con `no matching package named 'padme-frame' found`.
 
 Los números concretos NO se copian aquí a propósito: este documento no es un
 sitio de versión, y duplicarlos garantizaría que un día digan algo distinto de

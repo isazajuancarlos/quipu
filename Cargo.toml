@@ -50,7 +50,6 @@ documentation = "https://docs.rs/quipu"
 exclude = [
     "GRANT_NLNET.md",
     "OTF_RED_TEAM_LAB.md",
-    "PENDIENTES.txt",
     "QUIPU_PROYECTO_Y_REQUISITOS.txt",
     "conversaciones/",
     "docs/superpowers/",
