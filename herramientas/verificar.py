@@ -550,6 +550,16 @@ def _sitios_de_version(v: str) -> list[tuple[str, str, str, object]]:
 
     # --- documentación y rangos que la NOMBRAN -------------------------------
     sitios.append(("SECURITY.md", f"`v{v}`", "referencia", texto_contiene("SECURITY.md", f"v{v}")))
+    # La cabecera de la especificación. Entra en el registro el 2026-08-05, el
+    # mismo día en que se corrigió: decía «through v0.6.0» con el crate en
+    # 0.11.0, y el cuerpo llevaba cinco secciones de formatos posteriores. Lo
+    # caducado era el banner, que es lo primero que lee quien llega de docs.rs.
+    #
+    # Se REGISTRA en vez de quitarle la versión, y esa es la decisión: un
+    # documento que dice hasta dónde cubre vale más que uno que no lo dice, pero
+    # solo si algo lo obliga a envejecer con el resto. Sin esta línea vuelve a
+    # quedarse atrás al primer salto, y en silencio — que es como llegó a v0.6.0.
+    sitios.append(("docs/SPEC.md", f"`v{v}` (cabecera)", "referencia", texto_contiene("docs/SPEC.md", f"v{v}")))
     return sitios
 
 

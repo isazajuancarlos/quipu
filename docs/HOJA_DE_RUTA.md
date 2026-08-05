@@ -3,9 +3,9 @@
 
 # Hoja de ruta
 
-Estado al **2026-07-31**, tras el recorte a un solo binding. Todo lo que sigue
-está medido contra el repositorio, los índices de paquetes y la producción; nada
-citado de memoria.
+Estado al **2026-08-05**, revisado punto por punto contra el repositorio, los
+índices de paquetes y la producción; nada citado de memoria. La estructura viene
+del recorte a un solo binding (2026-07-31).
 
 Esta lista es **exclusiva de Quipu**. El índice general de pendientes mezcla seis
 proyectos y no sirve para trabajar aquí.
@@ -15,7 +15,7 @@ proyectos y no sirve para trabajar aquí.
 | | |
 |---|---|
 | Publicado en | crates.io y PyPI (la versión, en `Cargo.toml`) |
-| Pruebas | **380 en verde en 38 binarios**, 0 fallidas (`cargo test --workspace --all-targets`, 2026-08-03, tras fusionar #265 con la rama de trabajo) · 883 sumando todas las combinaciones de features, medido antes y no vuelto a medir — esa segunda cifra envejece y hay que remedirla antes de citarla |
+| Pruebas | **382 en verde en 38 binarios**, 0 fallidas y 1 ignorada (`cargo test --workspace --all-targets`, remedido el **2026-08-05** sobre `estable` = `7cd7f0c`; eran 380 el 2026-08-03, y las dos que faltaban entraron con #146/#151). Los **doctests** van aparte y también en verde —`--all-targets` los EXCLUYE— y el banco del verificador da 28 pruebas / 120 comprobaciones · 883 sumando todas las combinaciones de features, medido antes y no vuelto a medir — esa segunda cifra envejece y hay que remedirla antes de citarla |
 | `unsafe` de primera parte | **0** en todo el repositorio |
 | Superficies publicadas | 2 — crates.io y PyPI |
 | Sitios de versión | 4, verificados por el CI en 5 segundos |
@@ -29,14 +29,44 @@ orden de todo lo que viene.
 
 Nada de lo demás importa hasta que el dinero pueda entrar.
 
-### 1. `xiliux.com` sin HSTS ni `nosniff`
+### 1. `xiliux.com` sin HSTS ni `nosniff` — **HECHO el 2026-08-05**
 
-Es el sitio que cobra con PayPal. Sin HSTS, la primera petición de un cliente
-nuevo viaja en claro, que es exactamente donde se intercepta; el `301` no la
-protege. Además `HEAD /` devuelve 405, así que un monitor estándar reportaría
-caída la página de pago.
+Es el sitio que cobra con PayPal. El punto pedía dos cosas y las dos están, las
+dos **medidas contra producción**, no recordadas:
 
-Son dos líneas de nginx. Requiere acceso al VPS.
+- **Cabeceras puestas** — `Strict-Transport-Security: max-age=31536000`, así que
+  la primera petición de un cliente nuevo ya no viaja en claro. Van además
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` y una CSP con
+  `object-src 'none'`, `base-uri 'self'` y `frame-ancestors 'none'`.
+- **El `HEAD` ya responde 200**, desplegado el 2026-08-05. Y el problema era
+  cuatro veces mayor de lo que decía este punto: no fallaba `/`, fallaban
+  **diez de las once rutas públicas** —incluidas `/robots.txt` y
+  `/sitemap.xml`, que los rastreadores piden así—. Solo `/favicon.ico` se
+  salvaba.
+
+  La causa no era de la portada: **FastAPI no añade `HEAD` al registrar un
+  `GET`** (Starlette sí lo hace en su `Route`; `APIRoute` no, y NiceGUI monta
+  sus páginas por ahí). Por eso el arreglo es un middleware que vale para todas
+  las rutas y para las que se escriban mañana, y **no** un `@app.head('/')` que
+  habría tapado el caso del informe dejando nueve rotas.
+
+  **No se arregló en nginx a propósito**, que era la salida obvia y es peor: si
+  nginx contesta el `HEAD`, el monitor recibe 200 aunque el proceso esté muerto
+  —«sano» y «muerto» se verían igual, que es justo lo que un monitor existe para
+  distinguir—. Contestando desde la aplicación, el 200 prueba que el proceso
+  vive y que su router funciona.
+
+Cómo volver a comprobarlo sin creerle a este documento — las dos mitades:
+
+```bash
+curl -sI https://xiliux.com/ -w 'http=%{http_code}\n' | grep -iE 'strict-transport|x-content-type'
+for u in / /blog /servicios /quipu /informes /cotizador /quipu/precios \
+         /robots.txt /sitemap.xml /manifest.json /favicon.ico; do
+  printf '%-16s HEAD=%s GET=%s\n' "$u" \
+    "$(curl -sI -o /dev/null -w '%{http_code}' https://xiliux.com$u)" \
+    "$(curl -s  -o /dev/null -w '%{http_code}' https://xiliux.com$u)"
+done   # 11/11 en 200 el 2026-08-05
+```
 
 ### 2. Probar el camino del dinero de punta a punta
 
@@ -54,8 +84,11 @@ Los dos bloqueos que este punto describía están cerrados, y se comprueba en lo
   `path` + `version` de `quipu` sobre él no volverá a tumbar un release.
 - **La rueda de `quipu-voprf` alcanzó al crate**: misma versión en PyPI y en
   crates.io, y es el paquete que se le indica al cliente del SaaS.
-- Queda fuera del índice el perfil `quipu-cnsa`, y no bloquea a nadie: no es
-  dependencia de `quipu`.
+- **`quipu-cnsa` y `padme-frame` entraron al índice el 2026-08-04**, los dos en
+  0.1.0. Este punto decía que el perfil CNSA quedaba fuera —cierto hasta el
+  2026-08-03, cuando `curl` al índice daba 404 para los dos— y ya no lo está:
+  con `padme-frame` publicado, `cargo package -p quipu-nucleo` deja de fallar
+  con `no matching package named 'padme-frame' found`.
 
 Los números concretos NO se copian aquí a propósito: este documento no es un
 sitio de versión, y duplicarlos garantizaría que un día digan algo distinto de

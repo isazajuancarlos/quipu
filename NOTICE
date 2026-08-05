@@ -1,0 +1,63 @@
+Quipu
+Copyright 2024-2026 Juan Carlos Isaza Arenas
+
+Este producto incluye software desarrollado por Juan Carlos Isaza Arenas,
+propietario del establecimiento de comercio XILIUX (Amagá, Antioquia, Colombia).
+
+--------------------------------------------------------------------------------
+LICENCIAS
+--------------------------------------------------------------------------------
+
+Quipu se distribuye bajo LICENCIA DUAL (open-core):
+
+  - AGPL-3.0-or-later          -> LICENSE
+  - Licencia comercial         -> LICENSE-COMMERCIAL
+
+El copyleft no prohíbe cobrar: lo que se vende es la EXENCIÓN de publicar el
+código derivado, no el uso. El detalle, y qué licencia rige cada componente del
+repositorio —no todos llevan la misma—, está en LICENSING.md. La declaración de
+titularidad completa, con su fundamento legal, está en COPYRIGHT.
+
+Este archivo existe además de COPYRIGHT porque son dos lectores distintos:
+COPYRIGHT es la declaración jurídica, y NOTICE es lo que cosechan las
+herramientas de cumplimiento del cliente (cargo-about, cargo-deny, FOSSA) para
+armar su página de atribuciones. Un titular que solo está en COPYRIGHT no
+aparece en esa página.
+
+--------------------------------------------------------------------------------
+DATOS DE TERCEROS EMPOTRADOS
+--------------------------------------------------------------------------------
+
+El código de este crate es original y no deriva del de ninguna otra
+implementación. Lo que NO es original son dos conjuntos de vectores de prueba
+normativos, transcritos literalmente y declarados en su propio campo `fuente`:
+
+  tests/vectors/acvp_mlkem1024_keygen.json
+    NIST ACVP-Server, gen-val ML-KEM-keyGen-FIPS203, internalProjection.json
+    Parameter set ML-KEM-1024.
+
+  tests/vectors/acvp_mldsa87_keygen.json
+    NIST ACVP-Server, gen-val ML-DSA-keyGen-FIPS204, internalProjection.json
+    Parameter set ML-DSA-87.
+
+Son lo que separa «implementa FIPS 203/204» de «dice implementarlos»: un vector
+inventado que pasa es peor que no tener vector. La atribución es a la NORMA y a
+su banco oficial, no a código incorporado.
+
+`tests/vectors/quipu_vectors.json` sí es propio: lo genera este repositorio
+(`cargo run --example gen_vectors --features honey`) y lo comprueba
+`tests/vectors.rs`.
+
+--------------------------------------------------------------------------------
+MARCA
+--------------------------------------------------------------------------------
+
+«Quipu» y «Xiliux» son marcas de Juan Carlos Isaza Arenas. La licencia del
+software NO otorga derechos sobre las marcas; ver TRADEMARK.md.
+
+--------------------------------------------------------------------------------
+DEPENDENCIAS
+--------------------------------------------------------------------------------
+
+Las dependencias se ENLAZAN, no se incluyen, y conservan cada una su licencia.
+El inventario reproducible viaja en el SBOM (CycloneDX) que genera el CI.

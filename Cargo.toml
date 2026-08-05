@@ -21,7 +21,7 @@ name = "quipu"
 # `quipu = "0.10"`. Con 0.10.1 se lo llevarían SOLOS en el próximo `cargo
 # update`; con 0.11.0 no se mueven hasta que alguien edite el requisito, que es
 # como debe entrar un cambio de comportamiento — decidido, no heredado.
-version = "0.11.0"
+version = "0.11.1"
 edition = "2024"
 description = "Codec criptográfico post-cuántico híbrido (X25519+ML-KEM-1024, Ed25519+ML-DSA-87) con endurecimiento online verificable por VOPRF conforme a RFC 9497. Datos en reposo."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
@@ -47,10 +47,59 @@ documentation = "https://docs.rs/quipu"
 # precio se paga en los dos README, que enlazaban el diseño del Security Lab por
 # ruta relativa: ahora lo enlazan por URL absoluta a GitHub, que resuelve
 # también desde crates.io y docs.rs.
+#
+# QUÉ REGLA RIGE ESTA LISTA, que hasta el 2026-08-05 no estaba escrita y por eso
+# la lista PARECÍA mixta por accidente: **entra aquí todo lo interno, esté
+# rastreado o no**. No es redundancia con `.gitignore`; son dos cinturones para
+# dos caminos distintos, y hay que saber cuál sostiene qué:
+#
+#   - Empaquetando DESDE EL REPO GIT (el camino normal, y el de los cinco jobs
+#     `crate-*` de release.yml, que hacen checkout completo) los dos cinturones
+#     se REPARTEN el trabajo según el archivo esté rastreado o no, y el reparto
+#     es justo el contrario de lo que decía aquí hasta el 2026-08-05:
+#       · lo NO rastreado lo descarta `.gitignore`, y `exclude` no llega a opinar;
+#       · lo RASTREADO no lo toca `.gitignore` —git no lo aplica a lo que ya está
+#         en el índice— y entonces `exclude` es el ÚNICO cinturón que queda.
+#     El positivo de control está en el propio repositorio: `docs/superpowers/`
+#     son 15 archivos RASTREADOS que NO figuran en `.gitignore`, y no aparecen
+#     entre los 134 del paquete. Lo único que los saca es esta lista.
+#     La versión anterior de este comentario afirmaba que aquí «`.gitignore`
+#     decide solo», y de creerla se sigue que para el camino normal basta con
+#     ignorar — falso para todo lo que ya esté rastreado, que es donde más duele.
+#   - Empaquetando SIN `.git` —un árbol exportado, un tarball— cargo no lee
+#     `.gitignore` **en absoluto** y el caminador mete todo lo que no esté
+#     excluido. Medido el 2026-08-05 plantando seis señuelos en un árbol sacado
+#     con `git archive`: cinco entraron en la lista del .crate. Ahí `exclude` es
+#     lo único que queda. Lo mismo tras un `git add -f` accidental.
+#
+# Por eso la lista se completa en vez de podarse: el residuo de una lista de
+# publicación va al lado de NO publicar (directiva 20). `OTF_IFF_CONCEPT_NOTE.md`
+# y `SPONSOR_TIERS.txt` se añadieron el 2026-08-05 — existen en el árbol, son la
+# misma categoría que los dos que ya estaban y el espejo reflejaba 2 de 4. Al
+# añadir un borrador interno se toca `.gitignore` Y esta lista, las dos.
+#
+# Y por lo mismo `PENDIENTES.txt` VUELVE, después de que ese mismo día lo quitara
+# la pasada que completaba la lista. Se quitó porque el archivo hoy no existe en
+# el árbol, y ese es precisamente el razonamiento que la regla prohíbe: una
+# entrada de una lista de negación no cuesta nada mientras el archivo falta, y el
+# día que alguien lo recree —está en `.gitignore` bajo «Notas internas», o sea
+# que se espera que exista— entraría en el .crate por el camino sin git. Podar
+# por ausencia es mandar el residuo al lado de PUBLICAR.
+#
+# `CLAUDE.md` es el que faltaba desde siempre, y es el peor de la lista: 30 KiB
+# sin rastrear con reconocimiento operativo dentro —el procedimiento para
+# desactivar `enforce_admins`, en qué crates sigue sirviendo un token de API
+# robado, la configuración del publicador de confianza y rutas de la máquina—.
+# No lleva credenciales, pero decirle a un atacante por dónde está abierta la
+# puerta vale casi lo mismo. Sin rastrear y en `.gitignore`, así que el camino de
+# release nunca lo empaquetó; esto cierra el segundo cinturón, no una fuga viva.
 exclude = [
+    "CLAUDE.md",
     "GRANT_NLNET.md",
     "OTF_RED_TEAM_LAB.md",
+    "OTF_IFF_CONCEPT_NOTE.md",
     "PENDIENTES.txt",
+    "SPONSOR_TIERS.txt",
     "QUIPU_PROYECTO_Y_REQUISITOS.txt",
     "conversaciones/",
     "docs/superpowers/",

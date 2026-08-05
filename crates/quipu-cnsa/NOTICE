@@ -1,0 +1,34 @@
+quipu-cnsa
+Copyright 2024-2026 Juan Carlos Isaza Arenas
+
+Este producto incluye software desarrollado por Juan Carlos Isaza Arenas.
+
+Se distribuye bajo la AGPL-3.0-or-later. El texto completo de la licencia está
+en el archivo LICENSE que acompaña a este paquete.
+
+--------------------------------------------------------------------------------
+QUÉ IMPLEMENTA, Y QUÉ NO AFIRMA
+--------------------------------------------------------------------------------
+
+Este crate implementa el conjunto de algoritmos del CNSA 2.0 —AES-256-GCM,
+HKDF-SHA-384, ML-DSA-87 y ML-KEM-1024 PUROS, no híbridos— sobre el formato y el
+contenedor de `quipu-nucleo`.
+
+ALINEACIÓN NO ES CUMPLIMIENTO. No está validado FIPS 140-3: eso exige un
+laboratorio acreditado, no más código. Esta advertencia va aquí además de en el
+README y en la primera pantalla de `lib.rs`, porque quien necesita cumplimiento
+formal tiene que saberlo al elegir y no cuando se lo pregunten en una auditoría.
+
+Las especificaciones que sigue son normas públicas, y la atribución es a ellas:
+
+  NSA. "Commercial National Security Algorithm Suite 2.0", 2022.
+  NIST FIPS 203 (ML-KEM), FIPS 204 (ML-DSA), FIPS 197 (AES),
+  NIST SP 800-38D (GCM), RFC 5869 (HKDF).
+
+--------------------------------------------------------------------------------
+CÓDIGO Y DEPENDENCIAS
+--------------------------------------------------------------------------------
+
+El código de este crate es original y no deriva del de ninguna otra
+implementación. No incorpora código de terceros: las dependencias se ENLAZAN, no
+se incluyen, y conservan cada una su licencia.

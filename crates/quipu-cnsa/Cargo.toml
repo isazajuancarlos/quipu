@@ -1,6 +1,6 @@
 [package]
 name = "quipu-cnsa"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Perfil de Quipu con los algoritmos de CNSA 2.0: AES-256-GCM, HKDF-SHA-384, firma ML-DSA-87 y canal de destinatario ML-KEM-1024. PUROS, no hibridos: mas debil que quipu y es lo que pide el mandato. NO validado FIPS 140-3."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]

@@ -13,7 +13,7 @@ name = "quipu-nucleo"
 # 200 000 longitudes contra una copia literal del código de la 0.1.1—. Esa
 # prueba existe porque la del envoltorio solo hace ida y vuelta consigo misma, y
 # eso pasaría igual si el algoritmo hubiera cambiado.
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Núcleo agnóstico de primitivas de Quipu: formato del contenedor, codec base-N, Reed-Solomon y relleno Padmé. No contiene criptografía."
 authors = ["Juan Carlos Isaza Arenas <isazajuancarlos@gmail.com>"]
