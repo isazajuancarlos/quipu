@@ -359,21 +359,28 @@ jobs:
   # y es el mismo fallo que ya costó una publicación con `quipu-voprf`: un
   # `path` que en el árbol resuelve solo y en el índice no existe.
   #
-  # Este job NUNCA se ha ejecutado: el crate nació el 2026-08-01 y sigue sin
-  # publicar. El primer `padme-v*` que se empuje es también su estreno.
+  # ESTADO (actualizado el 2026-08-05): `padme-frame` **0.1.0 ya está en el
+  # índice**, publicada a mano con token el 2026-08-04. Este job, en cambio,
+  # SIGUE SIN EJECUTARSE NUNCA: el primer `padme-v*` que se empuje es su
+  # estreno, y hasta que corra no se da por probado.
   #
-  # Y SU ESTRENO VA A FALLAR. No es una sospecha: la documentación de crates.io
-  # lo dice literalmente entre los prerrequisitos de trusted publishing —
-  # «Your crate must already be published to crates.io (initial publish requires
-  # an API token)» (rust-lang/crates.io, svelte/src/routes/docs/trusted-publishing).
-  # La configuración de OIDC vive en Settings → Trusted Publishing DEL CRATE, y
-  # un crate que no existe no tiene ajustes. Comprobado el 2026-08-03 contra el
-  # índice: `padme-frame` da 404.
+  # Lo que decía este comentario hasta hoy —que el crate da 404 y que su estreno
+  # «va a fallar»— era cierto el 2026-08-03 y dejó de serlo al día siguiente.
+  # La regla que lo motivaba SÍ sigue viva y por eso se conserva: la
+  # documentación de crates.io lo dice literalmente entre los prerrequisitos de
+  # trusted publishing — «Your crate must already be published to crates.io
+  # (initial publish requires an API token)» (rust-lang/crates.io,
+  # svelte/src/routes/docs/trusted-publishing). La configuración de OIDC vive en
+  # Settings → Trusted Publishing DEL CRATE, así que un crate que no existe no
+  # tiene ajustes donde configurarlo: es circular.
   #
-  # O sea que este job sirve de la SEGUNDA versión en adelante. La 0.1.0 hay que
-  # subirla a mano con un token de API, y solo después se configura el trusted
-  # publishing que hace funcionar el tag. Empujar `padme-v0.1.0` esperando que
-  # publique es perder el tag y tener que borrarlo.
+  # O SEA QUE LA REGLA APLICA AL SIGUIENTE CRATE QUE NAZCA, no a éste: su primer
+  # publish va a mano con token, y solo después se configura el trusted
+  # publishing que hace funcionar el tag. Empujar el `-v0.1.0` de un crate que
+  # no existe es perder el tag y tener que borrarlo.
+  #
+  # Precedente de que el camino funciona una vez publicado: `cnsa-v0.1.1`
+  # publicó por OIDC a la primera el 2026-08-05 (ver el job de abajo).
   crate-padme:
     name: publish padme-frame to crates.io
     if: startsWith(github.ref, 'refs/tags/padme-v')
@@ -401,12 +408,25 @@ jobs:
   #
   # Depende de `quipu-nucleo`, así que va DESPUÉS de él en la cadena.
   #
-  # MISMO ESTRENO FALLIDO que `crate-padme`, y por la misma razón: `quipu-cnsa`
-  # tampoco está en el índice (404 el 2026-08-03), y el trusted publishing exige
-  # que el crate exista para poder configurarlo. Su 0.1.0 también va a mano con
-  # token. Los dos crates SIN publicar del workspace son exactamente estos dos;
-  # `quipu-nucleo`, `quipu-voprf` y `quipu` sí existen (200), así que sus jobs
-  # sí funcionan por tag.
+  # ESTE JOB YA SE EJERCITÓ, y es el único de los cinco que pasó de «configurado»
+  # a «demostrado» sin haber estado antes en producción. Cronología, porque es lo
+  # que hace útil el dato:
+  #
+  #   2026-08-03  el crate daba 404. El comentario que estaba aquí decía, con
+  #               razón, que su estreno por tag iba a fallar.
+  #   2026-08-04  0.1.0 publicada A MANO con token (19:44 UTC), y después se
+  #               configuró el trusted publishing en los ajustes DEL CRATE.
+  #   2026-08-05  `cnsa-v0.1.1` publicó POR OIDC a la primera (21:40 UTC).
+  #
+  # Los cinco crates del workspace están hoy en el índice, así que la advertencia
+  # de «404» ya no aplica a ninguno. Lo que sigue sin ejercitarse es `padme-v*`
+  # (ver el job de arriba).
+  #
+  # PENDIENTE que NO está en este repositorio: ahora que su primer tag publicó
+  # solo, a `quipu-cnsa` le toca marcar «Require trusted publishing for all new
+  # versions» en crates.io — la regla del CLAUDE.md es que se marca cuando el tag
+  # publica solo, no antes, para no quitarle el respaldo manual justo donde puede
+  # hacer falta. Se ajusta a mano en la web de crates.io.
   crate-cnsa:
     name: publish quipu-cnsa to crates.io
     if: startsWith(github.ref, 'refs/tags/cnsa-v')
