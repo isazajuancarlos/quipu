@@ -1,0 +1,22 @@
+quipu-voprf
+Copyright 2024-2026 Juan Carlos Isaza Arenas
+
+Este producto incluye software desarrollado por Juan Carlos Isaza Arenas.
+
+El protocolo que implementa —OPRF verificable sobre grupos de orden primo,
+ciphersuite `ristretto255-SHA512`, modo VOPRF— se especifica en:
+
+  A. Davidson, A. Faz-Hernandez, N. Sullivan, C. A. Wood.
+  "Oblivious Pseudorandom Functions (OPRFs) Using Prime-Order Groups".
+  RFC 9497, Internet Research Task Force (IRTF), diciembre de 2023.
+
+Esta implementación es original y no deriva del código de ninguna otra. La
+atribución es a la ESPECIFICACIÓN, no a código.
+
+Los vectores de `tests/rfc9497_vectors.rs` están copiados literalmente del
+Apéndice A.1.2 de esa RFC. Se transcriben en vez de reconstruirse a propósito:
+son lo que separa «conforme a RFC 9497» de «inspirado en», y un vector inventado
+que pasa es peor que no tener vector.
+
+No incorpora código de terceros. Las dependencias —`curve25519-dalek`, `sha2`,
+`getrandom`— se enlazan, no se incluyen, y conservan cada una su licencia.
