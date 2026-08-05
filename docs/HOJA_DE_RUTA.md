@@ -3,9 +3,9 @@
 
 # Hoja de ruta
 
-Estado al **2026-07-31**, tras el recorte a un solo binding. Todo lo que sigue
-está medido contra el repositorio, los índices de paquetes y la producción; nada
-citado de memoria.
+Estado al **2026-08-05**, revisado punto por punto contra el repositorio, los
+índices de paquetes y la producción; nada citado de memoria. La estructura viene
+del recorte a un solo binding (2026-07-31).
 
 Esta lista es **exclusiva de Quipu**. El índice general de pendientes mezcla seis
 proyectos y no sirve para trabajar aquí.
@@ -15,7 +15,7 @@ proyectos y no sirve para trabajar aquí.
 | | |
 |---|---|
 | Publicado en | crates.io y PyPI (la versión, en `Cargo.toml`) |
-| Pruebas | **380 en verde en 38 binarios**, 0 fallidas (`cargo test --workspace --all-targets`, 2026-08-03, tras fusionar #265 con la rama de trabajo) · 883 sumando todas las combinaciones de features, medido antes y no vuelto a medir — esa segunda cifra envejece y hay que remedirla antes de citarla |
+| Pruebas | **382 en verde en 38 binarios**, 0 fallidas y 1 ignorada (`cargo test --workspace --all-targets`, remedido el **2026-08-05** sobre `estable` = `7cd7f0c`; eran 380 el 2026-08-03, y las dos que faltaban entraron con #146/#151). Los **doctests** van aparte y también en verde —`--all-targets` los EXCLUYE— y el banco del verificador da 28 pruebas / 120 comprobaciones · 883 sumando todas las combinaciones de features, medido antes y no vuelto a medir — esa segunda cifra envejece y hay que remedirla antes de citarla |
 | `unsafe` de primera parte | **0** en todo el repositorio |
 | Superficies publicadas | 2 — crates.io y PyPI |
 | Sitios de versión | 4, verificados por el CI en 5 segundos |
