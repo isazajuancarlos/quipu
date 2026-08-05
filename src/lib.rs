@@ -4,7 +4,7 @@
 
 //! Quipu: librería de codificación con protección criptográfica y simbología propia.
 //!
-//! Arquitectura por capas (ver QUIPU_PROYECTO_Y_REQUISITOS.txt):
+//! Arquitectura por capas (ver [`docs/SPEC.md`](https://github.com/isazajuancarlos/quipu/blob/estable/docs/SPEC.md)):
 //!   kdf -> cipher -> codec -> dictionary ; container, prelayers, api.
 //!
 //! La seguridad vive en el cifrado (clave + AEAD). El codec y el diccionario son
