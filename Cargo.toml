@@ -47,9 +47,32 @@ documentation = "https://docs.rs/quipu"
 # precio se paga en los dos README, que enlazaban el diseño del Security Lab por
 # ruta relativa: ahora lo enlazan por URL absoluta a GitHub, que resuelve
 # también desde crates.io y docs.rs.
+#
+# QUÉ REGLA RIGE ESTA LISTA, que hasta el 2026-08-05 no estaba escrita y por eso
+# la lista PARECÍA mixta por accidente: **entra aquí todo lo interno, esté
+# rastreado o no**. No es redundancia con `.gitignore`; son dos cinturones para
+# dos caminos distintos, y hay que saber cuál sostiene qué:
+#
+#   - Empaquetando DESDE EL REPO GIT (el camino normal, y el de los cinco jobs
+#     `crate-*` de release.yml, que hacen checkout completo), cargo enumera con
+#     git y descarta lo ignorado ANTES de mirar `exclude`. Ahí `.gitignore`
+#     decide solo, y estas entradas no llegan a opinar.
+#   - Empaquetando SIN `.git` —un árbol exportado, un tarball— cargo no lee
+#     `.gitignore` **en absoluto** y el caminador mete todo lo que no esté
+#     excluido. Medido el 2026-08-05 plantando seis señuelos en un árbol sacado
+#     con `git archive`: cinco entraron en la lista del .crate. Ahí `exclude` es
+#     lo único que queda. Lo mismo tras un `git add -f` accidental.
+#
+# Por eso la lista se completa en vez de podarse: el residuo de una lista de
+# publicación va al lado de NO publicar (directiva 20). `OTF_IFF_CONCEPT_NOTE.md`
+# y `SPONSOR_TIERS.txt` se añadieron el 2026-08-05 — existen en el árbol, son la
+# misma categoría que los dos que ya estaban y el espejo reflejaba 2 de 4. Al
+# añadir un borrador interno se toca `.gitignore` Y esta lista, las dos.
 exclude = [
     "GRANT_NLNET.md",
     "OTF_RED_TEAM_LAB.md",
+    "OTF_IFF_CONCEPT_NOTE.md",
+    "SPONSOR_TIERS.txt",
     "QUIPU_PROYECTO_Y_REQUISITOS.txt",
     "conversaciones/",
     "docs/superpowers/",

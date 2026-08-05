@@ -40,8 +40,8 @@ una. **Medido contra producción el 2026-08-05**, no recordado:
   `object-src 'none'`, `base-uri 'self'` y `frame-ancestors 'none'`.
 - **`HEAD /` sigue devolviendo 405**, y `GET /` devuelve 200. Un monitor
   estándar sondea con `HEAD`: hoy reportaría CAÍDA la página de pago. Eso no se
-  arregla en nginx —lo contesta la aplicación NiceGUI—, así que el trabajo es de
-  `/mnt/data/portafolio`, no de aquí.
+  arregla en nginx —lo contesta la aplicación NiceGUI—, así que el trabajo es
+  del repositorio del portafolio, no de este.
 
 Cómo volver a comprobarlo sin creerle a este documento:
 
