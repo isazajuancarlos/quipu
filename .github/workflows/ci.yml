@@ -16,8 +16,31 @@ permissions:
   # propios permisos por job. Sin este bloque el GITHUB_TOKEN hereda permisos amplios.
   contents: read
 
+# Un `push` nuevo sobre la misma referencia cancela la corrida anterior en vez
+# de dejarla terminar. Sin esto, dos empujones seguidos a un PR dejaban DOS
+# corridas completas vivas a la vez —y con `test + clippy` en 48 min, la vieja
+# seguía media hora larga después de haber quedado obsoleta—.
+# `estable` se EXCLUYE del cancelado: ahí cada commit tiene que quedar medido
+# por sí mismo, porque es lo que se publica. En ramas de trabajo, la corrida
+# vieja no le importa a nadie.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/estable' }}
+
 env:
   CARGO_TERM_COLOR: always
+  # El runner no tiene depurador ni recompilación incremental que proteger, así
+  # que sube el perfil dev ENTERO a opt-level 3 y recoge también el ahorro de
+  # nuestros propios crates. `Cargo.toml` deja fijado el mínimo —solo las
+  # dependencias— para que la máquina de cualquiera lo herede sin tocar nada;
+  # esta línea es la capa de encima, y solo aquí.
+  #
+  # Medido el 2026-08-05 en `cargo test --workspace --all-targets`, en caliente:
+  #   opt-level 0 → 597,8 s   ·   solo deps → 61,2 s   ·   perfil entero → 42,2 s
+  # Mismas 382 pruebas en 38 binarios en las tres, y `debug_assertions` sigue
+  # activo (comprobado con su caso rojo). No cambia qué se prueba: cambia lo que
+  # tarda Argon2id en ejecutarse.
+  CARGO_PROFILE_DEV_OPT_LEVEL: 3
 
 jobs:
   test:

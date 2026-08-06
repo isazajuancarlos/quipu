@@ -247,3 +247,25 @@ required-features = ["lab"]
 [profile.release]
 overflow-checks = true
 strip = "symbols"
+
+# --- Las DEPENDENCIAS se compilan optimizadas también en debug ---
+# Argon2id es memory-hard por diseño: sin optimizar, cada derivación cuesta un
+# orden de magnitud más, y el banco entero está dominado por ella. Medido el
+# 2026-08-05 sobre `cargo test --workspace --all-targets`, en caliente y con el
+# mismo conteo de pruebas (382 en 38 binarios) en las tres variantes:
+#
+#   opt-level 0 (lo de antes) ......... 597,8 s
+#   solo dependencias (esto) ...........  61,2 s   ← 9,8x, el 96,6 % del ahorro
+#   perfil dev entero .................. 42,2 s   ← 14,2x, pero penaliza el
+#                                                    ciclo local y el depurador
+#
+# Se elige la variante de dependencias porque deja NUESTROS crates en debug
+# puro: iteración e inspección intactas. El resto del ahorro lo recoge el CI
+# subiendo el perfil entero por variable de entorno (ver ci.yml), que allí no
+# tiene contrapartida —no hay depurador ni recompilación incremental—.
+#
+# NO cambia qué se prueba: `debug_assertions` sigue activo con opt-level > 0
+# (comprobado con su caso rojo). El repo ya sabía de este coste y lo había
+# tapado en un solo sitio: el paso `--features slh --release` de ci.yml.
+[profile.dev.package."*"]
+opt-level = 3
