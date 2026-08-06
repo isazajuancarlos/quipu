@@ -46,6 +46,16 @@ jobs:
   test:
     name: test + clippy
     runs-on: ubuntu-latest
+    # Techo, no duración esperada. Este job pasó de 4 minutos (2026-07-21) a 48
+    # (2026-08-05) de tres en tres, con cada feature nueva, y NADIE lo vio: un
+    # CI lento sale verde igual que uno rápido, así que la deriva no tenía
+    # ningún síntoma. Con el perfil arreglado son 4,8 min en caliente y 8,5 en
+    # frío; 20 deja holgura para una corrida fría y para una feature más, y se
+    # pone rojo mucho antes de volver a 48.
+    # Si un día este número estorba, la pregunta NO es «subo el techo» sino
+    # «qué paso se ha comido los minutos» — que es justo lo que nadie preguntó
+    # entre julio y agosto.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
