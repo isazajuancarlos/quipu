@@ -45,23 +45,39 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # El runner no tiene depurador ni recompilación incremental que proteger, así
-  # que sube el perfil dev ENTERO a opt-level 3 y recoge también el ahorro de
-  # nuestros propios crates. `Cargo.toml` deja fijado el mínimo —solo las
-  # dependencias— para que lo herede sin tocar nada quien clone ESTE
-  # repositorio; esta línea es la capa de encima, y solo aquí.
   #
-  # No alcanza más lejos, y conviene no prometerlo: cargo IGNORA las secciones
-  # `[profile]` de los paquetes que no son la raíz del build, así que guaca y
-  # tunjo, que dependen de `quipu`, no heredan nada de esto. Es lo correcto —el
-  # efecto que se busca es acelerar las pruebas de aquí—, pero el alcance es ese.
+  # LÁPIDA — aquí NO va `CARGO_PROFILE_DEV_OPT_LEVEL: 3`, y no es un olvido.
   #
-  # Medido el 2026-08-05 en `cargo test --workspace --all-targets`, en caliente:
-  #   opt-level 0 → 597,8 s   ·   solo deps → 61,2 s   ·   perfil entero → 42,2 s
-  # Mismas 382 pruebas en 38 binarios en las tres, y `debug_assertions` sigue
-  # activo (comprobado con su caso rojo). No cambia qué se prueba: cambia lo que
-  # tarda Argon2id en ejecutarse.
-  CARGO_PROFILE_DEV_OPT_LEVEL: 3
+  # La aceleración de este CI la da `[profile.dev.package."*"] opt-level = 3` en
+  # `Cargo.toml`, que optimiza solo las DEPENDENCIAS. Subir además el perfil dev
+  # ENTERO por esta variable daba un poco más —medido el 2026-08-05 en caliente:
+  # opt 0 → 597,8 s · solo deps → 61,2 s · perfil entero → 42,2 s— pero CIEGA una
+  # sonda de canal lateral por tiempo, y eso no se compra por 19 segundos.
+  #
+  # Medido con mutante real en el código medido (`src/antihacker.rs`, `ct_eq`
+  # sustituido por un comparador que sale al primer byte distinto, que es la fuga
+  # exacta que la sonda vigila), contra `ct_eq_shows_no_gross_timing_leak`
+  # (`src/lab/timing.rs`, umbral `within(0.5, 2.0)`):
+  #
+  #   todo a opt 0 ................ ratio 9,014  → la caza
+  #   solo dependencias ........... ratio 8,732  → la caza
+  #   perfil dev entero ........... ratio 1,824  → NO la caza
+  #
+  # Con el perfil entero, `ct_eq` baja a ~17-31 ns y el coste de `Instant::now()`
+  # pasa a dominar: la fuga sigue estando y el ratio ya no cruza el umbral. Verde
+  # midiendo otra cosa, y encima marginal —cruzaría unas veces sí y otras no—.
+  #
+  # Hoy el radio es CERO: `timing` está tras `lab-offline` y ningún paso de este
+  # archivo corre esa feature. Se quita igualmente porque un `env` de WORKFLOW
+  # alcanza a todos los jobs, presentes y FUTUROS: bastaría que alguien añadiera
+  # un paso `--features lab-offline` —cosa razonable, el banco existe— para
+  # heredar la ceguera sin que nada diera error.
+  #
+  # Que la sonda dependa del perfil es un defecto SUYO y se arregla aparte: le
+  # falta el caso rojo interno que sus hermanas de `src/negacion.rs` sí llevan
+  # («el control no discrimina», «el caso rojo no discrimina»), y que por eso
+  # siguen viendo con cualquier optimización. Cuando lo tenga, esta variable se
+  # puede reconsiderar. Antes no.
 
 jobs:
   test:
