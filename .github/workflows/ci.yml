@@ -20,11 +20,27 @@ permissions:
 # de dejarla terminar. Sin esto, dos empujones seguidos a un PR dejaban DOS
 # corridas completas vivas a la vez —y con `test + clippy` en 48 min, la vieja
 # seguía media hora larga después de haber quedado obsoleta—.
-# `estable` se EXCLUYE del cancelado: ahí cada commit tiene que quedar medido
-# por sí mismo, porque es lo que se publica. En ramas de trabajo, la corrida
-# vieja no le importa a nadie.
+#
+# `estable` queda FUERA, y hay que hacerlo con el GRUPO, no con la bandera.
+# `cancel-in-progress: false` NO significa «aquí no se cancela nada»: significa
+# «no se cancela la que está EN CURSO». Las ENCOLADAS sí — GitHub documenta que
+# al entrar una corrida nueva en el grupo, «any existing pending job or workflow
+# in the same concurrency group will be canceled». Con tres merges seguidos
+# dentro de una ventana de CI —A corriendo, B encolada, llega C— **B se cancela
+# y ese commit de `estable` no se mide jamás**, mientras la rama se ve verde por
+# la corrida de C. Antes de tocar nada corrían las tres.
+#
+# Se arregla dándole a cada commit de `estable` su PROPIO grupo, que es la
+# promesa literal: ahí cada commit queda medido por sí mismo, porque es lo que
+# se publica. La bandera se queda por si el mismo SHA se empuja dos veces.
+# En ramas de trabajo la corrida vieja no le importa a nadie y sí se cancela.
+#
+# OJO al acoplamiento: en `schedule` (la auditoría semanal de CVEs) `github.ref`
+# es la rama POR DEFECTO, que hoy es `estable` y por eso cae del lado seguro. Si
+# la rama por defecto cambia algún día, esa corrida pasa a cancelable sin que
+# nada dé error.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/estable' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/estable' }}
 
 env:
@@ -32,8 +48,13 @@ env:
   # El runner no tiene depurador ni recompilación incremental que proteger, así
   # que sube el perfil dev ENTERO a opt-level 3 y recoge también el ahorro de
   # nuestros propios crates. `Cargo.toml` deja fijado el mínimo —solo las
-  # dependencias— para que la máquina de cualquiera lo herede sin tocar nada;
-  # esta línea es la capa de encima, y solo aquí.
+  # dependencias— para que lo herede sin tocar nada quien clone ESTE
+  # repositorio; esta línea es la capa de encima, y solo aquí.
+  #
+  # No alcanza más lejos, y conviene no prometerlo: cargo IGNORA las secciones
+  # `[profile]` de los paquetes que no son la raíz del build, así que guaca y
+  # tunjo, que dependen de `quipu`, no heredan nada de esto. Es lo correcto —el
+  # efecto que se busca es acelerar las pruebas de aquí—, pero el alcance es ese.
   #
   # Medido el 2026-08-05 en `cargo test --workspace --all-targets`, en caliente:
   #   opt-level 0 → 597,8 s   ·   solo deps → 61,2 s   ·   perfil entero → 42,2 s
@@ -160,6 +181,9 @@ jobs:
   security-lab:
     name: security lab (feature-gated)
     runs-on: ubuntu-latest
+    # Mismo argumento que el techo de `test`: es check REQUERIDO y sin techo
+    # hereda los 360 min por defecto. Mide 2,2 min en caliente y 3,6 en frío.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -594,6 +618,11 @@ jobs:
   hsm:
     name: HSM (PKCS#11 contra kryoptic)
     runs-on: ubuntu-latest
+    # El que MÁS lo necesita de los tres: es check requerido y depende de red
+    # ajena —contenedor `fedora:43` y `dnf install kryoptic`—. Un espejo colgado
+    # se come 360 minutos de cupo en vez de 20, y sin techo eso no tiene síntoma.
+    # Mide 1,7 min en caliente y 2,2 en frío.
+    timeout-minutes: 20
     # kryoptic con ML-DSA exige OpenSSL 3.5; ubuntu-latest trae 3.0. Fedora 43 ya
     # empaqueta kryoptic con la feature `pqc` y el módulo en /usr/lib64/pkcs11.
     container: fedora:43
