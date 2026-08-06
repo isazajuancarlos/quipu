@@ -16,13 +16,83 @@ permissions:
   # propios permisos por job. Sin este bloque el GITHUB_TOKEN hereda permisos amplios.
   contents: read
 
+# Un `push` nuevo sobre la misma referencia cancela la corrida anterior en vez
+# de dejarla terminar. Sin esto, dos empujones seguidos a un PR dejaban DOS
+# corridas completas vivas a la vez —y con `test + clippy` en 48 min, la vieja
+# seguía media hora larga después de haber quedado obsoleta—.
+#
+# `estable` queda FUERA, y hay que hacerlo con el GRUPO, no con la bandera.
+# `cancel-in-progress: false` NO significa «aquí no se cancela nada»: significa
+# «no se cancela la que está EN CURSO». Las ENCOLADAS sí — GitHub documenta que
+# al entrar una corrida nueva en el grupo, «any existing pending job or workflow
+# in the same concurrency group will be canceled». Con tres merges seguidos
+# dentro de una ventana de CI —A corriendo, B encolada, llega C— **B se cancela
+# y ese commit de `estable` no se mide jamás**, mientras la rama se ve verde por
+# la corrida de C. Antes de tocar nada corrían las tres.
+#
+# Se arregla dándole a cada commit de `estable` su PROPIO grupo, que es la
+# promesa literal: ahí cada commit queda medido por sí mismo, porque es lo que
+# se publica. La bandera se queda por si el mismo SHA se empuja dos veces.
+# En ramas de trabajo la corrida vieja no le importa a nadie y sí se cancela.
+#
+# OJO al acoplamiento: en `schedule` (la auditoría semanal de CVEs) `github.ref`
+# es la rama POR DEFECTO, que hoy es `estable` y por eso cae del lado seguro. Si
+# la rama por defecto cambia algún día, esa corrida pasa a cancelable sin que
+# nada dé error.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/estable' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/estable' }}
+
 env:
   CARGO_TERM_COLOR: always
+  #
+  # LÁPIDA — aquí NO va `CARGO_PROFILE_DEV_OPT_LEVEL: 3`, y no es un olvido.
+  #
+  # La aceleración de este CI la da `[profile.dev.package."*"] opt-level = 3` en
+  # `Cargo.toml`, que optimiza solo las DEPENDENCIAS. Subir además el perfil dev
+  # ENTERO por esta variable daba un poco más —medido el 2026-08-05 en caliente:
+  # opt 0 → 597,8 s · solo deps → 61,2 s · perfil entero → 42,2 s— pero CIEGA una
+  # sonda de canal lateral por tiempo, y eso no se compra por 19 segundos.
+  #
+  # Medido con mutante real en el código medido (`src/antihacker.rs`, `ct_eq`
+  # sustituido por un comparador que sale al primer byte distinto, que es la fuga
+  # exacta que la sonda vigila), contra `ct_eq_shows_no_gross_timing_leak`
+  # (`src/lab/timing.rs`, umbral `within(0.5, 2.0)`):
+  #
+  #   todo a opt 0 ................ ratio 9,014  → la caza
+  #   solo dependencias ........... ratio 8,732  → la caza
+  #   perfil dev entero ........... ratio 1,824  → NO la caza
+  #
+  # Con el perfil entero, `ct_eq` baja a ~17-31 ns y el coste de `Instant::now()`
+  # pasa a dominar: la fuga sigue estando y el ratio ya no cruza el umbral. Verde
+  # midiendo otra cosa, y encima marginal —cruzaría unas veces sí y otras no—.
+  #
+  # Hoy el radio es CERO: `timing` está tras `lab-offline` y ningún paso de este
+  # archivo corre esa feature. Se quita igualmente porque un `env` de WORKFLOW
+  # alcanza a todos los jobs, presentes y FUTUROS: bastaría que alguien añadiera
+  # un paso `--features lab-offline` —cosa razonable, el banco existe— para
+  # heredar la ceguera sin que nada diera error.
+  #
+  # Que la sonda dependa del perfil es un defecto SUYO y se arregla aparte: le
+  # falta el caso rojo interno que sus hermanas de `src/negacion.rs` sí llevan
+  # («el control no discrimina», «el caso rojo no discrimina»), y que por eso
+  # siguen viendo con cualquier optimización. Cuando lo tenga, esta variable se
+  # puede reconsiderar. Antes no.
 
 jobs:
   test:
     name: test + clippy
     runs-on: ubuntu-latest
+    # Techo, no duración esperada. Este job pasó de 4 minutos (2026-07-21) a 48
+    # (2026-08-05) de tres en tres, con cada feature nueva, y NADIE lo vio: un
+    # CI lento sale verde igual que uno rápido, así que la deriva no tenía
+    # ningún síntoma. Con el perfil arreglado son 4,8 min en caliente y 8,5 en
+    # frío; 20 deja holgura para una corrida fría y para una feature más, y se
+    # pone rojo mucho antes de volver a 48.
+    # Si un día este número estorba, la pregunta NO es «subo el techo» sino
+    # «qué paso se ha comido los minutos» — que es justo lo que nadie preguntó
+    # entre julio y agosto.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -116,6 +186,11 @@ jobs:
   audit:
     name: cargo-audit (RustSec)
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada. Va en TODOS los checks REQUERIDOS y no
+    # solo en el más pesado: los que dependen de red ajena —un `cargo install`
+    # contra crates.io, un `pip`— son los que más se cuelgan, y sin techo se
+    # comen los 360 minutos por defecto sin dar un solo síntoma.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -127,6 +202,9 @@ jobs:
   security-lab:
     name: security lab (feature-gated)
     runs-on: ubuntu-latest
+    # Mismo argumento que el techo de `test`: es check REQUERIDO y sin techo
+    # hereda los 360 min por defecto. Mide 2,2 min en caliente y 3,6 en frío.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -233,6 +311,11 @@ jobs:
   vet:
     name: cargo-vet (supply chain)
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada. Va en TODOS los checks REQUERIDOS y no
+    # solo en el más pesado: los que dependen de red ajena —un `cargo install`
+    # contra crates.io, un `pip`— son los que más se cuelgan, y sin techo se
+    # comen los 360 minutos por defecto sin dar un solo síntoma.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -347,6 +430,11 @@ jobs:
   versiones:
     name: coherencia de versiones
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada. Va en TODOS los checks REQUERIDOS y no
+    # solo en el más pesado: los que dependen de red ajena —un `cargo install`
+    # contra crates.io, un `pip`— son los que más se cuelgan, y sin techo se
+    # comen los 360 minutos por defecto sin dar un solo síntoma.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -376,6 +464,11 @@ jobs:
   rueda-python:
     name: rueda de Python (build + pruebas)
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada. Va en TODOS los checks REQUERIDOS y no
+    # solo en el más pesado: los que dependen de red ajena —un `cargo install`
+    # contra crates.io, un `pip`— son los que más se cuelgan, y sin techo se
+    # comen los 360 minutos por defecto sin dar un solo síntoma.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -561,6 +654,11 @@ jobs:
   hsm:
     name: HSM (PKCS#11 contra kryoptic)
     runs-on: ubuntu-latest
+    # El que MÁS lo necesita de los tres: es check requerido y depende de red
+    # ajena —contenedor `fedora:43` y `dnf install kryoptic`—. Un espejo colgado
+    # se come 360 minutos de cupo en vez de 20, y sin techo eso no tiene síntoma.
+    # Mide 1,7 min en caliente y 2,2 en frío.
+    timeout-minutes: 20
     # kryoptic con ML-DSA exige OpenSSL 3.5; ubuntu-latest trae 3.0. Fedora 43 ya
     # empaqueta kryoptic con la feature `pqc` y el módulo en /usr/lib64/pkcs11.
     container: fedora:43
