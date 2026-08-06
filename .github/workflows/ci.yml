@@ -186,6 +186,11 @@ jobs:
   audit:
     name: cargo-audit (RustSec)
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada. Va en TODOS los checks REQUERIDOS y no
+    # solo en el más pesado: los que dependen de red ajena —un `cargo install`
+    # contra crates.io, un `pip`— son los que más se cuelgan, y sin techo se
+    # comen los 360 minutos por defecto sin dar un solo síntoma.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -306,6 +311,11 @@ jobs:
   vet:
     name: cargo-vet (supply chain)
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada. Va en TODOS los checks REQUERIDOS y no
+    # solo en el más pesado: los que dependen de red ajena —un `cargo install`
+    # contra crates.io, un `pip`— son los que más se cuelgan, y sin techo se
+    # comen los 360 minutos por defecto sin dar un solo síntoma.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -420,6 +430,11 @@ jobs:
   versiones:
     name: coherencia de versiones
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada. Va en TODOS los checks REQUERIDOS y no
+    # solo en el más pesado: los que dependen de red ajena —un `cargo install`
+    # contra crates.io, un `pip`— son los que más se cuelgan, y sin techo se
+    # comen los 360 minutos por defecto sin dar un solo síntoma.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -449,6 +464,11 @@ jobs:
   rueda-python:
     name: rueda de Python (build + pruebas)
     runs-on: ubuntu-latest
+    # El techo, no la duración esperada. Va en TODOS los checks REQUERIDOS y no
+    # solo en el más pesado: los que dependen de red ajena —un `cargo install`
+    # contra crates.io, un `pip`— son los que más se cuelgan, y sin techo se
+    # comen los 360 minutos por defecto sin dar un solo síntoma.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

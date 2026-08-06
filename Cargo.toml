@@ -260,9 +260,15 @@ strip = "symbols"
 #                                                    ciclo local y el depurador
 #
 # Se elige la variante de dependencias porque deja NUESTROS crates en debug
-# puro: iteración e inspección intactas. El resto del ahorro lo recoge el CI
-# subiendo el perfil entero por variable de entorno (ver ci.yml), que allí no
-# tiene contrapartida —no hay depurador ni recompilación incremental—.
+# puro: iteración e inspección intactas.
+#
+# Y EL RESTO DEL AHORRO NO SE RECOGE — esta línea decía lo contrario y era una
+# trampa. El CI llegó a subir el perfil ENTERO con `CARGO_PROFILE_DEV_OPT_LEVEL:
+# 3`, y se retiró en esta misma rama: con el perfil entero optimizado,
+# `ct_eq_shows_no_gross_timing_leak` cae de ratio 9,01 a 1,82 y deja de ver la
+# fuga que existe para ver. Con solo-dependencias el ratio es 8,73 y sigue
+# cazándola. Quien lea esto y vaya a ci.yml a «arreglar el olvido» reintroduce
+# exactamente la ceguera: no la hay, es deliberado.
 #
 # NO cambia qué se prueba: `debug_assertions` sigue activo con opt-level > 0
 # (comprobado con su caso rojo). El repo ya sabía de este coste y lo había
