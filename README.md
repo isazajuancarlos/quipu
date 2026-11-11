@@ -69,5 +69,5 @@ pública y un verificador estático.
 
 ---
 
-*quipu* — © 2026 Juan Carlos Isaza Arenas. Licencia **AGPL-3.0**.
+*quipu* — © 2026 Juan Carlos Isaza. Licencia **AGPL-3.0**.
 La licencia no cambia: lo que cambia es por dónde se entrega el código.
