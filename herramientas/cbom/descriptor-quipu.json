@@ -1,0 +1,83 @@
+{
+  "perfil": {
+    "nombre": "quipu",
+    "version": "0.12.0",
+    "descripcion": "Perfil por defecto de Quipu: criptografía HÍBRIDA (clásico + post-cuántico) en cada canal. Cifrado, establecimiento de clave y firma combinan una primitiva clásica y una PQ, de modo que el sistema resiste aunque una de las dos familias caiga.",
+    "licencia": "AGPL-3.0-or-later",
+    "repositorio": "https://github.com/isazajuancarlos/quipu",
+    "validado_fips_140_3": false,
+    "nota_conformidad": "Diseño híbrido (no CNSA-puro). El perfil `quipu-cnsa` cubre el mandato CNSA 2.0 con primitivas puras. La librería NO está validada FIPS 140-3."
+  },
+  "activos": [
+    {
+      "nombre": "XChaCha20-Poly1305", "modulo": "cipher.rs/stream.rs", "primitive": "ae",
+      "oid": null, "parameterSetIdentifier": "256", "mode": "poly1305",
+      "cryptoFunctions": ["encrypt","decrypt","tag"], "classicalSecurityLevel": 256,
+      "nistQuantumSecurityLevel": 5, "cnsa": "no-aplica", "rol": "simetrico", "canal": "cifrado",
+      "rationale": "AEAD por defecto (nonce extendido de 192 bits). Simétrico: resistente a cuántico con clave de 256 bits."
+    },
+    {
+      "nombre": "X25519", "modulo": "pqhybrid.rs", "primitive": "keyagree",
+      "oid": "1.3.101.110", "parameterSetIdentifier": "Curve25519",
+      "cryptoFunctions": ["keygen","other"], "classicalSecurityLevel": 128,
+      "nistQuantumSecurityLevel": 0, "cnsa": "no-aplica", "rol": "clasico", "canal": "kem",
+      "rationale": "Intercambio de clave clásico. Cuántico-vulnerable (Shor) POR SÍ SOLO; va emparejado con ML-KEM-1024 en el mismo canal."
+    },
+    {
+      "nombre": "ML-KEM-1024", "modulo": "pqhybrid.rs", "primitive": "kem",
+      "oid": "2.16.840.1.101.3.4.4.3", "parameterSetIdentifier": "ML-KEM-1024",
+      "cryptoFunctions": ["keygen","encapsulate","decapsulate"], "classicalSecurityLevel": 256,
+      "nistQuantumSecurityLevel": 5, "cnsa": "no-aplica", "rol": "pq", "canal": "kem",
+      "rationale": "Establecimiento de clave PQ (FIPS 203, cat. NIST 5). Socio post-cuántico de X25519."
+    },
+    {
+      "nombre": "Ed25519", "modulo": "pqsign.rs", "primitive": "signature",
+      "oid": "1.3.101.112", "parameterSetIdentifier": "Ed25519",
+      "cryptoFunctions": ["keygen","sign","verify"], "classicalSecurityLevel": 128,
+      "nistQuantumSecurityLevel": 0, "cnsa": "no-aplica", "rol": "clasico", "canal": "firma",
+      "rationale": "Firma clásica. Cuántico-vulnerable POR SÍ SOLA; va emparejada con ML-DSA-87 (y opcionalmente SLH-DSA) en firma híbrida."
+    },
+    {
+      "nombre": "ML-DSA-87", "modulo": "pqsign.rs", "primitive": "signature",
+      "oid": "2.16.840.1.101.3.4.3.19", "parameterSetIdentifier": "ML-DSA-87",
+      "cryptoFunctions": ["keygen","sign","verify"], "classicalSecurityLevel": 256,
+      "nistQuantumSecurityLevel": 5, "cnsa": "no-aplica", "rol": "pq", "canal": "firma",
+      "rationale": "Firma PQ basada en retículos (FIPS 204, cat. NIST 5). Socio post-cuántico de Ed25519."
+    },
+    {
+      "nombre": "SLH-DSA-SHA2-256s", "modulo": "pqsign.rs (feature slh)", "primitive": "signature",
+      "oid": "2.16.840.1.101.3.4.3.22", "parameterSetIdentifier": "SLH-DSA-SHA2-256s",
+      "cryptoFunctions": ["keygen","sign","verify"], "classicalSecurityLevel": 256,
+      "nistQuantumSecurityLevel": 5, "cnsa": "opcional", "rol": "pq", "canal": "firma",
+      "rationale": "Tercera firma PQ, basada en hash (FIPS 205). Entra con feature `slh`: la firma triple del perito (Ed25519 + ML-DSA-87 + SLH-DSA) no depende de una sola familia matemática."
+    },
+    {
+      "nombre": "HKDF-SHA-256", "modulo": "kdf.rs/pqhybrid.rs", "primitive": "kdf",
+      "oid": null, "parameterSetIdentifier": "SHA-256",
+      "cryptoFunctions": ["keyderive"], "classicalSecurityLevel": 128,
+      "nistQuantumSecurityLevel": 2, "cnsa": "no-aplica", "rol": "simetrico", "canal": "kdf",
+      "rationale": "Combinador de los secretos clásico y PQ del canal KEM (RFC 5869)."
+    },
+    {
+      "nombre": "Argon2id", "modulo": "kdf.rs", "primitive": "kdf",
+      "oid": null, "parameterSetIdentifier": "256MiB/4iter",
+      "cryptoFunctions": ["keyderive"], "classicalSecurityLevel": null,
+      "nistQuantumSecurityLevel": 0, "cnsa": "no-aplica", "rol": "simetrico", "canal": "kdf",
+      "rationale": "Derivación desde contraseña, memory-hard."
+    },
+    {
+      "nombre": "SHA-256", "modulo": "(sha2)", "primitive": "hash",
+      "oid": "2.16.840.1.101.3.4.2.1", "parameterSetIdentifier": "256",
+      "cryptoFunctions": ["digest"], "classicalSecurityLevel": 128,
+      "nistQuantumSecurityLevel": 2, "cnsa": "no-aplica", "rol": "simetrico", "canal": "hash",
+      "rationale": "Hash base de HKDF y de huellas internas."
+    },
+    {
+      "nombre": "ChaCha20-DRBG", "modulo": "(chacha20)", "primitive": "drbg",
+      "oid": null, "parameterSetIdentifier": "256",
+      "cryptoFunctions": ["generate"], "classicalSecurityLevel": 256,
+      "nistQuantumSecurityLevel": 5, "cnsa": "no-aplica", "rol": "simetrico", "canal": "drbg",
+      "rationale": "Generador determinista para nonces y semillas; sembrado por el SO."
+    }
+  ]
+}

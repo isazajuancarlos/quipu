@@ -1,0 +1,58 @@
+[package]
+name = "quipu-voprf"
+# 0.2.3 para que el `#![forbid(unsafe_code)]` LLEGUE a crates.io.
+#
+# El árbol y la 0.2.2 publicada difieren en exactamente esa línea
+# (`git diff origin/estable HEAD -- crates/quipu-voprf/`: un cambio, una
+# inserción). crates.io no deja re-subir una versión existente, así que sin
+# subir el número el endurecimiento se queda en el disco y la frase «los seis
+# paquetes llevan forbid» sigue siendo cierta solo EN EL ÁRBOL.
+#
+# Importa más aquí que en los demás: este es el crate Apache-2.0, el que
+# enlazan clientes ajenos del servicio OPRF. Es donde la garantía se vende.
+#
+# Parche y no minor: un atributo de lint no cambia una firma. Cero API tocada,
+# comprobado con el mismo diff.
+#
+# El requisito de la raíz se queda en "0.2.2" A PROPÓSITO: `quipu` no necesita
+# nada nuevo de aquí, y nombrar 0.2.3 declararía una dependencia que no existe.
+version = "0.2.5"
+edition = "2024"
+rust-version = "1.85"
+description = "Cliente y servidor VOPRF sobre ristretto255 con pruebas DLEQ. Primitivas del servicio Quipu OPRF."
+repository = "https://github.com/isazajuancarlos/quipu"
+readme = "README.md"
+keywords = ["voprf", "oprf", "ristretto255", "dleq", "cryptography"]
+categories = ["cryptography"]
+
+# APACHE-2.0 A PROPOSITO, distinto del nucleo (AGPL-3.0-or-later).
+#
+# Este crate es lo UNICO que un cliente del servicio Quipu OPRF debe enlazar en
+# su servidor de autenticacion. Si arrastrara la AGPL del nucleo, el copyleft de
+# red alcanzaria al SaaS del cliente: nadie enchufa eso a su auth, y el servicio
+# de pago no se vende. Poner Apache solo en el SDK no bastaba -- la licencia de
+# un envoltorio no relicencia su dependencia; habia que separar el codigo.
+#
+# Lo que se cede son ~270 lineas de matematica de curva estandar (cegar,
+# finalizar, verificar DLEQ). No es el foso: el foso son el servidor, la clave k
+# y la biblioteca post-cuantica completa, que siguen AGPL. Apache y no MIT por la
+# concesion expresa de patentes, que es lo que revisa el legal de una empresa.
+authors = ["Juan Carlos Isaza <isazajuancarlos@gmail.com>"]
+license = "Apache-2.0"
+
+[lib]
+# cdylib para la rueda de Python (maturin); rlib para que el nucleo lo enlace.
+crate-type = ["cdylib", "rlib"]
+name = "quipu_voprf"
+
+[features]
+# Modulo de Python `quipu_voprf`, publicado APARTE de `quipu-crypto` (AGPL).
+# Un cliente del servicio OPRF instala este y nunca toca el nucleo copyleft.
+
+[dependencies]
+curve25519-dalek = { version = "5", features = ["digest"] }
+sha2 = "0.11"
+getrandom = { version = "0.4", features = ["std"] }
+
+[lints]
+workspace = true

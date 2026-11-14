@@ -1,0 +1,134 @@
+================================================================================
+ QUIPU — INFORME DE PRE-AUDITORÍA (Etapa 0, auto-auditoría)
+ Fecha: 2026-06-30
+ Alcance: núcleo de la librería (cifrado simétrico, híbrido post-cuántico, OPRF,
+          canal visual, ECC, formato de contenedor) + dependencias.
+ NOTA: esto NO sustituye una auditoría independiente. Es preparación previa para
+       reducir el coste y el alcance de una auditoría pagada posterior.
+================================================================================
+
+--------------------------------------------------------------------------------
+ RESUMEN EJECUTIVO
+--------------------------------------------------------------------------------
+Se ejecutaron comprobaciones automáticas y un análisis manual de los protocolos.
+Resultado: 2 vulnerabilidades de dependencia (pyo3) CORREGIDAS; 2 hallazgos de
+diseño de severidad media/baja (OPRF no verificable; binding del combinador
+híbrido); el resto, positivo. La librería usa primitivas vetadas y no contiene
+código `unsafe` propio, por lo que el foco de una auditoría sería la COMPOSICIÓN.
+
+--------------------------------------------------------------------------------
+ 1. COMPROBACIONES AUTOMÁTICAS (resultados)
+--------------------------------------------------------------------------------
+ [cargo-audit]  Dependencias vs RustSec (1146 advisories):
+    - ANTES: 2 vulnerabilidades en pyo3 0.23.5:
+        RUSTSEC-2025-0020 (buffer overflow en PyString::from_object)
+        RUSTSEC-2026-0177 (falta bound Sync en PyCFunction::new_closure)
+      -> Ninguna función afectada se usa en Quipu, pero se ACTUALIZÓ pyo3 a 0.29.
+    - DESPUÉS: LIMPIO (0 vulnerabilidades, 108 dependencias).
+
+ [Wycheproof]   Vectores KAT de Google para XChaCha20-Poly1305 vs quipu::cipher:
+    - PASA. Cifrado reproduce ct||tag; todos los vectores inválidos son
+      RECHAZADOS (tags/nonces/ct manipulados). Interoperable y sin fallos conocidos.
+
+ [unsafe]       Código propio (src/):
+    - 0 usos de `unsafe`. La seguridad de memoria descansa solo en crates vetados.
+
+ [Miri]         Detector de comportamiento indefinido (módulos de lógica pura:
+                codec, prelayers, ecc, glyphopt):
+    - 13/13 tests SIN UB detectado.
+
+ [Fuzzing]      cargo-fuzz (parse_container, unpad, codec_roundtrip):
+    - Sin crashes (~25M+ ejecuciones en sesiones previas).
+
+--------------------------------------------------------------------------------
+ 2. HALLAZGOS (análisis manual de la composición)
+--------------------------------------------------------------------------------
+
+ [F1] OPRF NO VERIFICABLE — Severidad: MEDIA — YA CORREGIDO
+   Descripción: el modo online usaba un OPRF multiplicativo simple (2HashDH) sin
+     verificabilidad: el cliente no podía detectar un servidor deshonesto.
+   Acción aplicada: implementado un VOPRF (src/voprf.rs) con prueba DLEQ
+     (Chaum-Pedersen no interactiva, estilo RFC 9497):
+       - el servidor publica su clave pública Y = k·G;
+       - cada evaluación incluye una prueba DLEQ de que usó la misma k;
+       - el cliente VERIFICA la prueba contra la clave pública FIJADA (pin).
+     Cableado en oprf_net (protocolo verificado), api::encode_online/decode_online
+     (nuevo parámetro server_pub) y el binario servidor (imprime su clave pública).
+     Tests: prueba falsificada / clave incorrecta / evaluación alterada -> RECHAZADAS;
+     un servidor deshonesto se detecta (OnlineError::Verification).
+   Residual: la primitiva no verificable (src/oprf.rs) sigue en el código como
+     building block, pero el modo online ya NO la usa.
+
+ [F2] BINDING DEL COMBINADOR HÍBRIDO — Severidad: BAJA — YA CORREGIDO (parcial)
+   Descripción: el combinador híbrido (src/pqhybrid.rs `combine`) derivaba la
+     clave con info = LABEL || eph_x_pub || mlkem_ct, sin la clave pública del
+     destinatario.
+   Acción aplicada: el transcript ahora incluye la clave pública X25519 del
+     destinatario (info = LABEL || recipient_x_pub || eph_x_pub || mlkem_ct),
+     estilo X-Wing. Round-trip verificado.
+   Endurecimiento aplicado (2026-07-01): el transcript liga ahora la clave
+     pública COMPLETA del destinatario (X25519 pub || ML-KEM ek). El destinatario
+     recomputa la ek desde su dk (dk.encapsulation_key()); test añadido que
+     verifica que la ek recomputada coincide con la original. Round-trip verde.
+
+ [F3] PARÁMETROS KDF NO CONFIABLES — Severidad: MEDIA — YA CORREGIDO
+   Hallado por el hackerbot: params Argon2 de una cabecera manipulada causaban
+     overflow/DoS. Corregido con KdfParams::is_sane() antes de derivar + test de
+     regresión. Verificar que no queden otras rutas que confíen en la cabecera
+     antes de autenticar.
+
+--------------------------------------------------------------------------------
+ 3. OBSERVACIONES (informativas, sin acción urgente)
+--------------------------------------------------------------------------------
+ [O1] Frontera "representación ≠ seguridad": el codebook/simbología es público y
+      versionado; ninguna propiedad de seguridad debe depender de su secreto
+      (Kerckhoffs). Confirmado en el diseño; mantener esa disciplina.
+ [O2] Disponibilidad del modo online: si el servidor OPRF cae, el descifrado
+      online falla. La clave del servidor es un secreto crítico: su pérdida hace
+      irrecuperables todos los secretos endurecidos. Backup offline + rotación
+      planificada.
+ [O3] Separación de dominios: se usan etiquetas HKDF distintas (cipher, codebook,
+      hybrid, oprf-server-key). Revisar que TODA derivación tenga etiqueta única.
+ [O4] Nonces: XChaCha20 con nonce de 192 bits aleatorio por operación -> riesgo
+      de colisión despreciable. Correcto.
+ [O5] Zeroization: se borran claves derivadas (master, cipher_key) y buffers de
+      plaintext. Revisar exhaustividad (p. ej. material intermedio en pqhybrid/oprf).
+
+--------------------------------------------------------------------------------
+ 4. RECOMENDACIONES PRIORIZADAS
+--------------------------------------------------------------------------------
+ 1. [HECHO] VOPRF implementado y cableado en el modo online (F1).
+ 2. [HECHO] Clave pública del destinatario ligada al transcript híbrido (F2),
+    incluyendo ahora la ek de ML-KEM (endurecimiento X-Wing completo).
+ 3. [HECHO] O3 separación de dominios VERIFICADA (todas las etiquetas HKDF/hash
+    son únicas: quipu/v1/cipher, quipu/v2/hybrid-kem, quipu/v2/voprf[-dleq|
+    -server-key], quipu/v2/oprf[-server-key]). O5 zeroization REFORZADA: se
+    borran además la passphrase normalizada y el pepper (kdf) y el material de
+    clave intermedio ss combinado (pqhybrid::combine). Residual R3: zeroization
+    en Rust es best-effort (ver MODELO_DE_AMENAZA.txt §7).
+ 4. [HECHO] cargo-audit en CI (.github/workflows/ci.yml, con corrida semanal
+    programada) + espejo local scripts/audit.sh (build+test+clippy+audit).
+ 5. [HECHO] MODELO_DE_AMENAZA.txt escrito (activos, adversarios T1-T6, supuestos,
+    garantías por modo, no-objetivos, superficie, riesgos residuales, trazas).
+
+--------------------------------------------------------------------------------
+ 5. ALCANCE SUGERIDO PARA LA AUDITORÍA PAGADA
+--------------------------------------------------------------------------------
+ Como los primitivos están vetados y no hay `unsafe` propio, el auditor debería
+ concentrarse en:
+   - El combinador KEM híbrido (F2) y la construcción del modo asimétrico.
+   - El VOPRF (una vez implementado) y el protocolo online (rate-limit, replay).
+   - El parseo del contenedor y de la imagen/PNG (superficie de entrada no
+     confiable; ampliar fuzzing con más targets).
+   - La separación de dominios y la gestión/zeroization de claves.
+   - El modelo de amenaza vs. las garantías reales de cada modo.
+
+--------------------------------------------------------------------------------
+ 6. HERRAMIENTAS USADAS
+--------------------------------------------------------------------------------
+   cargo-audit 0.22, wycheproof 0.6 (vectores XChaCha20-Poly1305),
+   Miri (nightly), grep de `unsafe`, cargo-fuzz (sesiones previas), clippy.
+   Pendiente (requiere Go / entorno): modelado formal con Verifpal/ProVerif/
+   Tamarin — NOTA: Verifpal no modela ML-KEM ni el cegado OPRF nativamente;
+   para esos, seguir las construcciones de referencia (X-Wing, RFC 9497).
+================================================================================

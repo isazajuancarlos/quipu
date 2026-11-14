@@ -1,0 +1,225 @@
+# quipu-oprf-server
+
+Plano de datos del endurecimiento OPRF/VOPRF de Quipu: expone la primitiva
+`voprf::Server` como una API HTTP autenticada por **API key** y medida por
+**cuota mensual**. Separado del plano de control (pagos vía portafolio +
+PayPal/Stripe), con el que solo comparte el **almacén de API keys**.
+
+Diseño completo: [`docs/quipu-oprf-server-plan.md`](../../docs/quipu-oprf-server-plan.md).
+
+> **Estado: beta.** M1–M4 implementados (almacén, servidor HTTP, admin, cliente).
+> La activación comercial (GA) espera la auditoría externa.
+
+## Construir y testear
+
+```sh
+cargo test -p quipu-oprf-server        # unitarios + integración e2e (Rust puro)
+cargo build -p quipu-oprf-server --release
+```
+
+Requiere un compilador de C (SQLite se compila con `rusqlite` feature `bundled`).
+
+### Capas de prueba
+
+1. **Unitarios** (`src/*.rs`): keys, store (cuota/revocación/expiración), rate-limit,
+   hex, planes.
+2. **Integración e2e** (`tests/e2e.rs`): levanta el servidor en un hilo, emite una
+   key y corre el cliente completo (blind → HTTP → finalize), comparando con un
+   cálculo VOPRF independiente y comprobando el rechazo con clave pública errónea.
+   Autocontenido: `cargo test -p quipu-oprf-server`, sin servidor previo.
+3. **Cross-lenguaje** (`scripts/oprf-e2e.sh`, desde la raíz del repo): construye el
+   C ABI + el servidor, lo arranca, emite una key y corre el cliente de **Rust,
+   Python, Node y Go** contra él. Best-effort: salta el lenguaje cuyo toolchain
+   falte. Los smoke tests offline del FFI están en `bindings/{go/oprf_test.go,
+   node/test/oprf.test.mjs}`.
+
+## Arrancar el servidor
+
+```sh
+export QUIPU_OPRF_DB=/var/lib/quipu/oprf.db
+export QUIPU_OPRF_SEED=$(openssl rand -hex 32)          # PERSISTIR (ver abajo)
+export QUIPU_OPRF_ADMIN_TOKEN=$(openssl rand -hex 32)   # para /admin
+quipu-oprf-server serve 127.0.0.1:8787
+```
+
+- **El seed es crítico:** deriva la clave OPRF `k`. Si cambia, TODOS los secretos
+  endurecidos de los clientes dejan de reproducirse. Guárdalo (chmod 600) y no lo
+  rotes salvo incidente. Sin seed, el servidor usa una clave **efímera** (solo dev).
+- TLS lo pone un proxy delante (ver `deploy/nginx.conf.example`). El servicio
+  escucha solo en localhost.
+
+## Endpoints
+
+| Método | Ruta | Auth | Descripción |
+|--------|------|------|-------------|
+| GET  | `/healthz` | — | health check |
+| GET  | `/v1/public-key` | — | `{"public_key":"<64hex>"}` para *pinning* |
+| GET  | `/v1/plans` | — | catálogo que aplica ESTE servidor: cuota y límites por plan |
+| POST | `/v1/oprf/evaluate` | `Authorization: Bearer <key>` | body = punto cegado (64 hex) → `{"evaluation":"..","proof":".."}` |
+| POST | `/admin/keys` | `X-Admin-Token` | form `email=..&plan=..` → emite key |
+| POST | `/admin/keys/<prefix>/{activate,deactivate,revoke}` | `X-Admin-Token` | conmuta estado |
+
+```sh
+# Evaluación (lo que hace el cliente):
+curl -s https://oprf.tudominio.com/v1/oprf/evaluate \
+  -H "Authorization: Bearer quipu_live_..." \
+  --data-binary "<punto-cegado-64-hex>"
+```
+
+## Los tres 429
+
+**Hay tres frenos distintos delante de este servicio y los tres responden 429.**
+Se arreglan de formas que no se parecen —esperar un segundo, esperar un segundo
+por otra razón, o cambiar de plan—, así que un cliente que los trate igual va a
+hacer lo incorrecto en dos de los tres casos. **Lo que los separa es el CUERPO**,
+y el `Retry-After` dice cuánto esperar de verdad:
+
+| Cuerpo | Quién frena | Por qué | `Retry-After` |
+|---|---|---|---|
+| `rate limit de la pasarela (por IP)` | nginx, antes de llegar aquí | tu **IP** pasó de 10 r/s | `1` |
+| `rate limit de ráfaga` | este servidor | tu **clave** vació su cubo de fichas (60 en `starter`, 200 en `pro`) | `1` |
+| `cuota mensual agotada` | este servidor | tu **clave** gastó las evaluaciones del mes | segundos que faltan para el día 1 |
+
+Los dos primeros se resuelven solos bajando el ritmo. **El tercero no se
+resuelve esperando un segundo**, y por eso su `Retry-After` no es 1 sino lo que
+de verdad falta: reintentar antes del cambio de mes no puede funcionar, y una
+librería con backoff ciego martillearía el servidor durante semanas creyendo que
+hace lo correcto.
+
+Ninguno de los tres es un fallo del servicio. **Si lo que llega es un 502 o un
+503, eso sí es el servicio**: el 503 dejó de significar «vas muy rápido» el
+2026-08-18, cuando la pasarela pasó a decir 429 como dice el resto.
+
+Al implementar un cliente: **discrimina por el cuerpo, no por el código**, y
+respeta el `Retry-After` en vez de inventarte un backoff. Los tres códigos y sus
+cuerpos están probados contra el binario real en
+[`tests/limites.rs`](tests/limites.rs).
+
+## La costura con pagos (M3)
+
+La pasarela vive en tu portafolio. Tras verificar un pago (PayPal/Stripe), el
+backend del portafolio llama a `/admin/*` con `X-Admin-Token`:
+
+```sh
+# Alta / pago exitoso -> emitir key (devuelve la key UNA vez):
+curl -s https://oprf.tudominio.com/admin/keys \
+  -H "X-Admin-Token: $ADMIN" --data "email=cliente@empresa.com&plan=pro"
+
+# Pago falla / cancela -> desactivar al instante:
+curl -s -X POST https://oprf.tudominio.com/admin/keys/quipu_live_ab12cd34ef56/deactivate \
+  -H "X-Admin-Token: $ADMIN"
+```
+
+`/admin/*` **no** debe exponerse a Internet: restríngelo a la IP del portafolio
+(ver el bloque `location /admin/` del ejemplo de Nginx).
+
+## Atender a un cliente sin tener que adivinar si dice la verdad
+
+Estas operaciones las ejecuta **una persona**, y a una persona se la convence.
+«Hola, soy el técnico de tal empresa, nos revocaron la key por error, ¿me la
+reactivas?» es un correo que cualquiera puede escribir, y quien atiende no tiene
+forma de distinguir al cliente de quien lo suplanta. Es el invariante **I6**: el
+humano es parte del sistema.
+
+**La regla no es esforzarse en acertar. Es que no haga falta acertar.**
+
+| Petición | ¿Hay que verificar quién la hace? | Por qué |
+|---|---|---|
+| «Desactívame / revócame la key» | **No.** Hazlo y ya | Equivocarse aquí es una molestia reversible. Negarse a cerrar por dudar es el error caro |
+| «Reactívame una key **suspendida**» | Solo el estado del pago | Lo hace el webhook solo; es la operación normal de un cliente que se pone al día |
+| «Reactívame una key **revocada**» | **No se puede.** Ni tú | El servidor devuelve `409` y no la toca. Revocar es definitivo |
+| «Emíteme una key nueva» | Sí, y no por el canal que pide | Es la única que concede acceso. Va contra el registro de pagos, no contra la palabra de quien escribe |
+
+Revocar es **definitivo por diseño**. `activate` no resucita una key revocada, y
+`verify` la rechaza aunque alguien levante su `active` por otra vía —un `UPDATE`
+a mano, un respaldo restaurado de antes—. Si el cliente vuelve de verdad, se le
+emite una key **nueva**: un acto deliberado, con su propio registro, en vez de
+una reversión silenciosa que nadie recuerda haber autorizado.
+
+Así, ante una petición sospechosa, la respuesta segura y la cómoda son la misma:
+**cerrar**. Y la peligrosa no está disponible ni para quien atiende.
+
+### Sobre el «modo de coacción»
+
+No lo hay, y es deliberado. Un modo de coacción mal hecho —un botón, una clave
+alternativa que borra— es **peor que nada**: le da a quien está siendo coaccionado
+una falsa salida que su coaccionador puede ver o sospechar, y le añade un motivo
+para insistir. Aquí no existe hoy una operación en la que aplique: el peor caso
+de coacción sobre este servicio es revocar keys, que es reversible emitiendo
+otras. Cuando exista custodia de secretos con valor propio, se diseña; antes, no.
+
+## CLI de administración (alternativa manual)
+
+```sh
+quipu-oprf-server init
+quipu-oprf-server issue cliente@empresa.com pro   # imprime la API key UNA vez
+quipu-oprf-server deactivate quipu_live_ab12cd34ef56
+quipu-oprf-server activate   quipu_live_ab12cd34ef56
+quipu-oprf-server revoke     quipu_live_ab12cd34ef56
+```
+
+### Planes
+
+| Plan | Evaluaciones/mes | Ráfaga | Sostenido |
+|---|---|---|---|
+| `starter` | 250 000 | 60 | 30/s |
+| `pro` | 1 500 000 | 200 | 100/s |
+
+Definidos en un solo sitio, [`src/plans.rs`](src/plans.rs), y publicados en
+`GET /v1/plans` para que quien vende pueda comprobar que vende lo que aquí se
+concede. **Estas cifras deben coincidir con las de la web y las de PayPal**: si
+se anuncian 250 000 y se conceden 100 000, el cliente lo descubre al chocar con
+el límite real — y como el SDK falla cerrado, lo descubre con sus usuarios sin
+poder iniciar sesión.
+
+El plan `beta` (10 000) se retiró en 2026-07: la vía gratuita es auto-hospedar
+bajo AGPL, no un plan barato. Una clave con un plan ya desconocido no se queda
+sin servicio: cae a límites conservadores (`plans::FALLBACK`).
+
+## Cliente de referencia (M4)
+
+```sh
+QUIPU_OPRF_ADDR=127.0.0.1:8787 \
+QUIPU_OPRF_API_KEY=quipu_live_... \
+cargo run -p quipu-oprf-server --example client -- "mi-contraseña"
+```
+
+Hace el flujo verificable completo: `blind` → POST `/v1/oprf/evaluate` →
+`finalize` (VERIFICA la prueba DLEQ contra la clave pública fijada) → secreto
+endurecido. En producción, **fija** la clave pública fuera de banda
+(`QUIPU_OPRF_PUBKEY`) en vez de pedirla al servidor.
+
+## Instancia pública (beta)
+
+```
+endpoint    https://oprf.xiliux.com
+clave pub   88b623ccc00c9eac39f8e02a0f41851535dc2e196ed9836cad00f77644af214b
+```
+
+> **Cambió el 2026-07-17.** Antes era `f84ef413…`. La instancia migró a RFC 9497
+> y la clave se deriva ahora con `DeriveKeyPair` (§3.2): la MISMA semilla da otra
+> clave. Todo secreto endurecido contra la anterior quedó invalidado. Se hizo con
+> cero clientes (la única key emitida era de pruebas y estaba revocada), que era
+> la única ventana: el dominio está horneado en cada secreto y, como `k`, no rota
+> nunca. La salida también pasó de 32 a 64 bytes.
+
+**Fija esa clave pública en tu cliente desde aquí, no desde `/v1/public-key`.**
+Pedírsela al servidor anula la garantía: la prueba DLEQ solo demuestra que el
+servidor usó la clave `k` correspondiente a la clave pública que TÚ fijaste. Un
+servidor comprometido que además elige la clave contra la que se le verifica
+puede responder lo que quiera sin ser detectado.
+
+## Despliegue
+
+- `deploy/quipu-oprf-server.service` — unidad systemd endurecida (sandbox,
+  secretos vía `EnvironmentFile` con chmod 600).
+- `deploy/nginx.conf.example` — TLS + rate-limit + protección de `/admin`.
+
+## Seguridad
+
+- Las keys se guardan como `prefix` + `SHA-256(secreto)`; comparación en tiempo
+  constante. Robar la BD no da keys usables.
+- **Blinding:** una brecha del VPS NO filtra contraseñas ni claves de clientes.
+- Rate-limit de ráfaga (token bucket por key) + cuota mensual.
+- La clave OPRF `k` vive solo en el VPS (seed protegido); reiniciar con el mismo
+  seed no rompe los secretos endurecidos.

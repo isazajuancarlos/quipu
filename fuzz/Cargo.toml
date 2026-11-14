@@ -1,0 +1,70 @@
+[package]
+name = "quipu-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# Standalone workspace: cargo-fuzz builds this crate on nightly with sanitizer
+# flags, separate from the parent workspace. Without this, the parent's
+# [workspace] table (added for the C ABI binding) would try to adopt it.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.quipu]
+path = ".."
+# `blindaje` entra el 2026-08-17: sin él, el objetivo `blindaje_descifrar` no
+# compila. Las features del fuzz son las del CÓDIGO QUE SE FUZZEA, no las del
+# producto por defecto.
+features = ["honey", "blindaje"]
+
+[[bin]]
+name = "parse_container"
+path = "fuzz_targets/parse_container.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "honey_decrypt"
+path = "fuzz_targets/honey_decrypt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "unpad"
+path = "fuzz_targets/unpad.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "codec_roundtrip"
+path = "fuzz_targets/codec_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_signed"
+path = "fuzz_targets/parse_signed.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "parse_recipient"
+path = "fuzz_targets/parse_recipient.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "blindaje_descifrar"
+path = "fuzz_targets/blindaje_descifrar.rs"
+test = false
+doc = false
+bench = false

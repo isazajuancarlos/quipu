@@ -1,0 +1,319 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:3393bee0-bae7-d535-2588-5656cbb977e1",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-09-01T23:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "quipu-cbom",
+          "version": "0.1.0"
+        }
+      ]
+    },
+    "component": {
+      "type": "library",
+      "bom-ref": "quipu-cnsa@0.1.1",
+      "name": "quipu-cnsa",
+      "version": "0.1.1",
+      "description": "Perfil CNSA 2.0 de Quipu: primitivas puras (no híbridas) que exige el mandato de la NSA.",
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/isazajuancarlos/quipu"
+        }
+      ],
+      "properties": [
+        {
+          "name": "quipu:validado-fips-140-3",
+          "value": "no"
+        },
+        {
+          "name": "quipu:conformidad",
+          "value": "Algoritmos alineados con CNSA 2.0. La librería NO está validada FIPS 140-3; la vía de conformidad es un módulo PKCS#11 validado (feature `hsm`)."
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "crypto/AES-256-GCM",
+      "name": "AES-256-GCM",
+      "description": "AEAD del mandato CNSA 2.0 (sustituye a XChaCha20-Poly1305 del perfil por defecto).",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "ae",
+          "parameterSetIdentifier": "256",
+          "mode": "gcm",
+          "executionEnvironment": "software-plain-ram",
+          "implementationPlatform": "generic",
+          "certificationLevel": [
+            "none"
+          ],
+          "cryptoFunctions": [
+            "encrypt",
+            "decrypt",
+            "tag"
+          ],
+          "classicalSecurityLevel": 256,
+          "nistQuantumSecurityLevel": 5
+        },
+        "oid": "2.16.840.1.101.3.4.1.46"
+      },
+      "properties": [
+        {
+          "name": "quipu:modulo",
+          "value": "cipher.rs"
+        },
+        {
+          "name": "quipu:cnsa",
+          "value": "requerido"
+        },
+        {
+          "name": "quipu:rationale",
+          "value": "AEAD del mandato CNSA 2.0 (sustituye a XChaCha20-Poly1305 del perfil por defecto)."
+        }
+      ]
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "crypto/SHA-384",
+      "name": "SHA-384",
+      "description": "CNSA 2.0 exige SHA-384 como mínimo; SHA-256 no basta. Base de HKDF y de la huella del codebook.",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "hash",
+          "parameterSetIdentifier": "384",
+          "executionEnvironment": "software-plain-ram",
+          "implementationPlatform": "generic",
+          "certificationLevel": [
+            "none"
+          ],
+          "cryptoFunctions": [
+            "digest"
+          ],
+          "classicalSecurityLevel": 192,
+          "nistQuantumSecurityLevel": 4
+        },
+        "oid": "2.16.840.1.101.3.4.2.2"
+      },
+      "properties": [
+        {
+          "name": "quipu:modulo",
+          "value": "kdf.rs"
+        },
+        {
+          "name": "quipu:cnsa",
+          "value": "requerido"
+        },
+        {
+          "name": "quipu:rationale",
+          "value": "CNSA 2.0 exige SHA-384 como mínimo; SHA-256 no basta. Base de HKDF y de la huella del codebook."
+        }
+      ]
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "crypto/HKDF-SHA-384",
+      "name": "HKDF-SHA-384",
+      "description": "Derivación de clave desde material ya aleatorio (RFC 5869). Sin OID propio estándar; se declara por función base SHA-384.",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "kdf",
+          "parameterSetIdentifier": "SHA-384",
+          "executionEnvironment": "software-plain-ram",
+          "implementationPlatform": "generic",
+          "certificationLevel": [
+            "none"
+          ],
+          "cryptoFunctions": [
+            "keyderive"
+          ],
+          "classicalSecurityLevel": 192,
+          "nistQuantumSecurityLevel": 4
+        }
+      },
+      "properties": [
+        {
+          "name": "quipu:modulo",
+          "value": "kdf.rs"
+        },
+        {
+          "name": "quipu:cnsa",
+          "value": "requerido"
+        },
+        {
+          "name": "quipu:rationale",
+          "value": "Derivación de clave desde material ya aleatorio (RFC 5869). Sin OID propio estándar; se declara por función base SHA-384."
+        }
+      ]
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "crypto/Argon2id",
+      "name": "Argon2id",
+      "description": "Derivación desde CONTRASEÑA. CNSA 2.0 no se pronuncia sobre KDF de contraseña; se mantiene Argon2id a propósito (memory-hard) en vez de degradar a PBKDF2 por estética normativa.",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "kdf",
+          "parameterSetIdentifier": "256MiB/4iter",
+          "executionEnvironment": "software-plain-ram",
+          "implementationPlatform": "generic",
+          "certificationLevel": [
+            "none"
+          ],
+          "cryptoFunctions": [
+            "keyderive"
+          ],
+          "nistQuantumSecurityLevel": 0
+        }
+      },
+      "properties": [
+        {
+          "name": "quipu:modulo",
+          "value": "kdf.rs"
+        },
+        {
+          "name": "quipu:cnsa",
+          "value": "fuera-de-alcance"
+        },
+        {
+          "name": "quipu:rationale",
+          "value": "Derivación desde CONTRASEÑA. CNSA 2.0 no se pronuncia sobre KDF de contraseña; se mantiene Argon2id a propósito (memory-hard) en vez de degradar a PBKDF2 por estética normativa."
+        }
+      ]
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "crypto/ML-DSA-87",
+      "name": "ML-DSA-87",
+      "description": "Firma FIPS 204, categoría NIST 5. PURA, no híbrida: el mandato nombra este algoritmo y no pide socio clásico.",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "signature",
+          "parameterSetIdentifier": "ML-DSA-87",
+          "executionEnvironment": "software-plain-ram",
+          "implementationPlatform": "generic",
+          "certificationLevel": [
+            "none"
+          ],
+          "cryptoFunctions": [
+            "keygen",
+            "sign",
+            "verify"
+          ],
+          "classicalSecurityLevel": 256,
+          "nistQuantumSecurityLevel": 5
+        },
+        "oid": "2.16.840.1.101.3.4.3.19"
+      },
+      "properties": [
+        {
+          "name": "quipu:modulo",
+          "value": "firma.rs"
+        },
+        {
+          "name": "quipu:cnsa",
+          "value": "requerido"
+        },
+        {
+          "name": "quipu:rationale",
+          "value": "Firma FIPS 204, categoría NIST 5. PURA, no híbrida: el mandato nombra este algoritmo y no pide socio clásico."
+        }
+      ]
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "crypto/ML-KEM-1024",
+      "name": "ML-KEM-1024",
+      "description": "Establecimiento de clave FIPS 203, categoría NIST 5. PURO, no híbrido (canal de destinatario).",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "kem",
+          "parameterSetIdentifier": "ML-KEM-1024",
+          "executionEnvironment": "software-plain-ram",
+          "implementationPlatform": "generic",
+          "certificationLevel": [
+            "none"
+          ],
+          "cryptoFunctions": [
+            "keygen",
+            "encapsulate",
+            "decapsulate"
+          ],
+          "classicalSecurityLevel": 256,
+          "nistQuantumSecurityLevel": 5
+        },
+        "oid": "2.16.840.1.101.3.4.4.3"
+      },
+      "properties": [
+        {
+          "name": "quipu:modulo",
+          "value": "destinatario.rs"
+        },
+        {
+          "name": "quipu:cnsa",
+          "value": "requerido"
+        },
+        {
+          "name": "quipu:rationale",
+          "value": "Establecimiento de clave FIPS 203, categoría NIST 5. PURO, no híbrido (canal de destinatario)."
+        }
+      ]
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "crypto/ChaCha20-DRBG",
+      "name": "ChaCha20-DRBG",
+      "description": "Generador determinista de bits aleatorios para nonces y semillas; sembrado por getrandom del SO.",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {
+          "primitive": "drbg",
+          "parameterSetIdentifier": "256",
+          "executionEnvironment": "software-plain-ram",
+          "implementationPlatform": "generic",
+          "certificationLevel": [
+            "none"
+          ],
+          "cryptoFunctions": [
+            "generate"
+          ],
+          "classicalSecurityLevel": 256,
+          "nistQuantumSecurityLevel": 5
+        }
+      },
+      "properties": [
+        {
+          "name": "quipu:modulo",
+          "value": "(rand_core / chacha20)"
+        },
+        {
+          "name": "quipu:cnsa",
+          "value": "auxiliar"
+        },
+        {
+          "name": "quipu:rationale",
+          "value": "Generador determinista de bits aleatorios para nonces y semillas; sembrado por getrandom del SO."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radiografía criptográfica de Quipu — CBOM</title>
+<style>
+:root{--bg:#f7f6f3;--card:#fff;--ink:#1b1b1a;--muted:#6b6a66;--line:#e3e1db;
+--ok:#1a7f4b;--ok-bg:#e6f4ec;--bad:#b3261e;--bad-bg:#fbe9e7;--pq:#2f5fd0;--cl:#8a6d1f;--accent:#b3852a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:32px 20px 64px}
+header h1{font-size:26px;margin:0 0 4px}
+header p.sub{color:var(--muted);margin:0 0 6px;font-size:15px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+padding:22px 24px;margin:22px 0;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.card h2{margin:0 0 2px;font-size:20px}
+.card h2 .ver{color:var(--muted);font-weight:500;font-size:15px}
+.card p.desc{color:#38372f;margin:8px 0 16px}
+.inv{border-radius:10px;padding:12px 16px;margin:0 0 18px;font-size:14px}
+.inv.ok{background:var(--ok-bg);border:1px solid #bfe3ce}
+.inv.bad{background:var(--bad-bg);border:1px solid #f2c4bf}
+.inv .badge{font-weight:700;letter-spacing:.02em}
+.inv.ok .badge{color:var(--ok)}
+.inv.bad .badge{color:var(--bad)}
+.chan{margin:8px 0 0;font-size:13.5px;color:#3a3a36}
+.chan .c{display:inline-block;min-width:62px;font-weight:600;text-transform:capitalize}
+.tag{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;margin:1px 3px 1px 0;border:1px solid}
+.tag.pq{color:var(--pq);border-color:#c3d0f2;background:#eef2fc}
+.tag.cl{color:var(--cl);border-color:#e6d9ac;background:#f7f0da}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+td.mono,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.pill{display:inline-block;border-radius:6px;padding:0 7px;font-size:12px;font-weight:600}
+.pill.req{background:#eef2fc;color:var(--pq)}
+.pill.aux{background:#f0efea;color:var(--muted)}
+.pill.out{background:#f7f0da;color:var(--cl)}
+.sig{margin-top:16px;border-top:1px dashed var(--line);padding-top:14px;font-size:13.5px}
+.sig .st{font-weight:700}
+.sig .st.ok{color:var(--ok)}
+.sig .st.bad{color:var(--bad)}
+.sig dl{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;margin:8px 0 0}
+.sig dt{color:var(--muted)}
+.sig dd{margin:0;word-break:break-all}
+.limit{color:var(--muted);font-size:13px;margin-top:10px;font-style:italic}
+footer{color:var(--muted);font-size:12.5px;margin-top:28px;text-align:center;line-height:1.7}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;
+background:#efeee9;border-radius:5px;padding:1px 5px}
+</style></head>
+<body><div class="wrap">
+<header><h1>Radiografía criptográfica de Quipu</h1>
+<p class="sub">CBOM (Cryptography Bill of Materials, CycloneDX 1.6) — el inventario firmable de las primitivas criptográficas de Quipu, con su invariante verificable.</p>
+<p class="desc">El contraste es la pieza: el perfil <strong>CNSA</strong> es puro (cumple el mandato de la NSA, pero si una familia PQ cae no queda socio); el <strong>híbrido</strong> resiste aunque caiga una de las dos familias. El CBOM lo hace medible y verificable, no un adjetivo.</p></header>
+<section class="card"><h2>quipu-cnsa <span class="ver">v0.1.1</span></h2><p class="desc">Perfil CNSA 2.0 de Quipu: primitivas puras (no híbridas) que exige el mandato de la NSA.</p><div class="inv ok"><span class="badge">INVARIANTE ✔</span> — 0 primitivas cuántico-vulnerables entre las requeridas por CNSA 2.0. Los establecimientos de clave y firmas requeridos son puros post-cuánticos: <span class="tag pq">ML-DSA-87</span><span class="tag pq">ML-KEM-1024</span></div>
+<table><thead><tr><th>Activo</th><th>Primitiva</th><th>Parámetro</th><th>Clásico</th><th>NIST PQ</th><th>CNSA</th><th>Módulo</th></tr></thead><tbody>
+<tr><td title="AEAD del mandato CNSA 2.0 (sustituye a XChaCha20-Poly1305 del perfil por defecto)."><strong>AES-256-GCM</strong></td><td>ae</td><td class="mono">256</td><td class="num">256</td><td class="num">cat 5</td><td><span class="pill req">requerido</span></td><td class="mono">cipher.rs</td></tr>
+<tr><td title="CNSA 2.0 exige SHA-384 como mínimo; SHA-256 no basta. Base de HKDF y de la huella del codebook."><strong>SHA-384</strong></td><td>hash</td><td class="mono">384</td><td class="num">192</td><td class="num">cat 4</td><td><span class="pill req">requerido</span></td><td class="mono">kdf.rs</td></tr>
+<tr><td title="Derivación de clave desde material ya aleatorio (RFC 5869). Sin OID propio estándar; se declara por función base SHA-384."><strong>HKDF-SHA-384</strong></td><td>kdf</td><td class="mono">SHA-384</td><td class="num">192</td><td class="num">cat 4</td><td><span class="pill req">requerido</span></td><td class="mono">kdf.rs</td></tr>
+<tr><td title="Derivación desde CONTRASEÑA. CNSA 2.0 no se pronuncia sobre KDF de contraseña; se mantiene Argon2id a propósito (memory-hard) en vez de degradar a PBKDF2 por estética normativa."><strong>Argon2id</strong></td><td>kdf</td><td class="mono">256MiB/4iter</td><td class="num">—</td><td class="num">—</td><td><span class="pill out">fuera de alcance</span></td><td class="mono">kdf.rs</td></tr>
+<tr><td title="Firma FIPS 204, categoría NIST 5. PURA, no híbrida: el mandato nombra este algoritmo y no pide socio clásico."><strong>ML-DSA-87</strong></td><td>signature</td><td class="mono">ML-DSA-87</td><td class="num">256</td><td class="num">cat 5</td><td><span class="pill req">requerido</span></td><td class="mono">firma.rs</td></tr>
+<tr><td title="Establecimiento de clave FIPS 203, categoría NIST 5. PURO, no híbrido (canal de destinatario)."><strong>ML-KEM-1024</strong></td><td>kem</td><td class="mono">ML-KEM-1024</td><td class="num">256</td><td class="num">cat 5</td><td><span class="pill req">requerido</span></td><td class="mono">destinatario.rs</td></tr>
+<tr><td title="Generador determinista de bits aleatorios para nonces y semillas; sembrado por getrandom del SO."><strong>ChaCha20-DRBG</strong></td><td>drbg</td><td class="mono">256</td><td class="num">256</td><td class="num">cat 5</td><td><span class="pill aux">auxiliar</span></td><td class="mono">(rand_core / chacha20)</td></tr>
+</tbody></table>
+<p class="limit">Licencia AGPL-3.0-or-later · FIPS 140-3 validado: no · Algoritmos alineados con CNSA 2.0. La librería NO está validada FIPS 140-3; la vía de conformidad es un módulo PKCS#11 validado (feature `hsm`).</p><div class="sig"><span class="st ok">Firma: firma al día — atada a este CBOM exacto</span><dl><dt>Algoritmo</dt><dd class="mono">quipu-hibrido-Ed25519+ML-DSA-87</dd><dt>Longitud</dt><dd class="mono">4691 bytes</dd><dt>Clave</dt><dd class="mono">identidad-xiliux · huella 313a559ff4879b3c</dd><dt>SHA-256 CBOM</dt><dd class="mono">abae11c1a03706f6335eb285e0506471ae4b5d65cab5e75eb32d56f24afa87ca</dd></dl><p class="limit">La firma se comprueba criptográficamente, de forma independiente, con <code>cargo run --release --example verificar_cbom -- &lt;cbom.json&gt;</code> en el core. Esta vista solo cruza el SHA-256.</p></div>
+</section>
+<section class="card"><h2>quipu <span class="ver">v0.12.0</span></h2><p class="desc">Perfil por defecto de Quipu: criptografía HÍBRIDA (clásico + post-cuántico) en cada canal. Cifrado, establecimiento de clave y firma combinan una primitiva clásica y una PQ, de modo que el sistema resiste aunque una de las dos familias caiga.</p><div class="inv ok"><span class="badge">INVARIANTE ✔</span> — Ningún canal asimétrico depende solo de lo clásico: KEM y firma emparejan una primitiva clásica con una PQ, así que el canal resiste aunque una de las dos familias caiga.<div class="chan"><span class="c">kem</span> ✔ &nbsp;<span class="tag cl">X25519</span><span class="tag pq">ML-KEM-1024</span></div><div class="chan"><span class="c">firma</span> ✔ &nbsp;<span class="tag cl">Ed25519</span><span class="tag pq">ML-DSA-87</span><span class="tag pq">SLH-DSA-SHA2-256s</span></div></div>
+<table><thead><tr><th>Activo</th><th>Primitiva</th><th>Parámetro</th><th>Clásico</th><th>NIST PQ</th><th>CNSA</th><th>Módulo</th></tr></thead><tbody>
+<tr><td title="AEAD por defecto (nonce extendido de 192 bits). Simétrico: resistente a cuántico con clave de 256 bits."><strong>XChaCha20-Poly1305</strong> <span class="tag">simetrico</span></td><td>ae</td><td class="mono">256</td><td class="num">256</td><td class="num">cat 5</td><td><span class="pill aux">n/a</span></td><td class="mono">cipher.rs/stream.rs</td></tr>
+<tr><td title="Intercambio de clave clásico. Cuántico-vulnerable (Shor) POR SÍ SOLO; va emparejado con ML-KEM-1024 en el mismo canal."><strong>X25519</strong> <span class="tag cl">clasico</span></td><td>keyagree</td><td class="mono">Curve25519</td><td class="num">128</td><td class="num">—</td><td><span class="pill aux">n/a</span></td><td class="mono">pqhybrid.rs</td></tr>
+<tr><td title="Establecimiento de clave PQ (FIPS 203, cat. NIST 5). Socio post-cuántico de X25519."><strong>ML-KEM-1024</strong> <span class="tag pq">pq</span></td><td>kem</td><td class="mono">ML-KEM-1024</td><td class="num">256</td><td class="num">cat 5</td><td><span class="pill aux">n/a</span></td><td class="mono">pqhybrid.rs</td></tr>
+<tr><td title="Firma clásica. Cuántico-vulnerable POR SÍ SOLA; va emparejada con ML-DSA-87 (y opcionalmente SLH-DSA) en firma híbrida."><strong>Ed25519</strong> <span class="tag cl">clasico</span></td><td>signature</td><td class="mono">Ed25519</td><td class="num">128</td><td class="num">—</td><td><span class="pill aux">n/a</span></td><td class="mono">pqsign.rs</td></tr>
+<tr><td title="Firma PQ basada en retículos (FIPS 204, cat. NIST 5). Socio post-cuántico de Ed25519."><strong>ML-DSA-87</strong> <span class="tag pq">pq</span></td><td>signature</td><td class="mono">ML-DSA-87</td><td class="num">256</td><td class="num">cat 5</td><td><span class="pill aux">n/a</span></td><td class="mono">pqsign.rs</td></tr>
+<tr><td title="Tercera firma PQ, basada en hash (FIPS 205). Entra con feature `slh`: la firma triple del perito (Ed25519 + ML-DSA-87 + SLH-DSA) no depende de una sola familia matemática."><strong>SLH-DSA-SHA2-256s</strong> <span class="tag pq">pq</span></td><td>signature</td><td class="mono">SLH-DSA-SHA2-256s</td><td class="num">256</td><td class="num">cat 5</td><td><span class="pill aux">opcional</span></td><td class="mono">pqsign.rs (feature slh)</td></tr>
+<tr><td title="Combinador de los secretos clásico y PQ del canal KEM (RFC 5869)."><strong>HKDF-SHA-256</strong> <span class="tag">simetrico</span></td><td>kdf</td><td class="mono">SHA-256</td><td class="num">128</td><td class="num">cat 2</td><td><span class="pill aux">n/a</span></td><td class="mono">kdf.rs/pqhybrid.rs</td></tr>
+<tr><td title="Derivación desde contraseña, memory-hard."><strong>Argon2id</strong> <span class="tag">simetrico</span></td><td>kdf</td><td class="mono">256MiB/4iter</td><td class="num">—</td><td class="num">—</td><td><span class="pill aux">n/a</span></td><td class="mono">kdf.rs</td></tr>
+<tr><td title="Hash base de HKDF y de huellas internas."><strong>SHA-256</strong> <span class="tag">simetrico</span></td><td>hash</td><td class="mono">256</td><td class="num">128</td><td class="num">cat 2</td><td><span class="pill aux">n/a</span></td><td class="mono">(sha2)</td></tr>
+<tr><td title="Generador determinista para nonces y semillas; sembrado por el SO."><strong>ChaCha20-DRBG</strong> <span class="tag">simetrico</span></td><td>drbg</td><td class="mono">256</td><td class="num">256</td><td class="num">cat 5</td><td><span class="pill aux">n/a</span></td><td class="mono">(chacha20)</td></tr>
+</tbody></table>
+<p class="limit">Licencia AGPL-3.0-or-later · FIPS 140-3 validado: no · Diseño híbrido (no CNSA-puro). El perfil `quipu-cnsa` cubre el mandato CNSA 2.0 con primitivas puras. La librería NO está validada FIPS 140-3.</p><div class="sig"><span class="st ok">Firma: firma al día — atada a este CBOM exacto</span><dl><dt>Algoritmo</dt><dd class="mono">quipu-hibrido-Ed25519+ML-DSA-87</dd><dt>Longitud</dt><dd class="mono">4691 bytes</dd><dt>Clave</dt><dd class="mono">identidad-xiliux · huella 313a559ff4879b3c</dd><dt>SHA-256 CBOM</dt><dd class="mono">64da6bafa2aae417294b7b43a0fc5cb7bf3f4dafe883092422fcf9ce88e15a42</dd></dl><p class="limit">La firma se comprueba criptográficamente, de forma independiente, con <code>cargo run --release --example verificar_cbom -- &lt;cbom.json&gt;</code> en el core. Esta vista solo cruza el SHA-256.</p></div>
+</section>
+<footer>Generado por <code>quipu-cbom</code> · 2026-09-01T23:00:00Z · reproducible con <code>SOURCE_DATE_EPOCH</code>.<br>Autodescripción (Ángulo A): la vista refleja el descriptor curado, no escanea nada. La detección sobre terceros vive en <code>nexus</code>.</footer>
+</div></body></html>

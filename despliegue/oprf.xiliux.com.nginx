@@ -1,0 +1,140 @@
+# Terminación TLS para el servidor OPRF.
+#
+# COPIA DE CONSTANCIA, traída del VPS el 2026-08-17. Hasta ese día este vhost
+# vivía SOLO en /etc/nginx/sites-available/oprf del servidor: no había con qué
+# comparar antes de subir, ni forma de ver un cambio en un diff.
+#
+# El servicio escucha solo en 127.0.0.1:8787; Nginx pone TLS y protege /admin.
+#
+# En el bloque http { } (p. ej. /etc/nginx/nginx.conf):
+#   limit_req_zone $binary_remote_addr zone=oprf:10m rate=10r/s;
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name oprf.xiliux.com;
+
+    ssl_certificate     /etc/letsencrypt/live/oprf.xiliux.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/oprf.xiliux.com/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # --- Cabeceras de seguridad (#130) ---
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    # Es una API JSON: nada carga recursos, así que la CSP más estricta es segura.
+    add_header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'" always;
+
+    # Acota cuerpos abusivos: una evaluación VOPRF es diminuta.
+    client_max_body_size 32k;
+
+    # /admin es la costura con la pasarela de pagos: NO exponer a Internet.
+    # Solo desde el backend del portafolio (ajusta la IP permitida).
+    location /admin/ {
+        allow 127.0.0.1;
+        # allow <IP-del-portafolio>;
+        deny all;
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host $host;
+    }
+
+    # API pública (evaluate, public-key, healthz).
+    location / {
+        limit_req zone=oprf burst=20 nodelay;
+        # 429 y no el 503 que nginx pone por defecto. Aquí pesa más que en los
+        # demás vhosts: el OPRF está en la ruta de AUTENTICACIÓN de quien lo
+        # integre, y los dos códigos le dicen cosas opuestas a su cliente. Un
+        # 429 significa «vas muy rápido, espera y reintenta»; un 503 significa
+        # «el servicio está caído», y eso dispara la alerta del integrador y su
+        # camino de degradación por un hecho que no ha ocurrido.
+        #
+        # VA AQUÍ, en el `location`, porque es el ámbito más estrecho: solo
+        # afecta a la API pública, que es la única ruta con `limit_req`.
+        # Ponerla en `http{}` TAMBIÉN sería válido —medido el 2026-08-18 con su
+        # pareja sobre un `nginx -t -c` de usar y tirar: `limit_req_status` se
+        # hereda y se puede afinar hacia abajo; lo que aborta con «directive is
+        # duplicate» es declararla dos veces EN EL MISMO NIVEL—. Se queda aquí
+        # por una razón distinta de la que llegaron a decir estos comentarios:
+        # `http{}` vive en nginx.conf, que no pertenece a ningún repositorio.
+        limit_req_status 429;
+
+        # Y el 429 sale con `Retry-After`, que hasta hoy no llevaba. Sin esa
+        # cabecera la promesa de la línea de arriba es a medias: la librería
+        # del integrador hace backoff, sí, pero a ciegas y con el número que se
+        # inventó su autor. La zona va a 10 r/s, o sea que una ranura se libera
+        # en 0,1 s; el entero más pequeño que no miente es 1.
+        error_page 429 = @frenado;
+
+        # Explícito y no por defecto: con `proxy_intercept_errors on` el
+        # `error_page` de arriba se tragaría TAMBIÉN los 429 que devuelve el
+        # servidor OPRF —ráfaga por clave y cuota mensual— y los tres se
+        # volverían indistinguibles, que es justo lo contrario de lo que aquí
+        # se busca. Está apagado por defecto; se escribe para que encenderlo en
+        # `http{}` no lo cambie en silencio.
+        proxy_intercept_errors off;
+
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host $host;
+        # AQUÍ NO SE MANDA NINGUNA CABECERA DE IP, Y ES A PROPÓSITO.
+        #
+        # Había un `proxy_set_header X-Forwarded-For $remote_addr;`. Se quitó el
+        # 2026-08-17 en vez de «unificarlo» con el `$proxy_add_x_forwarded_for`
+        # de los demás vhosts, y el motivo es que la cabecera **no la lee
+        # nadie**: medido sobre `crates/quipu-oprf-server/src/`, cero
+        # apariciones de `X-Forwarded-For`, `X-Real-IP`, `ConnectInfo` y
+        # `remote_addr` —con su positivo de control: el mismo grep por `header`
+        # devuelve diez líneas, o sea que sí leyó el árbol—. Y no le hacen
+        # falta: su limitador va por `key_id` de la clave de API, no por IP.
+        #
+        # DOS COSAS QUE NO SE HACEN AQUÍ, y se escriben porque las dos parecen
+        # mejoras:
+        #
+        #  1. Volver a poner la cabecera «por consistencia». Si algún día hace
+        #     falta la IP del cliente, la que se manda es `X-Real-IP $remote_addr`
+        #     —que PISA lo que mande el cliente—, nunca
+        #     `$proxy_add_x_forwarded_for`, que AÑADE a un valor cuyo trozo
+        #     izquierdo elige quien llama.
+        #  2. Añadir `real_ip_header` / `set_real_ip_from` en `http{}`. Eso
+        #     convertiría `$remote_addr` en texto del cliente, y con ello caerían
+        #     a la vez la lista de permitidos de `/admin/` de abajo y la clave
+        #     `$binary_remote_addr` de las ONCE zonas de freno del servidor.
+        #     Es una línea, no está puesta, y ésta es la advertencia.
+    }
+
+    # El 429 de ESTA capa, con su cabecera y con un cuerpo que dice de quién es
+    # el freno.
+    #
+    # Hay TRES 429 distintos en este dominio y comparten código: éste (por IP,
+    # de la pasarela) y los dos del servidor OPRF —«rate limit de ráfaga», por
+    # clave de API, y «cuota mensual agotada»—. Se arreglan de formas opuestas
+    # —esperar, esperar más, o subir de plan—, así que el integrador tiene que
+    # poder separarlos, y lo único que los separa es el CUERPO. Está escrito en
+    # `crates/quipu-oprf-server/README.md`, sección «Los tres 429».
+    #
+    # LAS CABECERAS DE SEGURIDAD SE REPITEN AQUÍ A PROPÓSITO, y no es
+    # duplicación por descuido: `add_header` NO se hereda hacia un nivel que
+    # declara los suyos. Sin repetirlas, esta respuesta —y solo ésta— saldría
+    # sin HSTS, sin `nosniff` y sin CSP, que es la clase de regresión que no se
+    # ve porque solo aparece cuando alguien va demasiado rápido.
+    location @frenado {
+        add_header Retry-After 1 always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+        add_header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'" always;
+        default_type text/plain;
+        return 429 "rate limit de la pasarela (por IP)\n";
+    }
+}
+
+# Redirección 80 -> 443
+server {
+    listen 80;
+    server_name oprf.xiliux.com;
+    return 301 https://$host$request_uri;
+}

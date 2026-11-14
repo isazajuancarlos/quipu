@@ -1,0 +1,116 @@
+
+# cargo-vet audits file
+
+[[audits.padme-frame]]
+who = "Juan Carlos Isaza <isazajuancarlos@gmail.com>"
+criteria = "safe-to-deploy"
+version = "0.1.0"
+notes = "Código propio: autoría de Isaza Arenas, en este mismo workspace (crates/padme-frame). No es una auditoría independiente y no pretende serlo — es la constancia de que el titular avala su propio crate, que es lo que cargo-vet espera de un miembro publicado del workspace. La revisión independiente de este código son las rondas de /security-review del repositorio, no esta línea."
+
+[[audits.quipu-cnsa]]
+who = "Juan Carlos Isaza <isazajuancarlos@gmail.com>"
+criteria = "safe-to-deploy"
+version = "0.1.1"
+notes = "Código propio: autoría de Isaza Arenas, en este mismo workspace (crates/quipu-cnsa). Igual que padme-frame: constancia de autoría, no auditoría independiente."
+
+[[audits.quipu-cnsa]]
+who = "Juan Carlos Isaza <isazajuancarlos@gmail.com>"
+criteria = "safe-to-deploy"
+delta = "0.1.1 -> 0.1.2"
+notes = "Código propio (crates/quipu-cnsa): custodio de firma `firmante` (memoria y PKCS#11) y verificar-tras-firmar. Constancia de autoría, no auditoría independiente; la revisión es el concilio multimodelo del 2026-11-06 (haiku, sonnet, fable) sobre 614f46c..fd8972a."
+
+[[trusted.cc]]
+criteria = "safe-to-deploy"
+user-id = 55123 # rust-lang-owner
+start = "2022-10-29"
+end = "2027-08-15"
+
+[[trusted.find-msvc-tools]]
+criteria = "safe-to-deploy"
+user-id = 539 # Josh Stone (cuviper)
+start = "2025-08-29"
+end = "2027-08-15"
+
+[[trusted.hashbrown]]
+criteria = "safe-to-deploy"
+user-id = 2915 # Amanieu d'Antras (Amanieu)
+start = "2019-04-02"
+end = "2027-08-15"
+
+[[trusted.itoa]]
+criteria = "safe-to-deploy"
+user-id = 3618 # David Tolnay (dtolnay)
+start = "2019-05-02"
+end = "2027-08-15"
+
+[[trusted.libc]]
+criteria = "safe-to-deploy"
+user-id = 55123 # rust-lang-owner
+start = "2024-08-15"
+end = "2027-08-15"
+
+[[trusted.linux-raw-sys]]
+criteria = "safe-to-deploy"
+user-id = 6825 # Dan Gohman (sunfishcode)
+start = "2021-06-12"
+end = "2027-08-15"
+
+[[trusted.memchr]]
+criteria = "safe-to-deploy"
+user-id = 189 # Andrew Gallant (BurntSushi)
+start = "2019-07-07"
+end = "2027-08-15"
+
+[[trusted.num-bigint]]
+criteria = "safe-to-deploy"
+user-id = 539 # Josh Stone (cuviper)
+start = "2019-09-04"
+end = "2027-08-15"
+
+[[trusted.quote]]
+criteria = "safe-to-deploy"
+user-id = 3618 # David Tolnay (dtolnay)
+start = "2019-04-09"
+end = "2027-08-15"
+
+[[trusted.regex-syntax]]
+criteria = "safe-to-deploy"
+user-id = 189 # Andrew Gallant (BurntSushi)
+start = "2019-03-30"
+end = "2027-08-15"
+
+[[trusted.rustix]]
+criteria = "safe-to-deploy"
+user-id = 6825 # Dan Gohman (sunfishcode)
+start = "2021-10-29"
+end = "2027-08-15"
+
+[[trusted.serde_json]]
+criteria = "safe-to-deploy"
+user-id = 3618 # David Tolnay (dtolnay)
+start = "2019-02-28"
+end = "2027-08-15"
+
+[[trusted.syn]]
+criteria = "safe-to-deploy"
+user-id = 3618 # David Tolnay (dtolnay)
+start = "2019-03-01"
+end = "2027-08-15"
+
+[[trusted.unicode-ident]]
+criteria = "safe-to-deploy"
+user-id = 3618 # David Tolnay (dtolnay)
+start = "2021-10-02"
+end = "2027-08-15"
+
+[[trusted.wasi]]
+criteria = "safe-to-deploy"
+user-id = 1 # Alex Crichton (alexcrichton)
+start = "2020-06-03"
+end = "2027-08-15"
+
+[[trusted.windows-sys]]
+criteria = "safe-to-deploy"
+user-id = 64539 # Kenny Kerr (kennykerr)
+start = "2021-11-15"
+end = "2027-08-15"

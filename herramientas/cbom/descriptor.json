@@ -1,0 +1,98 @@
+{
+  "perfil": {
+    "nombre": "quipu-cnsa",
+    "version": "0.1.1",
+    "descripcion": "Perfil CNSA 2.0 de Quipu: primitivas puras (no híbridas) que exige el mandato de la NSA.",
+    "licencia": "AGPL-3.0-or-later",
+    "repositorio": "https://github.com/isazajuancarlos/quipu",
+    "validado_fips_140_3": false,
+    "nota_conformidad": "Algoritmos alineados con CNSA 2.0. La librería NO está validada FIPS 140-3; la vía de conformidad es un módulo PKCS#11 validado (feature `hsm`)."
+  },
+  "activos": [
+    {
+      "nombre": "AES-256-GCM",
+      "modulo": "cipher.rs",
+      "primitive": "ae",
+      "oid": "2.16.840.1.101.3.4.1.46",
+      "parameterSetIdentifier": "256",
+      "mode": "gcm",
+      "cryptoFunctions": ["encrypt", "decrypt", "tag"],
+      "classicalSecurityLevel": 256,
+      "nistQuantumSecurityLevel": 5,
+      "cnsa": "requerido",
+      "rationale": "AEAD del mandato CNSA 2.0 (sustituye a XChaCha20-Poly1305 del perfil por defecto)."
+    },
+    {
+      "nombre": "SHA-384",
+      "modulo": "kdf.rs",
+      "primitive": "hash",
+      "oid": "2.16.840.1.101.3.4.2.2",
+      "parameterSetIdentifier": "384",
+      "cryptoFunctions": ["digest"],
+      "classicalSecurityLevel": 192,
+      "nistQuantumSecurityLevel": 4,
+      "cnsa": "requerido",
+      "rationale": "CNSA 2.0 exige SHA-384 como mínimo; SHA-256 no basta. Base de HKDF y de la huella del codebook."
+    },
+    {
+      "nombre": "HKDF-SHA-384",
+      "modulo": "kdf.rs",
+      "primitive": "kdf",
+      "oid": null,
+      "parameterSetIdentifier": "SHA-384",
+      "cryptoFunctions": ["keyderive"],
+      "classicalSecurityLevel": 192,
+      "nistQuantumSecurityLevel": 4,
+      "cnsa": "requerido",
+      "rationale": "Derivación de clave desde material ya aleatorio (RFC 5869). Sin OID propio estándar; se declara por función base SHA-384."
+    },
+    {
+      "nombre": "Argon2id",
+      "modulo": "kdf.rs",
+      "primitive": "kdf",
+      "oid": null,
+      "parameterSetIdentifier": "256MiB/4iter",
+      "cryptoFunctions": ["keyderive"],
+      "classicalSecurityLevel": null,
+      "nistQuantumSecurityLevel": 0,
+      "cnsa": "fuera-de-alcance",
+      "rationale": "Derivación desde CONTRASEÑA. CNSA 2.0 no se pronuncia sobre KDF de contraseña; se mantiene Argon2id a propósito (memory-hard) en vez de degradar a PBKDF2 por estética normativa."
+    },
+    {
+      "nombre": "ML-DSA-87",
+      "modulo": "firma.rs",
+      "primitive": "signature",
+      "oid": "2.16.840.1.101.3.4.3.19",
+      "parameterSetIdentifier": "ML-DSA-87",
+      "cryptoFunctions": ["keygen", "sign", "verify"],
+      "classicalSecurityLevel": 256,
+      "nistQuantumSecurityLevel": 5,
+      "cnsa": "requerido",
+      "rationale": "Firma FIPS 204, categoría NIST 5. PURA, no híbrida: el mandato nombra este algoritmo y no pide socio clásico."
+    },
+    {
+      "nombre": "ML-KEM-1024",
+      "modulo": "destinatario.rs",
+      "primitive": "kem",
+      "oid": "2.16.840.1.101.3.4.4.3",
+      "parameterSetIdentifier": "ML-KEM-1024",
+      "cryptoFunctions": ["keygen", "encapsulate", "decapsulate"],
+      "classicalSecurityLevel": 256,
+      "nistQuantumSecurityLevel": 5,
+      "cnsa": "requerido",
+      "rationale": "Establecimiento de clave FIPS 203, categoría NIST 5. PURO, no híbrido (canal de destinatario)."
+    },
+    {
+      "nombre": "ChaCha20-DRBG",
+      "modulo": "(rand_core / chacha20)",
+      "primitive": "drbg",
+      "oid": null,
+      "parameterSetIdentifier": "256",
+      "cryptoFunctions": ["generate"],
+      "classicalSecurityLevel": 256,
+      "nistQuantumSecurityLevel": 5,
+      "cnsa": "auxiliar",
+      "rationale": "Generador determinista de bits aleatorios para nonces y semillas; sembrado por getrandom del SO."
+    }
+  ]
+}

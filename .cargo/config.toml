@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# TODAS las dependencias salen de `vendor/`, que está DENTRO del repositorio.
+# No se descarga nada: ni el índice de crates.io, ni un solo `.crate`.
+#
+# El positivo de control NO es `cargo build --offline`, que solo prueba que no
+# salió a la red pudiendo estar tirando de la caché de `~/.cargo`. Lo que
+# discrimina es la caché VACÍA:
+#
+#     CARGO_HOME=$(mktemp -d) cargo build --offline
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# POR QUÉ — decisión de Juan, 2026-08-14
+# ─────────────────────────────────────────────────────────────────────────────
+# «No podemos depender de herramientas online hasta saber que todo es seguro, y
+# eso va a tardar.» El protocolo «solo local» del 2026-08-10 sacó el CÓDIGO de
+# los registros públicos; esto saca la CONSTRUCCIÓN. Mientras el árbol se
+# resolviera contra crates.io, un registro comprometido —Shai-Hulud, ChainDrop—
+# entraba por el build aunque nuestro código no estuviera publicado en ninguna
+# parte. En quipu eso pesa más que en ningún otro repositorio: es la
+# criptografía sobre la que se apoyan todos los demás.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# QUE ESTO NO CAMBIA LO QUE SE COMPILA NO ES UNA OPINIÓN
+# ─────────────────────────────────────────────────────────────────────────────
+# `Cargo.lock` no se toca, así que las versiones son las mismas; y cada crate de
+# `vendor/` lleva su `.cargo-checksum.json`, que cargo verifica contra el hash
+# publicado. Si un solo byte difiriera de lo que se compilaba antes, el build se
+# para con `the listed checksum of ... has changed`. O sea que la entrada de
+# `rustc` es idéntica por construcción, no por inferencia.
+#
+# El aviso: esa verificación es PEREZOSA — salta al compilar el crate, no en
+# cada build. Con el `target/` caliente, un árbol ya manipulado puede pasar
+# inadvertido. Un clon nuevo o `cargo clean -p` lo cazan siempre.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# LO QUE CUESTA
+# ─────────────────────────────────────────────────────────────────────────────
+#   · 164 crates. De los 232 MB del árbol, 87 son `wycheproof` —los vectores de
+#     prueba de Google, dependencia de DESARROLLO— y 19 `windows-sys`, que en
+#     Linux no se compila nunca. NO se podan a mano: recortar un `vendor/` rompe
+#     en otro target o en otra máquina, y rompe en silencio;
+#   · actualizar deja de ser `cargo update`: es re-vendorizar y revisar el diff,
+#     que es justo lo que se quiere — que se vea;
+#   · `cargo deny check advisories` sigue necesitando su base de avisos, que SÍ
+#     es online. Vendorizar congela el árbol; no dice si le sale un CVE.
+#
+# Las rutas van RELATIVAS a propósito: `cargo vendor` las escribe absolutas, y
+# eso ata el repositorio a esta máquina — un clon en otro sitio dejaría de
+# compilar sin decir por qué.
+
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"

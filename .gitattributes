@@ -1,0 +1,44 @@
+# El repo se edita desde Windows y Linux. Sin esto, un viaje por Windows
+# reescribe cada linea a CRLF y el siguiente commit arrastra el archivo entero
+# como "modificado" sin un solo cambio real. Paso en la sesion del 2026-07-16.
+* text=auto eol=lf
+
+# Binarios: que git no toque nada.
+*.png binary
+*.so binary
+*.dll binary
+*.dylib binary
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LO DE ARRIBA NO SE TOCA, Y EL ORDEN IMPORTA
+# ─────────────────────────────────────────────────────────────────────────────
+# En `.gitattributes` gana la ÚLTIMA regla que casa, así que lo de `vendor/` va
+# DESPUÉS del `* text=auto` de arriba para poder anularlo solo en ese subárbol.
+#
+# Y queda escrito porque estuve a punto de romperlo: al vendorizar escribí este
+# archivo de cero y me llevé por delante el `* text=auto eol=lf` —puesto en julio
+# porque el repo se edita desde Windows y Linux— y las cuatro reglas de binarios.
+# Se vio al mergear a `estable`, comparando los dos archivos. Un `cat >` sobre un
+# archivo que ya existía.
+
+# `vendor/` SE GUARDA BYTE A BYTE. No es preferencia de estilo: es correctitud.
+#
+# Cada crate vendorizado lleva un `.cargo-checksum.json` con el hash de CADA
+# archivo, y cargo lo verifica al compilar. Si git normaliza finales de línea
+# —CRLF -> LF— al registrar o al sacar el árbol, esos hashes dejan de casar y el
+# build muere con:
+#
+#     error: the listed checksum of `vendor/<crate>/<archivo>` has changed
+#
+# Y el modo de fallo es el peor que hay: **aquí sigue compilando** (el árbol de
+# trabajo conserva sus bytes) y **revienta en el clon**, o sea en otra máquina, o
+# al restaurar del espejo. Se descubrió el 2026-08-14 al vendorizar: git avisó de
+# que iba a convertir 526 archivos.
+#
+# `-text` desactiva toda conversión para ese subárbol.
+vendor/** -text
+
+# Y no se diffean: son 232 MB de código ajeno congelado. Lo que hay que revisar
+# de un cambio en `vendor/` es QUÉ CRATE Y QUÉ VERSIÓN entró o salió —eso se ve
+# en `Cargo.lock` y en el nombre del directorio—, no las líneas.
+vendor/** -diff

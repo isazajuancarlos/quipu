@@ -1,0 +1,210 @@
+#![forbid(unsafe_code)]
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2024-2026 Juan Carlos Isaza
+
+//! CLI del servidor OPRF.
+//!
+//! Administración (camino manual; en producción la pasarela usa /admin vía HTTP):
+//!   QUIPU_OPRF_DB=oprf.db quipu-oprf-server init
+//!   quipu-oprf-server issue <email> <starter|pro>          # imprime la key UNA vez
+//!   quipu-oprf-server revoke <prefix>
+//!   quipu-oprf-server deactivate <prefix>
+//!   quipu-oprf-server activate <prefix>
+//!
+//! Servidor:
+//!   QUIPU_OPRF_SEED=<64 hex>  QUIPU_OPRF_ADMIN_TOKEN=<secreto>  \
+//!   quipu-oprf-server serve [addr]        # por defecto 127.0.0.1:8787
+
+use std::process::ExitCode;
+
+use quipu::voprf;
+use quipu_oprf_server::hexutil::from_hex_32;
+use quipu_oprf_server::http::{self, Config};
+use quipu_oprf_server::plans::quota_for;
+use quipu_oprf_server::store::Store;
+
+fn db_path() -> String {
+    std::env::var("QUIPU_OPRF_DB").unwrap_or_else(|_| "quipu-oprf.db".to_string())
+}
+
+/// El token admin del entorno, NORMALIZADO: una var ausente, vacía o de solo
+/// espacios es `None` («no configurado»), nunca un secreto (D20). Un token de
+/// solo espacios, además, no podría casar jamás —tiny_http recorta el valor de
+/// la cabecera presentada—, así que tratarlo como configurado solo dejaría
+/// `/admin` en lock-out silencioso; como `None`, el arranque lo DICE.
+fn token_desde_env(raw: Option<String>) -> Option<String> {
+    raw.filter(|t| !t.trim().is_empty())
+}
+
+/// Reexportada desde la lib: una sola definición para el arranque y para la
+/// verificación de restauraciones. Ver el comentario en `lib.rs`.
+use quipu_oprf_server::DERIVE_INFO;
+
+/// Carga la clave VOPRF desde el seed persistente. Sin seed => clave EFÍMERA
+/// (solo dev): reiniciar rompería los secretos endurecidos de los clientes.
+///
+/// OJO: desde la migración a RFC 9497 la clave se deriva con `DeriveKeyPair`
+/// (§3.2), no con el hash propio de antes. La MISMA semilla da una clave pública
+/// DISTINTA de la que daba la versión anterior: cualquier clave fijada por un
+/// cliente y cualquier secreto ya endurecido quedan invalidados. Se hizo con
+/// cero clientes, que era la única ventana.
+fn load_server_key() -> voprf::Server {
+    if let Ok(hex) = std::env::var("QUIPU_OPRF_SEED") {
+        match from_hex_32(hex.trim()) {
+            Some(seed) => match voprf::Server::from_seed(&seed, DERIVE_INFO) {
+                Some(s) => return s,
+                // DeriveKeyPairError: 256 intentos dando escalar cero. No pasa
+                // en la práctica, pero arrancar con clave efímera en silencio
+                // sería peor que morir aquí.
+                None => {
+                    eprintln!("error: DeriveKeyPair falló con ese seed (¿seed degenerado?)");
+                    std::process::exit(1);
+                }
+            },
+            // UN SEED INVÁLIDO MATA EL ARRANQUE. No se degrada a efímera.
+            //
+            // Antes esto era un aviso y seguía adelante, y era el peor camino
+            // del servicio: quien define QUIPU_OPRF_SEED está declarando que
+            // quiere la clave persistente, así que un valor mal copiado —un
+            // salto de línea de más, 63 dígitos en vez de 64— arrancaba con una
+            // clave EFÍMERA distinta. El proceso queda vivo, responde 200, y
+            // TODO lo que los clientes derivaron con la clave anterior deja de
+            // valer sin que nada se ponga rojo. `k` no rota jamás justamente
+            // porque rotarla invalida todo lo derivado; esto la rotaba por
+            // accidente. Un aviso en stderr no es fallar (directiva 20).
+            //
+            // La distinción es entre variable AUSENTE y variable EQUIVOCADA:
+            // sin `QUIPU_OPRF_SEED` se sigue arrancando con clave efímera,
+            // porque ese es el desarrollo local de siempre y es legítimo.
+            None => {
+                eprintln!(
+                    "error: QUIPU_OPRF_SEED inválido (esperaba 64 dígitos hex, \
+                     sin espacios). Arrancar con clave efímera invalidaría todo \
+                     lo que los clientes ya derivaron, así que no se arranca."
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+    eprintln!(
+        "⚠️  Sin QUIPU_OPRF_SEED: clave EFÍMERA. Reiniciar romperá los secretos \
+         endurecidos. Genera uno con: openssl rand -hex 32"
+    );
+    let mut seed = [0u8; 32];
+    getrandom::fill(&mut seed).expect("RNG del sistema");
+    voprf::Server::from_seed(&seed, DERIVE_INFO).expect("DeriveKeyPair con seed aleatorio")
+}
+
+fn usage() {
+    eprintln!(
+        "uso:\n  \
+         init\n  \
+         issue <email> <starter|pro>\n  \
+         revoke <prefix>\n  \
+         deactivate <prefix>\n  \
+         activate <prefix>\n  \
+         serve [addr]\n\
+         (BD vía QUIPU_OPRF_DB; seed vía QUIPU_OPRF_SEED; admin vía QUIPU_OPRF_ADMIN_TOKEN)"
+    );
+}
+
+fn run() -> Result<(), String> {
+    let args: Vec<String> = std::env::args().collect();
+    let store = Store::open(&db_path()).map_err(|e| format!("abrir BD: {e}"))?;
+
+    match args.get(1).map(String::as_str) {
+        Some("init") => {
+            println!("Esquema listo en {}", db_path());
+        }
+        Some("issue") => {
+            let email = args.get(2).ok_or("falta <email>")?;
+            let plan = args.get(3).map(String::as_str).unwrap_or("starter");
+            let quota = quota_for(plan).ok_or_else(|| format!("plan desconocido: {plan}"))?;
+            let customer = store
+                .create_customer(email, plan)
+                .map_err(|e| format!("crear cliente: {e}"))?;
+            let key = store
+                .issue_key(&customer, quota, None)
+                .map_err(|e| format!("emitir key: {e}"))?;
+            println!("cliente : {customer}");
+            println!("plan    : {plan} ({quota} evaluaciones/mes)");
+            println!("prefix  : {}", key.prefix);
+            println!("API KEY : {}", key.secret);
+            eprintln!("\n⚠️  Guarda la API KEY ahora: NO se vuelve a mostrar.");
+        }
+        Some("revoke") => {
+            let prefix = args.get(2).ok_or("falta <prefix>")?;
+            let n = store.revoke(prefix).map_err(|e| format!("revocar: {e}"))?;
+            println!("{n} key(s) revocada(s)");
+        }
+        Some("deactivate") => {
+            let prefix = args.get(2).ok_or("falta <prefix>")?;
+            let n = store
+                .set_active(prefix, false)
+                .map_err(|e| format!("desactivar: {e}"))?;
+            println!("{n} key(s) desactivada(s)");
+        }
+        Some("activate") => {
+            let prefix = args.get(2).ok_or("falta <prefix>")?;
+            let n = store
+                .set_active(prefix, true)
+                .map_err(|e| format!("activar: {e}"))?;
+            println!("{n} key(s) activada(s)");
+        }
+        Some("serve") => {
+            let addr = args
+                .get(2)
+                .cloned()
+                .or_else(|| std::env::var("QUIPU_OPRF_ADDR").ok())
+                .unwrap_or_else(|| "127.0.0.1:8787".to_string());
+            // Los límites de ráfaga ya no viven aquí: dependen del plan de cada
+            // cliente y se leen de `plans::limits_for` en cada evaluación.
+            let cfg = Config {
+                addr,
+                // Una var ausente, vacía o de solo espacios es «no configurado»,
+                // no un token válido (D20). Ver `token_desde_env`.
+                admin_token: token_desde_env(std::env::var("QUIPU_OPRF_ADMIN_TOKEN").ok()),
+            };
+            http::serve(store, load_server_key(), cfg).map_err(|e| format!("servidor: {e}"))?;
+        }
+        _ => {
+            usage();
+            return Err("comando no reconocido".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(test)]
+mod pruebas_token {
+    use super::token_desde_env;
+
+    /// Caso rojo del arreglo D20: ausente/vacío/blanco => «no configurado». Si se
+    /// quita el `.filter(|t| !t.trim().is_empty())` de `token_desde_env`, cae.
+    #[test]
+    fn vacio_blanco_o_ausente_es_no_configurado() {
+        assert_eq!(token_desde_env(None), None);
+        assert_eq!(token_desde_env(Some(String::new())), None);
+        assert_eq!(token_desde_env(Some("   ".into())), None);
+        assert_eq!(token_desde_env(Some("\t\n".into())), None);
+    }
+
+    /// Control positivo: un token real se conserva intacto.
+    #[test]
+    fn un_token_real_se_conserva() {
+        assert_eq!(
+            token_desde_env(Some("rand-hex-32".into())),
+            Some("rand-hex-32".into())
+        );
+    }
+}

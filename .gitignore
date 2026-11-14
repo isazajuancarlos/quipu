@@ -1,0 +1,85 @@
+# --- Build artifacts ---
+/target
+fuzz/target
+fuzz/corpus
+fuzz/artifacts
+# fuzz/Cargo.lock SÍ se versiona (como el raíz): el workspace `fuzz/` comparte el
+# `vendor/` de la raíz, así que su resolución tiene que ser reproducible o el
+# re-vendorizado con `anclar-vendor --sync` deriva en silencio (concilio 2026-11-01).
+
+# --- Python ---
+/venv
+__pycache__/
+*.pyc
+*.so
+
+# --- SECRETOS: nunca subir claves del servidor OPRF ni semillas ---
+*.bin
+oprf_seed*
+*.key
+*.pem
+
+# La BD del servidor OPRF lleva clientes y hashes de API keys. Se crea sola al
+# ejecutar el binario sin QUIPU_OPRF_DB, así que aparece en el árbol por probar.
+*.db
+quipu-oprf.db
+
+# --- Local del agente / privado ---
+/.claude
+/.remember
+# Volcados de conversación del agente. El ancla a la raíz (/conversaciones) NO
+# cubre las subcarpetas de las integraciones, y ahí se coló una: se ignora
+# conversaciones/ en CUALQUIER nivel.
+/conversaciones
+conversaciones/
+
+# --- Borradores de financiación (estrategia/datos personales, NO públicos) ---
+GRANT_NLNET.md
+OTF_RED_TEAM_LAB.md
+OTF_IFF_CONCEPT_NOTE.md
+OTF_22572_ACTUALIZACION.md
+SPONSOR_TIERS.txt
+
+# --- Notas internas de planificación/diseño (NO públicas) ---
+PENDIENTES.txt
+QUIPU_PROYECTO_Y_REQUISITOS.txt
+
+# --- Artefactos generados por ejemplos ---
+quickstart_glifos.png
+dist/
+
+# --- SO ---
+.DS_Store
+
+# NOTA: Cargo.lock SÍ se versiona (builds reproducibles, higiene de supply-chain).
+
+# SBOM generado (artefacto de build; se produce en CI, no se versiona)
+*.cdx.json
+bom.json
+bom.xml
+
+# Artefactos de empaquetado de las integraciones
+integrations/*/build/
+integrations/*/dist/
+integrations/*/*.egg-info/
+integrations/*/.pytest_cache/
+
+# Instrucciones locales para Claude Code. NO se versiona: es configuración de mi
+# entorno de trabajo, no del proyecto, y se coló dos veces en un `git add -A`
+# antes de estar aquí (2026-07-18 y 2026-07-19). Ponerlo en .gitignore es más
+# barato que acordarse de desestacionarlo cada vez (directiva 6).
+CLAUDE.md
+
+# --- vendor/: árbol GENERADO, y ninguna regla de arriba le aplica ---
+# Las reglas de secretos (*.bin, *.key, *.pem, *.db, *.so) existen para el OPRF y
+# son globales, así que se tragaban 37 archivos legítimos de crates vendorizados
+# —fixtures de prueba de `digest`, `rustls` y compañía—. El síntoma no aparece
+# aquí: aparece EN EL CLON, con `failed to open file vendor/digest/tests/data/…`,
+# porque cargo verifica el `.cargo-checksum.json` y el archivo no está.
+# Medido el 2026-08-14 clonando de verdad; ningún `git status` lo delataba.
+#
+# `vendor/` lo genera `cargo vendor` y nunca contiene secretos nuestros.
+!vendor/**
+
+# Salida de cargo-mutants (se regenera; no se versiona)
+/mutants.out/

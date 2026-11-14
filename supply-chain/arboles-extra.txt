@@ -1,0 +1,22 @@
+# Workspaces APARTE que comparten este mismo `vendor/`.
+#
+# Una ruta por línea, relativa a la raíz del repositorio; `#` comenta.
+# Lo lee `conocimiento/anclar-vendor`, que los pasa a `cargo vendor --sync`.
+#
+# POR QUÉ EXISTE ESTE ARCHIVO. `fuzz/` es un workspace standalone —lo tiene que
+# ser: `cargo-fuzz` lo construye en nightly con banderas de sanitizer— pero NO
+# tiene su propio `.cargo/config.toml`, así que hereda el de la raíz y resuelve
+# contra el mismo `vendor/`. Al vendorizar `libfuzzer-sys` el 2026-08-17, sus
+# tres crates entraron en `vendor/` y el anclaje pasó a dar ROJO —«sólo en
+# vendor: arbitrary, jobserver, libfuzzer-sys»— porque `cargo vendor` bajaba
+# solo el árbol del producto. Con eso el sello no podía escribirse y
+# `lo-que-corre-al-compilar` se quedaba en NO SE PUDO COMPROBAR: el vigilante
+# de la cadena de suministro, mudo, sin un solo error.
+#
+# LO QUE ESTA LÍNEA DECIDE, y conviene leerlo antes de añadir otra: mete el
+# árbol del arnés DENTRO del perímetro vigilado. Sus `build.rs` y sus fuentes
+# nativas entran en `ejecutan-al-compilar.txt` y hay que aceptarlas a mano.
+# Es lo correcto aquí: `libfuzzer-sys` compila C++ con `cc` en NUESTRA máquina,
+# que es exactamente el riesgo que ese manifiesto vigila. Que no viaje en el
+# producto no lo saca del riesgo — lo cambia de sitio.
+fuzz/Cargo.toml

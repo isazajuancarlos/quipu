@@ -1,0 +1,38 @@
+[package]
+name = "wycheproof"
+version = "0.6.0"
+edition = "2021"
+authors = ["Jack Lloyd <jack@randombit.net>"]
+license = "Apache-2.0"
+description = "Wycheproof test vectors"
+repository = "https://github.com/randombit/wycheproof-rs"
+documentation = "https://docs.rs/wycheproof"
+categories = [ "cryptography" ]
+rust-version = "1.57"
+
+[features]
+# By default all tests are included
+default = ["aead", "cipher", "dsa", "ec", "ecdh", "ecdsa", "eddsa", "fpe", "hkdf", "keywrap", "mac", "primality", "rsa_enc", "rsa_sig", "xdh"]
+
+aead = []
+cipher = []
+dsa = []
+ec = []
+ecdh = []
+ecdsa = []
+eddsa = []
+fpe = []
+hkdf = []
+keywrap = []
+mac = []
+primality = []
+rsa_enc = []
+rsa_sig = []
+xdh = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+data-encoding = "2"
+
+num-bigint = { version = "0.4", optional = true }

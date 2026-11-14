@@ -1,0 +1,16 @@
+# ANCLAJE del árbol vendorizado contra crates.io.
+#
+# Lo escribe `conocimiento/anclar-vendor` SOLO cuando la comparación da cero
+# diferencias. Dice que estos bytes son los que sirve el registro — que es el
+# eslabón que cargo NO verifica: comprueba `Cargo.lock` <-> `package` y
+# `files` <-> bytes, pero nunca `package` <-> `files`.
+#
+# `arbol` es el identificador del árbol que git ya calculó para ese
+# directorio. Si cambia, el sello caduca y `lo-que-corre-al-compilar` lo dice
+# en vez de callarlo.
+#
+# NO se edita a mano: escribirlo sin haber corrido la comparación es
+# exactamente la mentira que este archivo existe para impedir.
+raiz vendor
+crates 159
+arbol e03cad2acecebc14bef1775138468b73fa0208b2

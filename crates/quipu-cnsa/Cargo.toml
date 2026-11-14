@@ -1,0 +1,109 @@
+[package]
+name = "quipu-cnsa"
+version = "0.1.2"
+edition = "2024"
+description = "Perfil de Quipu con los algoritmos de CNSA 2.0: AES-256-GCM, HKDF-SHA-384, firma ML-DSA-87 y canal de destinatario ML-KEM-1024. PUROS, no hibridos: mas debil que quipu y es lo que pide el mandato. NO validado FIPS 140-3."
+authors = ["Juan Carlos Isaza <isazajuancarlos@gmail.com>"]
+license = "AGPL-3.0-or-later"
+keywords = ["cryptography", "post-quantum", "cnsa", "aes-gcm", "fips"]
+categories = ["cryptography"]
+readme = "README.md"
+repository = "https://github.com/isazajuancarlos/quipu"
+homepage = "https://github.com/isazajuancarlos/quipu"
+documentation = "https://docs.rs/quipu-cnsa"
+
+[dependencies]
+# Formato, contenedor, codec, padding Padmé y ECC: COMPARTIDOS con `quipu`. Es la
+# razón de existir de ese crate — un fallo de formato se arregla una vez, no
+# dos. Ver crates/quipu-nucleo.
+#
+# SUBE DE 0.1.0 A 0.1.2 el 2026-08-13, y el motivo NO es coherencia con el
+# hermano — eso seguiría siendo mal motivo.
+#
+# Aquí ponía «se queda en 0.1.0 A PROPÓSITO: este perfil no usa nada de lo que
+# se añadió después —ni `ecc::PARIDAD_MAXIMA` ni el módulo `papel`—, comprobado
+# por grep sobre `src/`». El grep era correcto y la conclusión no, porque medía
+# SÍMBOLOS: lo que la 0.1.2 trae y este crate sí necesita no es una función
+# nueva, es un CAMBIO DE COMPORTAMIENTO dentro de una que ya llamaba.
+#
+# Desde la 0.1.2, `container::parse` RECHAZA una cabecera con `flags` distinto
+# de cero, y eso cierra una degradación silenciosa: la cabecera viaja como AAD,
+# así que un contenedor futuro con `flags = 1` autentica perfectamente contra un
+# decodificador viejo, que lo interpreta con las reglas antiguas y devuelve
+# datos mal leídos CON EL AEAD EN VERDE. Cuando esto se escribió, este crate no
+# validaba `flags` por su cuenta —delegaba en `quipu_nucleo::container::parse`—,
+# así que con una 0.1.0 o 0.1.1 debajo el agujero estaba abierto. Hoy además lo
+# rechaza él mismo (`api::decode_from_blob`, todo `flags != 0`): desde la 0.1.4
+# `parse` ACEPTA el bit 0 (`FLAG_BLINDAJE`, que este perfil no implementa), así
+# que la comprobación propia es la que sostiene el rechazo. El piso sigue en
+# 0.1.2 porque `FlagsDesconocidos` nace ahí; NO sube a 0.1.4 por coherencia con
+# el hermano (2026-11-06: lo subí y lo revertí al releer este párrafo). Desde el árbol no se nota jamás (el
+# `path` gana y siempre resuelve a lo local); desde crates.io, `^0.1.0` lo
+# permite.
+#
+# El criterio no cambia, se aplica mejor: el requisito nombra la versión que de
+# verdad hace falta. Un arreglo de seguridad no deja símbolo que grepear.
+quipu-nucleo = { version = "0.1.2", path = "../quipu-nucleo" }
+
+# --- Lo que CAMBIA respecto de `quipu`: las primitivas ---
+# AEAD: AES-256-GCM en lugar de XChaCha20-Poly1305 (CNSA 2.0).
+aes-gcm = "0.11"
+# SHA-384 para HKDF y para la huella del codebook (CNSA 2.0 pide SHA-384 como
+# mínimo; SHA-256 no basta).
+sha2 = "0.11"
+hkdf = "0.13"
+
+# --- Lo que NO cambia, y es deliberado ---
+# CNSA 2.0 NO se pronuncia sobre derivación desde CONTRASEÑA. Cambiar Argon2id
+# por PBKDF2 para «parecer conforme» debilitaría el sistema por estética
+# normativa: PBKDF2 no tiene coste en memoria y es mucho más barato de atacar
+# con hardware dedicado. Se mantiene Argon2id y se declara en el README.
+argon2 = "0.5"
+
+# --- Firma y establecimiento de clave: lo que CNSA 2.0 exige y faltaba ---
+# PUROS, no híbridos, y esa es la diferencia con `quipu`: el mandato nombra
+# estos dos algoritmos y no pide socio clásico. Es MÁS DÉBIL —si uno cae, no
+# queda nada sujetando— y está dicho en la cabecera de cada módulo.
+# Se dependen DIRECTAMENTE y no vía `quipu`: este perfil es hermano de aquel,
+# no cliente suyo, y arrastrar `quipu` traería XChaCha20 y todo lo demás.
+# `features = ["zeroize"]` NO es opcional aquí, aunque la feature sí lo sea en
+# el crate: sin ella los `Drop` de `SigningKey` y `ExpandedSigningKey` quedan
+# fuera de la compilación y `s1`, `s2` y `t0` —la clave privada real de
+# ML-DSA-87— se sueltan intactas en cada firma. Este crate envuelve la SEMILLA
+# en `Zeroizing` y documenta que «se limpia sola»; sin esta línea esa frase era
+# falsa justo para el buffer más grande y más sensible.
+ml-dsa = { version = "0.1.1", features = ["zeroize"] }
+# Lo mismo: sin `zeroize` el `Drop` de `DecapsulationKey` no existe y `dk_pke`,
+# `d` y `z` no se borran nunca.
+ml-kem = { version = "0.3", features = ["zeroize"] }
+rand_core = "0.10"
+chacha20 = { version = "0.10", features = ["rng", "zeroize"] }
+
+# Custodia PKCS#11. Misma versión que `quipu`: el módulo del dispositivo se
+# carga por `dlopen` en tiempo de ejecución, así que compilar esto no exige
+# tener ningún HSM ni OpenSSL 3.5 delante.
+cryptoki = { version = "0.12", optional = true }
+
+unicode-normalization = "0.1"
+getrandom = { version = "0.4", features = ["std"] }
+zeroize = "1"
+subtle = "2"
+
+[features]
+# Custodia de la clave de firma en un dispositivo PKCS#11 (HSM, token, tarjeta).
+# NO-default por dos razones: arrastra `cryptoki` y su cadena de FFI, y la
+# inmensa mayoría de los despliegues firma en memoria y hace bien.
+#
+# En este perfil responde a DOS preguntas a la vez, y por eso existe aquí y no
+# solo en `quipu`: la de FIPS 140-3 —esta librería no está validada y la vía
+# real es un dispositivo que sí lo esté— y la de SP 800-208 §8.1, que confina
+# LMS/XMSS a módulos hardware. Sin esta feature, el comprador con mandato CNSA
+# que siguiera nuestra propia recomendación acabaría en `quipu`, que firma
+# híbrido: justo el asterisco que este perfil existe para no tener.
+hsm = ["dep:cryptoki"]
+
+[dev-dependencies]
+proptest = "1"
+
+[lints]
+workspace = true

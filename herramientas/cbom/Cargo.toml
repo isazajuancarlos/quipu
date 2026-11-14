@@ -1,0 +1,23 @@
+[package]
+name = "quipu-cbom"
+version = "0.1.0"
+edition = "2024"
+description = "Genera el CBOM (CycloneDX 1.6) de un perfil de Quipu a partir de su descriptor de primitivas. Herramienta del repo, no un crate de la familia quipu."
+authors = ["Juan Carlos Isaza <isazajuancarlos@gmail.com>"]
+license = "AGPL-3.0-or-later"
+
+# Su propio workspace: NO es miembro del workspace de quipu (no arrastra la
+# compilación del core ni cambia su lockfile). Piloto del Ángulo A.
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Solo para CRUZAR el SHA-256 del CBOM contra el que registra su `.sig.json`
+# (la vista dice "firma al día / firma vieja"); NO firma ni verifica cripto —eso
+# vive en el core (`quipu/examples/verificar_cbom`). Línea estable (D35).
+sha2 = "0.10"
+
+[lints.clippy]
+redundant_clone = "deny"
+needless_collect = "deny"

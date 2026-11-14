@@ -1,0 +1,410 @@
+[workspace]
+members = [".", "crates/padme-frame", "crates/quipu-nucleo", "crates/quipu-cnsa", "crates/quipu-voprf", "crates/quipu-oprf-server"]
+resolver = "2"
+
+# Puerta de buenas prácticas por defecto (estándar de nacimiento, CLAUDE.md
+# global). Solo deny porque el CI usa -D warnings que escala warn->error.
+[workspace.lints.clippy]
+redundant_clone = "deny"
+needless_collect = "deny"
+
+[package]
+name = "quipu"
+# 0.11.0 y no 0.10.1, y la razón NO es el tamaño del cambio.
+#
+# La superficie pública contra el tag `v0.10.0` es ESTRICTAMENTE ADITIVA
+# (`negacion`, `lab::papel`, la escalera del KDF, `antihacker::limpiar_pila`,
+# `aleatorio::FalloDeSalud`): ni un ítem retirado, ni una firma tocada. Por esa
+# vara sola tocaría 0.10.1, que es lo que se hizo en `quipu-nucleo`.
+#
+# Lo que lo cambia es un CAMBIO DE COMPORTAMIENTO que no rompe la compilación:
+# `Options.codebook_id` pasó a IGNORARSE. Era público y ajustable desde la
+# 0.10.0 —lo dice `docs/SPEC.md`—, así que quien lo estuviera poniendo sigue
+# compilando igual y obtiene otra cosa. Eso no lo ve el compilador y no puede
+# viajar en un parche.
+#
+# Y hay una consecuencia concreta, no teórica: `guaca` y `tunjo` piden
+# `quipu = "0.10"`. Con 0.10.1 se lo llevarían SOLOS en el próximo `cargo
+# update`; con 0.11.0 no se mueven hasta que alguien edite el requisito, que es
+# como debe entrar un cambio de comportamiento — decidido, no heredado.
+version = "0.15.1"
+edition = "2024"
+description = "Codec criptográfico post-cuántico híbrido (X25519+ML-KEM-1024, Ed25519+ML-DSA-87) con endurecimiento online verificable por VOPRF conforme a RFC 9497. Datos en reposo."
+authors = ["Juan Carlos Isaza <isazajuancarlos@gmail.com>"]
+license = "AGPL-3.0-or-later"
+keywords = ["cryptography", "post-quantum", "encoding", "oprf", "aead"]
+categories = ["cryptography"]
+readme = "README.md"
+repository = "https://github.com/isazajuancarlos/quipu"
+homepage = "https://github.com/isazajuancarlos/quipu"
+documentation = "https://docs.rs/quipu"
+# No publicar en el crate los borradores internos de planificación/financiación.
+#
+# `docs/superpowers/` entró el 2026-08-04: son 15 planes y specs de trabajo
+# —372 KiB— y TRES de ellos diseñan subsistemas que ya no existen (la ABI de C,
+# los bindings de Node y los de Go, eliminados en la 0.10). Un consumidor que
+# abre el .crate se encuentra documentación de algo muerto y no tiene cómo
+# saberlo. Los planes llevan además instrucciones para agentes
+# («REQUIRED SUB-SKILL: superpowers:executing-plans»), que no significan nada
+# fuera de aquí.
+#
+# Va el DIRECTORIO entero y no solo `plans/`: `specs/` tiene los mismos tres
+# diseños muertos, y una regla con excepción es donde se cuela el fallo. El
+# precio se paga en los dos README, que enlazaban el diseño del Security Lab por
+# ruta relativa: ahora lo enlazan por URL absoluta a GitHub, que resuelve
+# también desde crates.io y docs.rs.
+#
+# QUÉ REGLA RIGE ESTA LISTA, que hasta el 2026-08-05 no estaba escrita y por eso
+# la lista PARECÍA mixta por accidente: **entra aquí todo lo interno, esté
+# rastreado o no**. No es redundancia con `.gitignore`; son dos cinturones para
+# dos caminos distintos, y hay que saber cuál sostiene qué:
+#
+#   - Empaquetando DESDE EL REPO GIT (el camino normal, y el de los cinco jobs
+#     `crate-*` de release.yml, que hacen checkout completo) los dos cinturones
+#     se REPARTEN el trabajo según el archivo esté rastreado o no, y el reparto
+#     es justo el contrario de lo que decía aquí hasta el 2026-08-05:
+#       · lo NO rastreado lo descarta `.gitignore`, y `exclude` no llega a opinar;
+#       · lo RASTREADO no lo toca `.gitignore` —git no lo aplica a lo que ya está
+#         en el índice— y entonces `exclude` es el ÚNICO cinturón que queda.
+#     El positivo de control está en el propio repositorio: `docs/superpowers/`
+#     son 15 archivos RASTREADOS que NO figuran en `.gitignore`, y no aparecen
+#     entre los 134 del paquete. Lo único que los saca es esta lista.
+#     La versión anterior de este comentario afirmaba que aquí «`.gitignore`
+#     decide solo», y de creerla se sigue que para el camino normal basta con
+#     ignorar — falso para todo lo que ya esté rastreado, que es donde más duele.
+#   - Empaquetando SIN `.git` —un árbol exportado, un tarball— cargo no lee
+#     `.gitignore` **en absoluto** y el caminador mete todo lo que no esté
+#     excluido. Medido el 2026-08-05 plantando seis señuelos en un árbol sacado
+#     con `git archive`: cinco entraron en la lista del .crate. Ahí `exclude` es
+#     lo único que queda. Lo mismo tras un `git add -f` accidental.
+#
+# Por eso la lista se completa en vez de podarse: el residuo de una lista de
+# publicación va al lado de NO publicar (directiva 20). `OTF_IFF_CONCEPT_NOTE.md`
+# y `SPONSOR_TIERS.txt` se añadieron el 2026-08-05 — existen en el árbol, son la
+# misma categoría que los dos que ya estaban y el espejo reflejaba 2 de 4. Al
+# añadir un borrador interno se toca `.gitignore` Y esta lista, las dos.
+#
+# Y por lo mismo `PENDIENTES.txt` VUELVE, después de que ese mismo día lo quitara
+# la pasada que completaba la lista. Se quitó porque el archivo hoy no existe en
+# el árbol, y ese es precisamente el razonamiento que la regla prohíbe: una
+# entrada de una lista de negación no cuesta nada mientras el archivo falta, y el
+# día que alguien lo recree —está en `.gitignore` bajo «Notas internas», o sea
+# que se espera que exista— entraría en el .crate por el camino sin git. Podar
+# por ausencia es mandar el residuo al lado de PUBLICAR.
+#
+# `CLAUDE.md` es el que faltaba desde siempre, y es el peor de la lista: 30 KiB
+# sin rastrear con reconocimiento operativo dentro —el procedimiento para
+# desactivar `enforce_admins`, en qué crates sigue sirviendo un token de API
+# robado, la configuración del publicador de confianza y rutas de la máquina—.
+# No lleva credenciales, pero decirle a un atacante por dónde está abierta la
+# puerta vale casi lo mismo. Sin rastrear y en `.gitignore`, así que el camino de
+# release nunca lo empaquetó; esto cierra el segundo cinturón, no una fuga viva.
+exclude = [
+    "CLAUDE.md",
+    "GRANT_NLNET.md",
+    "OTF_RED_TEAM_LAB.md",
+    "OTF_IFF_CONCEPT_NOTE.md",
+    "PENDIENTES.txt",
+    "SPONSOR_TIERS.txt",
+    "QUIPU_PROYECTO_Y_REQUISITOS.txt",
+    "conversaciones/",
+    "docs/superpowers/",
+    # EL ARSENAL OFENSIVO/INTERNO no viaja en el producto (2026-09-02). Todo vive
+    # bajo `lab` (feature `lab`), y su FUENTE se excluye del `.crate`: quien
+    # consuma el crate no puede compilar `lab` aunque pase la feature — el arma no
+    # está. En el árbol de trabajo (git) sí está, para el CI y el desarrollo, que
+    # es donde alcanza los internos `pub(crate)` (firmar_*_crudo,
+    # generate_keypair_unchecked) que un crate aparte no podría ver sin exponerlos.
+    #
+    # RESIDUO CONOCIDO (higiene de empaquetado, no afecta al consumidor): los 6
+    # `[[example]]` de abajo siguen declarados en este manifiesto (que sí viaja en
+    # el .crate) apuntando a fuentes excluidas, así que el .crate NO es
+    # auto-construible en aislamiento (`cargo build` en el tarball desempaquetado
+    # falla al parsear el manifiesto; `required-features` no suprime el chequeo de
+    # existencia). Quien use quipu como DEPENDENCIA no se ve afectado (cargo no
+    # construye los ejemplos de una dep). Bajo solo-local es inocuo (no se publica).
+    # Si algún día se vuelve a publicar: quitar esos 6 `[[example]]` del manifiesto.
+    "src/lab/",
+    "lab/",
+    "examples/securitylab.rs",
+    "examples/securitylab_offline.rs",
+    "examples/redteam.rs",
+    "examples/papel.rs",
+    "examples/testplatform.rs",
+    "examples/hackerbot.rs",
+    "tests/negacion_indistinguibilidad.rs",
+]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Laboratorio de seguridad (red-team adaptativo). NUNCA se activa en release ni
+# en la rueda de PyPI: el arma no viaja con el producto.
+lab = []
+# Banco OFFLINE pesado/ruidoso (timing, guessing). Implica `lab`. NO lo corre el
+# job de CI (que usa --features lab); vive dentro del contenedor quipu-lab.
+lab-offline = ["lab"]
+# Firma triple-híbrida de alta garantía (Ed25519 + ML-DSA-87 + SLH-DSA).
+# NO-default: la firma pesa ~34 KB y no debe compilarse siempre.
+slh = ["dep:fips205"]
+# Reparto ciego: dos AEAD independientes de los que NINGUNO ve el texto en claro.
+# Defiende de que una de las dos librerías esté comprometida, que es lo que el
+# cifrado normal no cubre. NO-default: la salida ocupa el DOBLE, y eso en el
+# camino simbólico es el doble de glifos. Ver `src/blindaje.rs`.
+blindaje = ["dep:aes-gcm"]
+# Honey Encryption: modo con SEÑUELOS para secretos de baja entropía (PIN,
+# frases mnemónicas). Opt-in y SIN autenticación por diseño (un tag sería un
+# oráculo de éxito); no es sustituto del núcleo AEAD. Ver `src/honey.rs`.
+honey = []
+# Contenedor con negación: un archivo, dos contraseñas, y nada dentro que diga
+# si existe el segundo volumen. NO-default por dos razones, y la segunda pesa
+# más que la primera: un formato con promesa de seguridad seria no se enciende
+# por descuido, y su perfil de coste fija Argon2id en 256 MiB —cuatro veces el
+# camino normal— porque los parámetros NO viajan en el contenedor y subirlos
+# después lo paga el usuario legítimo en cada apertura. Ver `docs/DISENO_NEGACION.md`.
+negacion = []
+# Custodia de claves por umbral (Shamir k-de-n). NO-default: es una
+# herramienta de ESCROW, no del núcleo de cifrado. Aislada tras su propio
+# gate para que quien no la necesite no la lleve compilada — menos
+# superficie expuesta, y ninguna interferencia posible con el resto.
+escrow = []
+# Cifrado PERFORABLE: destruir la clave al abrir el lacre (forward secrecy sobre
+# datos en reposo, PPRF de árbol GGM). NO-default: cambia el contrato de la
+# clave —la raíz es aleatoria y el estado se muta en sitio, al revés que el resto
+# de la librería, donde la clave se re-deriva de la frase—, así que se enciende a
+# propósito y con su modelo de amenaza leído. No añade dependencias: usa el HKDF
+# del núcleo como PRG. Ver `src/perforable.rs`.
+perforable = []
+# Modo DISCRETO (PURB): contenedor SIN cabecera en claro —ni magic, ni versión,
+# ni parámetros KDF—, con parámetros fijos y longitud acolchada con Padmé, para
+# que el blob sea indistinguible de bytes uniformes. NO-default: renuncia a la
+# escalera de coste y a distinguir «frase mala» de «no es un contenedor» (esa
+# distinción sería la huella que el modo evita). Ver `api::encode_discreto`.
+discreto = []
+# X-Wing-768: KEM híbrido PQ/T WIRE-COMPATIBLE con draft-connolly-cfrg-xwing-kem-10
+# (X25519 + ML-KEM-768 + combinador SHA3-256). NO-default: es un perfil de
+# INTEROP distinto del canal a destinatario del núcleo, que es ML-KEM-1024 +
+# HKDF y NO interoperable a propósito (CNSA 2.0). No trae dependencias nuevas al
+# árbol: compone `ml-kem` (MlKem768) y `x25519-dalek`, ya presentes, más `sha3`
+# 0.11 para el combinador SHA3-256. OJO (desde ml-kem 0.3.4): esta `sha3` 0.11 es
+# un crate vendorizado APARTE del `sha3` 0.12 que ml-kem arrastra internamente —
+# son dos crates distintos para rustc y no se mezclan. Ver
+# `src/xwing.rs` y `docs/ESTANDARES-2026-08.md` §5.
+xwing = ["dep:sha3"]
+# Inyección de fallo en las autopruebas. SOLO para ejercitar el camino de error
+# de punta a punta en CI. Nunca en un build publicado: haría que la librería se
+# negara a operar siempre.
+selftest-fault = []
+# Custodia de la clave de firma en un dispositivo PKCS#11 (HSM, token, tarjeta).
+# NO-default por dos razones: arrastra `cryptoki` y su cadena de FFI, y la
+# inmensa mayoría de los despliegues firma en memoria y hace bien.
+#
+# Es lo que responde a la primera pregunta de todo comité de seguridad: la
+# clave privada no sale del dispositivo. Lo demás del módulo `firmante` no
+# necesita esta feature.
+hsm = ["dep:cryptoki"]
+
+[dependencies]
+# Enlace PKCS#11. La 0.12 es la primera que expone los mecanismos
+# post-cuánticos (ML_DSA, ML_KEM, SLH_DSA) además de EDDSA, que es lo que hace
+# falta para meter las DOS mitades de la firma híbrida dentro del dispositivo.
+# Es además la versión con la que `kryoptic` —el token contra el que se prueba—
+# se prueba a sí mismo.
+cryptoki = { version = "0.12", optional = true }
+# Núcleo agnóstico de primitivas: formato, contenedor, codec base-N, ECC y
+# canal visual. Se separó para que `quipu` y su hermana `quipu-cnsa` compartan
+# UNA sola implementación de todo lo que no es criptografía — un fallo se
+# arregla una vez. Ver el doc del crate y la tarea #92.
+#
+# El requisito tiene que nombrar la versión que de verdad trae lo que este crate
+# compila. Hoy es 0.1.4: `src/container.rs` y `src/api.rs` usan
+# `container::FLAG_BLINDAJE`, que NO existe en la 0.1.2 ni en la 0.1.3 (medido
+# contra los tags el 2026-11-06, cuando el requisito todavía decía 0.1.2 y mentía
+# así). Antes fue 0.1.2 por lo mismo: `src/lab/papel.rs` usa
+# `ecc::PARIDAD_MAXIMA`, que no existe en la 0.1.1 ni en la 0.1.0.
+# Con `version = "0.1.0"`, cargo podía resolverlo a cualquiera de esas dos desde
+# crates.io y `quipu --features lab` no compilaría — en el árbol nunca se nota,
+# porque el `path` gana y siempre apunta a lo de aquí. Un requisito laxo no es
+# «tolerante»: es una afirmación falsa sobre lo que hace falta.
+quipu-nucleo = { version = "0.1.4", path = "crates/quipu-nucleo" }
+# `zeroize` NO viene por defecto en ninguno de los dos AEAD y borra su estado al
+# soltarlo. Se pide explícito en los dos, igual que en `chacha20`.
+#
+# CORRECCIÓN DEL MISMO DÍA: la primera versión de este comentario decía que
+# `aes-gcm` no podía recibir el trato porque «no declara la feature». Falso, y
+# lo cazó la revisión de seguridad: `zeroize` es una dependencia OPCIONAL suya
+# (`vendor/aes-gcm/Cargo.toml:99`), y eso crea la feature implícita. Miré
+# `[features]`, no vi la línea, y concluí de más — el `[dependencies.zeroize]`
+# estaba treinta líneas más abajo. Sin ella, `ghash_key.zeroize()` no se
+# ejecutaba y la clave de autenticación GHASH quedaba en la pila.
+chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
+# Arrastra `rand_core` 0.6 al arbol, y NO se puede evitar: `hash_password_into`
+# —lo unico que Quipu llama— exige la feature `alloc`, que exige `password-hash`,
+# que trae `rand_core` por defecto. Soltarla obligaria a gestionar a mano el
+# bloque de 64 MiB de Argon2 en la ruta de derivacion de claves, y no compensa:
+# esa `rand_core` solo sirve para que argon2 genere sales por su cuenta, cosa
+# que aqui nunca ocurre —el salt sale de `aleatorio`—. Enlazada, no ejecutada.
+argon2 = "0.5"
+hkdf = "0.13"
+sha2 = "0.11"
+# SHA3-256 + SHAKE256 para el combinador y la expansión de semilla de X-Wing-768
+# (feature `xwing`). Opcional: fuera de esa feature quipu no usa SHA-3. Hasta
+# ml-kem 0.3.2 era la MISMA versión que ml-kem arrastraba (0.11) y no añadía un
+# crate; desde ml-kem 0.3.4 ml-kem usa `sha3` 0.12 internamente, así que esta 0.11
+# del combinador es ya un crate vendorizado APARTE (vendor/sha3-0.11.0). El build
+# offline sigue intacto; el KAT de X-Wing cubre que ambos sha3 coexisten bien.
+sha3 = { version = "0.11", default-features = false, optional = true }
+unicode-normalization = "0.1"
+getrandom = { version = "0.4", features = ["std"] }
+zeroize = "1"
+subtle = "2"
+# `zeroize` NO es feature por defecto de ninguno de los dos, y sin ella el
+# material privado se suelta intacto: en `ml-dsa`, el `Drop` de
+# `ExpandedSigningKey` tiene el cuerpo ENTERO dentro de `#[cfg(feature =
+# "zeroize")]`, así que `s1`, `s2` y `t0` —la clave privada real de ML-DSA-87—
+# sobreviven a cada firma. En `ml-kem`, hasta 0.3.2 `DecapsulationKey` **no tenía
+# `Drop` en absoluto**; desde 0.3.4 añade un `Drop` tras `#[cfg(feature =
+# "zeroize")]` que borra `dk_pke`, `d` y `z` — con `zeroize` activo, como aquí, ya
+# se borran.
+#
+# Y el banco NO lo veía, que es lo que lo hacía caro: `quipu-cnsa` sí las pedía,
+# así que `cargo test --workspace` —el comando del verde— encendía la feature por
+# unificación y medía un binario que el consumidor de `quipu` NO recibe. Medido
+# el 2026-08-17 con su pareja: `cargo tree -e features -i ml-dsa` sin
+# `--workspace` no menciona `zeroize`; con `--workspace` sí, y el único aportante
+# es el crate hermano. Es la directiva 31 al pie de la letra — el veredicto
+# estaba anclado a un artefacto distinto del que se entrega.
+ml-kem = { version = "0.3", features = ["zeroize"] }
+ml-dsa = { version = "0.1.1", features = ["zeroize"] }
+ed25519-dalek = "3"
+x25519-dalek = { version = "3", features = ["static_secrets"] }
+rand_core = "0.10"
+# ChaCha20 para EXPANDIR la entropía del sistema (ver `aleatorio::generador`).
+# Es el MISMO crate que ya cifra —`chacha20poly1305` cuelga de él—, así que la
+# feature `rng` no añade un solo crate al árbol: solo enciende un módulo que ya
+# viaja. Sustituye a `rand_chacha`, que hacía exactamente esto y arrastraba
+# `zerocopy` + `ppv-lite86`.
+#
+# EL NÚMERO, con su matiz, porque la primera versión de este comentario
+# prometía de más: se van 34 389 líneas del GRAFO DE PRODUCCIÓN —lo que se
+# publica y lo que heredan guaca, chunsua y tunjo—, pero NO del árbol
+# vendorizado: `proptest` sigue arrastrando `zerocopy` como dev-dependency,
+# y su `build.rs` sigue corriendo en cada `cargo test`. O sea que baja la
+# superficie del PRODUCTO, no la de CONSTRUCCIÓN.
+#
+# `zeroize` va encendida desde el 2026-08-14: activa `ZeroizeOnDrop` sobre
+# el generador y borra el buffer de keystream. No cambia una sola salida,
+# no añade ni un crate —zeroize ya estaba— y es algo que `rand_chacha` NO
+# permitía: no tiene zeroize en absoluto.
+chacha20 = { version = "0.10", features = ["rng", "zeroize"] }
+curve25519-dalek = { version = "5", features = ["digest"] }
+# Primitivas VOPRF, en su propio crate Apache-2.0: es lo unico que un cliente
+# del servicio OPRF debe enlazar, y no puede arrastrar esta AGPL. Apache fluye
+# hacia AGPL, asi que el nucleo puede usarlo sin friccion.
+quipu-voprf = { version = "0.2.2", path = "crates/quipu-voprf" }
+fips205 = { version = "0.4.1", optional = true, default-features = false, features = ["slh_dsa_sha2_256s", "default-rng"] }
+# Segunda capa del reparto ciego (`blindaje`). Va aparte a propósito: otro
+# algoritmo, otro equipo, otro crate — si compartieran mantenedor, el reparto
+# defendería de menos de lo que promete.
+aes-gcm = { version = "0.11", optional = true, features = ["zeroize"] }
+
+[dev-dependencies]
+proptest = "1"
+# Solo para dañar a propósito una tira de glifos en las pruebas del canal
+# analógico. Ya está en el árbol vía quipu-nucleo y exento en cargo-vet.
+wycheproof = "0.6"
+# Solo para leer/generar los vectores de interoperabilidad (tests/vectors/).
+# Ya está en el árbol vía wycheproof y exento en cargo-vet.
+serde_json = "1"
+# Las primitivas PQ como dev-dep para el KAT contra NIST ACVP: un test de
+# integración no ve las deps normales de `quipu`. Misma versión ya vetada; no
+# añaden entrada a cargo-vet.
+ml-kem = "0.3"
+ml-dsa = "0.1.1"
+# La capa AES como dev-dep, por la misma razón que las primitivas PQ de arriba:
+# `tests/residuo_memoria.rs` abre a mano la capa AES del blob blindado para
+# VALIDAR CONTRA EL ARTEFACTO la clave que después busca en memoria. El tag de
+# GCM es lo que discrimina: si la clave derivada no fuese la que usó la
+# librería, la apertura falla y el banco se pone rojo, en vez de medir un cero
+# vacuo buscando una clave que el proceso nunca derivó (directiva 33). Misma
+# versión ya vetada y ya vendorizada; no añade entrada a cargo-vet.
+aes-gcm = { version = "0.11", features = ["zeroize"] }
+
+[[example]]
+name = "securitylab"
+required-features = ["lab"]
+
+[[example]]
+name = "securitylab_offline"
+required-features = ["lab-offline"]
+
+[[example]]
+name = "redteam"
+required-features = ["lab"]
+
+# El ejemplo del cifrado perforable usa `api::sellar`/`abrir` y `perforable`,
+# que solo existen tras la feature. Sin esta declaración, la línea del CI
+# `cargo test --workspace --all-targets` lo compilaría sin la feature y fallaría.
+[[example]]
+name = "perforable"
+required-features = ["perforable"]
+
+[[example]]
+name = "gen_vectors"
+required-features = ["honey"]
+
+# La medición del portador de papel vive en el laboratorio, así que su ejemplo
+# tampoco puede compilarse sin él. Sin esta declaración,
+# `cargo test --workspace --all-targets` —la línea principal del CI— intenta
+# construirlo sin `lab` y falla con «cannot find `lab` in `quipu`».
+[[example]]
+name = "papel"
+required-features = ["lab"]
+
+# `testplatform` usa `quipu::hackerbot`, que desde el 2026-08-17 vive tras `lab`
+# junto con el resto del arma (ver el comentario de `src/lib.rs`). Sin esta
+# entrada, `cargo check --all-targets` del build por defecto rompe — y ese rojo
+# es precisamente la prueba de que el gate surtió efecto.
+[[example]]
+name = "testplatform"
+required-features = ["lab"]
+
+[[example]]
+name = "hackerbot"
+required-features = ["lab"]
+
+[lints]
+workspace = true
+
+# --- Endurecimiento del binario / ruedas (Capa 5) ---
+# overflow-checks: mantiene la comprobación de overflow de enteros EN RELEASE
+#   — defensa en profundidad para una lib que parsea entrada no confiable
+#   (longitudes/índices); evita wraparound silencioso. Coste de perf mínimo.
+# strip: quita símbolos de ruedas/binarios (menos info para un atacante, menor
+#   tamaño). NO se usa panic="abort": el Security Lab usa catch_unwind (honey_fuzz).
+# LAS DEPENDENCIAS, OPTIMIZADAS TAMBIÉN EN DEBUG.
+#
+# Es el estándar de nacimiento del taller, y se midió EN ESTE REPOSITORIO:
+# `cargo test --workspace --all-targets` pasó de 597,8 s a 61,2 s —9,8×— con el
+# mismo conteo de pruebas en las dos variantes. `tunjo` ya lo tenía; quipu no lo
+# heredó, y llevaba desde entonces pagándolo.
+#
+# Aquí rinde porque el trabajo pesado es Argon2id, un KDF *memory-hard*: lento a
+# propósito, y sin optimizar el precio se multiplica. Nuestros crates se quedan
+# en debug puro, así que la iteración y el depurador no cambian.
+#
+# LO QUE LO TRAJO HOY, y no fue el rendimiento: la revisión de seguridad del
+# 2026-08-13 encontró las sondas de reloj de `negacion` rojas 3 de 5 veces con la
+# máquina cargada, siempre en un control. Con las derivaciones costando ~1,4 s,
+# cualquier hipo del planificador se come el mínimo de tres vueltas y el control
+# deja de discriminar. Una alarma que se pone roja por carga enseña a relajar el
+# umbral, y relajarlo es exactamente cómo la sonda se queda ciega ante una fuga
+# de verdad (directiva 23). Acelerar el KDF ataca la causa; subir el umbral
+# habría tapado el síntoma (directiva 1).
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+overflow-checks = true
+strip = "symbols"
